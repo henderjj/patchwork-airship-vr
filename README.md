@@ -56,7 +56,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
 - **P** pauses the ship's motion (desktop).
 - **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
-- Grab fuel bricks with the grip (squeeze) button.
+- **Fuel bricks:** squeeze the grip near a brick to pick it up and let go to throw it. With the grip already squeezed and the hand empty, a brick flying past within 20 cm is caught. Throwing to a crewmate works the same at up to 150 ms of network delay (see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md)).
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
 - **Mooring line:** squeeze the grip near the line along the port rail and haul it towards the stern hand over hand. Strokes started together by both players are heaves (see [docs/spikes/s6-rope.md](docs/spikes/s6-rope.md)).
 
@@ -76,7 +76,7 @@ src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
 src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul
-src/net/                   lobby protocol, WebRTC session, pose packets, clock sync, jitter buffer
+src/net/                   lobby protocol, WebRTC session, packets, clock sync, jitter buffers, object ownership
 src/perf/                  frame statistics and CSV
 src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws, network, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
@@ -89,6 +89,6 @@ Simulation code in `src/sim/` has no rendering or IWSDK imports, so the host's a
 
 The gondola never moves in the player's tracking space. The world is drawn with the inverse of the ship's pose, and physics uses the felt gravity in ship space. See [docs/spikes/s2-moving-ship.md](docs/spikes/s2-moving-ship.md).
 
-Players connect peer to peer over WebRTC after meeting in the lobby. See [docs/spikes/s4-networking.md](docs/spikes/s4-networking.md). Voice runs on the same connection; see [docs/spikes/s5-voice.md](docs/spikes/s5-voice.md).
+Players connect peer to peer over WebRTC after meeting in the lobby. See [docs/spikes/s4-networking.md](docs/spikes/s4-networking.md). Voice runs on the same connection; see [docs/spikes/s5-voice.md](docs/spikes/s5-voice.md). Loose objects are simulated by whoever last held them; see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md).
 
 IWSDK conventions for this project are in [AGENTS.md](AGENTS.md).

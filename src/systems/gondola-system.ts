@@ -5,7 +5,6 @@ import {
   type Entity,
   LineSegments,
   Mesh,
-  OneHandGrabbable,
   PhysicsBody,
   PhysicsShape,
   PhysicsShapeType,
@@ -28,7 +27,8 @@ const RAIN_BOX = [9, 8, 11] as const;
 /**
  * Sets up everything aboard the gondola that isn't authored in the scene:
  * static colliders (from GONDOLA_COLLIDERS, so mesh and physics share one
- * table), loose fuel bricks, the stress-test dummy avatars, and rain.
+ * table), loose fuel bricks (held and thrown through ThrowablesSystem), the
+ * stress-test dummy avatars, and rain.
  */
 export class GondolaSystem extends createSystem({}) {
   private avatars: Mesh[] = [];
@@ -78,7 +78,6 @@ export class GondolaSystem extends createSystem({}) {
         friction: 0.6,
         restitution: 0.1,
       });
-      entity.addComponent(OneHandGrabbable, {});
       this.bricks.push(entity);
     }
   }

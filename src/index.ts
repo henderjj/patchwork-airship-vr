@@ -9,7 +9,7 @@ import { PerfHudSystem } from './systems/perf-hud-system.js';
 import { RopeSystem } from './systems/rope-system.js';
 import { ShipSystem } from './systems/ship-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
-import { ThrowSystem } from './systems/throw-system.js';
+import { ThrowablesSystem } from './systems/throwables-system.js';
 
 World.create(
   document.getElementById('scene-container') as HTMLDivElement,
@@ -21,11 +21,12 @@ World.create(
   world.registerSystem(ShipSystem, { priority: -10 });
   world.registerSystem(SkyWorldSystem);
   world.registerSystem(GondolaSystem);
-  world.registerSystem(ThrowSystem);
   world.registerSystem(NetSystem);
   // After NetSystem, so it sees the crewmate's pose drawn this frame.
   world.registerSystem(CrankSystem);
   world.registerSystem(RopeSystem);
+  // After the crank and rope, so it knows which hands they hold.
+  world.registerSystem(ThrowablesSystem);
   world.registerSystem(PanelSystem);
   // Handles for the automated XR tests.
   (window as unknown as { __debug: unknown }).__debug = { world, PhysicsSystem };

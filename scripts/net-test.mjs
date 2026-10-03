@@ -17,7 +17,11 @@
  *   about three times the solo speed, out of step it does not, and the
  *   guest's crank stays with the host's, on a clean link and at 150 ms RTT;
  * - the hand-over-hand rope haul (spike S6): strokes together heave, strokes
- *   250 ms apart do not, also at 150 ms RTT.
+ *   250 ms apart do not, also at 150 ms RTT;
+ * - throwing and catching (spike S7): the two players throw a fuel brick back
+ *   and forth across the deck; catches that look caught on the catcher's
+ *   side stay caught, and the thrower sees the brick in the catcher's hand,
+ *   on a clean link and at 150 ms RTT.
  *
  * Writes measured RTT, packet rate and route to artifacts/net-report.json.
  */
@@ -29,7 +33,7 @@ const LOBBY_PORT = 8787;
 const PREVIEW_PORT = 4173;
 // The IWSDK Vite plugin serves HTTPS with a local development certificate.
 const BASE = `https://localhost:${PREVIEW_PORT}/`;
-const QUIET = 'islands=4&clouds=4&bricks=0&avatars=0&hud=0';
+const QUIET = 'islands=4&clouds=4&bricks=1&avatars=0&hud=0';
 
 const results = [];
 function check(name, pass, detail) {
@@ -83,7 +87,8 @@ async function openPlayer(browser, query) {
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
-    if (/^\[(Net|Crank|Rope)\]/.test(m.text())) console.log(`    ${m.text()}`);
+    if (process.env.ONLY_THROW && /^\[Throw/.test(m.text())) console.log(`    ${query.slice(0, 18)} ${m.text()}`);
+    if (/^\[(Net|Crank|Rope|Throw)\]/.test(m.text())) console.log(`    ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}?${QUIET}&${query}`);
@@ -120,7 +125,7 @@ async function measureMotion(sender, receiver, seconds) {
         const end = performance.now() + ms;
         const frame = () => {
           const p = window.__net.remotePose();
-          if (p) out.push([p.head.px, p.head.pz]);
+          if (p) out.push([p.head.px, p.head.pz, performance.now()]);
           if (performance.now() < end) requestAnimationFrame(frame);
           else resolve(out);
         };
@@ -128,14 +133,19 @@ async function measureMotion(sender, receiver, seconds) {
       }),
     seconds * 1000,
   );
-  // Angle along the circle for each drawn frame; it should only ever advance.
+  // Angle along the circle for each drawn frame; it should only ever advance,
+  // at an even speed (1 rad/s). Speed rather than step per frame, so a stall
+  // in the receiving page's own frames (common with several software-rendered
+  // pages on one CI runner) isn't mistaken for a network stutter.
   const angles = samples.map(([x, z]) => Math.atan2(z, x));
   let backwards = 0;
   const backSteps = [];
-  let maxStep = 0;
-  const steps = [];
+  let maxRate = 0;
+  let maxGapMs = 0;
+  const rates = [];
+  let last = 0;
   for (let i = 1; i < angles.length; i++) {
-    let d = angles[i] - angles[i - 1];
+    let d = angles[i] - angles[last];
     if (d > Math.PI) d -= 2 * Math.PI;
     if (d < -Math.PI) d += 2 * Math.PI;
     // Ignore backward steps under 15 mm: a sender frame hitch or a lost packet
@@ -144,13 +154,17 @@ async function measureMotion(sender, receiver, seconds) {
       backwards++;
       backSteps.push(`${i}:${d.toFixed(4)}`);
     }
-    steps.push(d);
-    maxStep = Math.max(maxStep, d);
+    const dt = samples[i][2] - samples[last][2];
+    if (dt < 8) continue; // two callbacks in one frame; measure over the next
+    rates.push((d * 1000) / dt);
+    maxRate = Math.max(maxRate, (d * 1000) / dt);
+    maxGapMs = Math.max(maxGapMs, dt);
+    last = i;
   }
   const radiusError = Math.max(...samples.map(([x, z]) => Math.abs(Math.hypot(x, z) - 0.5)));
-  steps.sort((a, b) => a - b);
-  const median = steps[Math.floor(steps.length / 2)] ?? 0;
-  return { frames: samples.length, backwards, backSteps, maxStep, median, radiusError };
+  rates.sort((a, b) => a - b);
+  const median = rates[Math.floor(rates.length / 2)] ?? 0;
+  return { frames: samples.length, backwards, backSteps, maxRate, median, maxGapMs, radiusError };
 }
 
 /** Loudest level of the crewmate's voice over `ms`. */
@@ -278,6 +292,163 @@ async function haulTogether(host, guest, guestLagS, seconds) {
   return { host: h, guest: g };
 }
 
+/**
+ * The two players throw brick 0 back and forth with scripted right hands:
+ * the host stands at the stern (starboard), the guest at the bow (port),
+ * about 2.7 m apart (the deck's diagonal). Each throw aims within 8 cm of
+ * the other player's catch spot with a 0.5 s flight; each catcher holds
+ * its hand within 10 cm of its spot and squeezes when the brick, as drawn on
+ * its own screen, comes within 60 cm, like a person reacting to what they
+ * see. A brick that falls is picked up again by its owner.
+ */
+async function throwAndCatch(host, guest, seconds) {
+  const HOST_SPOT = [0.6, 1.2, 1.2];
+  const GUEST_SPOT = [-0.6, 1.3, -0.95];
+  const script = ([mine, other, seed, first, durationMs]) => {
+    let rnd = seed;
+    const random = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+    const jitter = (p, r) => p.map((v) => v + (random() * 2 - 1) * r);
+    const T = window.__throw;
+    const N = window.__net;
+    const me = N.session.isHost ? 0 : 1;
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    const FLIGHT = 0.5, SWING_MS = 250, WINDUP_MS = 300;
+    const endAt = performance.now() + durationMs;
+    const s = { phase: 'ready', since: performance.now(), hand: jitter(mine, 0.1), squeeze: false, from: null, start: null, v: null,
+      throws: 0, catches: 0, kept: 0, lost: 0, misses: 0, pickups: 0, remoteHeldSince: 0, maxHeldError: 0, heldChecks: 0, done: false };
+    window.__throwScript = s;
+    T.stats.maxHandoverOffset = 0;
+    const set = (phase) => { s.phase = phase; s.since = performance.now(); };
+    T.setTestHand('right', (now) => {
+      const t = now - s.since;
+      let p = s.hand;
+      let squeeze = s.squeeze;
+      if (s.phase === 'windup') {
+        const k = Math.min(1, t / WINDUP_MS);
+        p = s.from.map((v, i) => v + (s.start[i] - v) * k);
+        squeeze = true;
+      } else if (s.phase === 'swing') {
+        const k = t / 1000; // keeps moving through the release, as a real arm does
+        p = s.start.map((v, i) => v + s.v[i] * k);
+        squeeze = t < SWING_MS;
+      }
+      return { x: p[0], y: p[1], z: p[2], squeeze };
+    });
+    if (first) {
+      T.place(0, ...s.hand);
+      s.squeeze = true;
+    }
+    const tick = () => {
+      const now = performance.now();
+      const o = T.objects()[0];
+      const held = o.heldBy === 'right';
+      const t = now - s.since;
+      if (s.phase === 'ready') {
+        if (held) {
+          set('holding');
+        } else if (o.remote && o.speed > 1.5 && !o.remoteHeld && dist(o.pos, s.hand) < 0.6) {
+          s.squeeze = true;
+          set('catching');
+        } else if (o.owner === me && !o.remote && o.speed < 0.2 && t > 1500 && now < endAt) {
+          // It fell: pick it up again.
+          s.pickups++;
+          T.place(0, ...s.hand);
+          s.squeeze = true;
+        }
+      } else if (s.phase === 'catching') {
+        if (held) {
+          s.catches++;
+          s.pendingCatch = true;
+          set('holding');
+        } else if (t > 700) {
+          s.misses++;
+          s.squeeze = false;
+          set('ready');
+        }
+      } else if (s.phase === 'holding') {
+        if (!held) {
+          // The host had it first: the hand let go.
+          if (s.pendingCatch) s.lost++;
+          s.pendingCatch = false;
+          s.squeeze = false;
+          set('ready');
+        } else {
+          if (s.pendingCatch && t > 400) {
+            s.pendingCatch = false;
+            if (!o.pending && o.owner === me) s.kept++;
+            else s.lost++;
+          }
+          if (t > 600 && now < endAt) {
+            const target = jitter(other, 0.08);
+            s.v = [0, 1, 2].map((i) => (target[i] - mine[i]) / FLIGHT + (i === 1 ? 0.5 * 9.81 * FLIGHT : 0));
+            s.start = mine.map((v, i) => v - (s.v[i] * SWING_MS) / 1000);
+            s.from = s.hand.slice();
+            set('windup');
+          }
+        }
+      } else if (s.phase === 'windup') {
+        if (t > WINDUP_MS) set('swing');
+      } else if (s.phase === 'swing') {
+        if (t > SWING_MS) {
+          s.throws++;
+          s.squeeze = false;
+          s.hand = jitter(mine, 0.1);
+          set('ready');
+        }
+      }
+      // Thrower's view: once the crewmate has held the brick for half a
+      // second, it should be drawn in their drawn hand.
+      if (o.remote && o.remoteHeld) {
+        if (!s.remoteHeldSince) s.remoteHeldSince = now;
+        const r = N.remotePose();
+        if (r && now - s.remoteHeldSince > 500) {
+          s.heldChecks++;
+          const err = dist(o.pos, [r.right.px, r.right.py, r.right.pz]);
+          if (err > s.maxHeldError) {
+            s.maxHeldError = err;
+            s.worstHeld = { brick: o.pos.map((v) => +v.toFixed(2)), hand: [r.right.px, r.right.py, r.right.pz].map((v) => +v.toFixed(2)), heldMs: Math.round(now - s.remoteHeldSince), phase: s.phase, epoch: o.epoch };
+          }
+        }
+      } else {
+        s.remoteHeldSince = 0;
+      }
+      if (now < endAt + 1500) requestAnimationFrame(tick);
+      else {
+        T.setTestHand('right', null);
+        s.done = true;
+      }
+    };
+    requestAnimationFrame(tick);
+  };
+  await host.page.evaluate(script, [HOST_SPOT, GUEST_SPOT, 12345, true, seconds * 1000]);
+  await guest.page.evaluate(script, [GUEST_SPOT, HOST_SPOT, 54321, false, seconds * 1000]);
+  await waitFor('the throwing to finish', async () =>
+    (await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__throwScript.done)))).every(Boolean), (seconds + 15) * 1000);
+  const read = (p) => p.page.evaluate(() => {
+    const { done, phase, since, hand, squeeze, from, start, v, pendingCatch, remoteHeldSince, ...rest } = window.__throwScript;
+    return { ...rest, handoverOffset: window.__throw.stats.maxHandoverOffset, refused: window.__throw.stats.refused };
+  });
+  return { host: await read(host), guest: await read(guest) };
+}
+
+/** Checks for one throwAndCatch run. */
+function checkThrows(label, r, maxSlide) {
+  const catches = r.host.catches + r.guest.catches;
+  const kept = r.host.kept + r.guest.kept;
+  const throws = r.host.throws + r.guest.throws;
+  const detail = `${throws} throws, ${catches} caught (host ${r.host.catches}, guest ${r.guest.catches}), ${kept} kept, ${r.host.misses + r.guest.misses} missed, ${r.host.pickups + r.guest.pickups} picked up off the deck`;
+  check(`Throws are caught (${label})`, throws >= 6 && catches >= 0.6 * throws && r.host.catches > 0 && r.guest.catches > 0, detail);
+  check(`Catches that look caught stay caught (${label})`, catches > 0 && kept >= 0.9 * catches, detail);
+  const heldError = Math.max(r.host.maxHeldError, r.guest.maxHeldError);
+  check(`The thrower sees the brick in the catcher's hand (${label})`, r.host.heldChecks > 0 && r.guest.heldChecks > 0 && heldError < 0.15,
+    `largest gap ${(heldError * 100).toFixed(1)} cm`);
+  // When the catch reaches the thrower, their view of the brick slides from
+  // its own flight to the catcher's hand; it should be a nudge, not a jump.
+  const slide = Math.max(r.host.handoverOffset, r.guest.handoverOffset);
+  check(`The hand-over looks smooth to the thrower (${label})`, slide < maxSlide,
+    `slide up to ${(slide * 100).toFixed(0)} cm (limit ${(maxSlide * 100).toFixed(0)} cm)`);
+}
+
 async function netStats(page) {
   return page.evaluate(() => {
     const n = window.__net;
@@ -322,11 +493,20 @@ async function main() {
   const report = {};
   try {
     const room = 'TEST';
-    const a = await openPlayer(browser, `room=${room}&name=Ann`);
+    // ONLY_THROW=lag runs the quick throwing loop at about 150 ms RTT.
+    const quickLag = process.env.ONLY_THROW === 'lag' ? '&netlag=60&netjitter=20&netloss=0.01' : '';
+    const a = await openPlayer(browser, `room=${room}&name=Ann${quickLag}`);
     await waitFor('Ann waiting in the lobby', async () => (await state(a.page)) === 'waiting');
-    const b = await openPlayer(browser, `room=${room}&name=Bo`);
+    const b = await openPlayer(browser, `room=${room}&name=Bo${quickLag}`);
     await waitFor('both connected', async () => (await state(a.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('Two players connect over WebRTC', true);
+    if (process.env.ONLY_THROW) {
+      // Quick loop for tuning spike S7: just the throwing.
+      const r = await throwAndCatch(a, b, 10);
+      console.log(JSON.stringify(r, null, 1));
+      checkThrows('only', r, quickLag ? 0.35 : 0.3);
+      return;
+    }
 
     const c = await openPlayer(browser, `room=${room}&name=Cy`);
     const cState = await waitFor('the third player to be refused', async () => {
@@ -378,8 +558,8 @@ async function main() {
     const motion = await measureMotion(a, b, 3);
     report.local = { ...(await netStats(b.page)), motion };
     check('Crewmate moves smoothly (local network)',
-      motion.frames >= 20 && motion.backwards === 0 && motion.maxStep < Math.max(0.12, motion.median * 4) && motion.radiusError < 0.02,
-      `${motion.frames} frames, ${motion.backwards} backward steps ${motion.backSteps.join(' ')}, max step ${motion.maxStep.toFixed(3)} rad vs median ${motion.median.toFixed(3)}, off circle by ${(motion.radiusError * 1000).toFixed(1)} mm`);
+      motion.frames >= 20 && motion.backwards === 0 && motion.maxRate < Math.max(3, motion.median * 4) && motion.radiusError < 0.02,
+      `${motion.frames} frames, ${motion.backwards} backward steps ${motion.backSteps.join(' ')}, fastest ${motion.maxRate.toFixed(2)} rad/s vs median ${motion.median.toFixed(2)}, longest frame ${motion.maxGapMs.toFixed(0)} ms, off circle by ${(motion.radiusError * 1000).toFixed(1)} mm`);
     const s = report.local;
     check('Round trip measured', Number.isFinite(s.srtt) && s.srtt < 50, `RTT ${s.srtt?.toFixed(1)} ms, route ${s.route}, connected in ${s.connectMs.toFixed(0)} ms`);
     check('Pose packets arrive at about 45 Hz with no loss', s.lost === 0 && s.received > 100, `${s.received} received, ${s.lost} lost`);
@@ -416,6 +596,13 @@ async function main() {
     report.haulOutOfStep = ragged;
     check('Hauling 250 ms out of step never heaves', ragged.host.heaves === 0,
       `${ragged.host.heaves} heaves, ${ragged.host.hauled.toFixed(2)} m hauled`);
+
+    const throwsLocal = await throwAndCatch(b, a2, 14);
+    report.throwsLocal = throwsLocal;
+    // The slide includes how far the catcher's assist took the brick from its
+    // path (up to 20 cm) and the catcher's extrapolation error, which grows
+    // with frame time; CI's software-rendered pages run at 15-30 fps.
+    checkThrows('local network', throwsLocal, 0.3);
     await a2.context.close();
     await b.context.close();
 
@@ -431,8 +618,8 @@ async function main() {
     const l = report.lagged;
     check('RTT reflects simulated lag', l.srtt > 115 && l.srtt < 200, `RTT ${l.srtt.toFixed(1)} ms, arrival jitter ${l.arrivalJitterMs.toFixed(1)} ms, packet interval ${l.packetIntervalMs.toFixed(1)} ms, render delay ${l.renderDelayMs.toFixed(0)} ms`);
     check('Crewmate moves smoothly (simulated lag and jitter)',
-      lagMotion.frames >= 20 && lagMotion.backwards === 0 && lagMotion.maxStep < Math.max(0.12, lagMotion.median * 4) && lagMotion.radiusError < 0.02,
-      `${lagMotion.frames} frames, ${lagMotion.backwards} backward steps ${lagMotion.backSteps.join(' ')}, max step ${lagMotion.maxStep.toFixed(3)} rad vs median ${lagMotion.median.toFixed(3)}`);
+      lagMotion.frames >= 20 && lagMotion.backwards === 0 && lagMotion.maxRate < Math.max(3, lagMotion.median * 4) && lagMotion.radiusError < 0.02,
+      `${lagMotion.frames} frames, ${lagMotion.backwards} backward steps ${lagMotion.backSteps.join(' ')}, fastest ${lagMotion.maxRate.toFixed(2)} rad/s vs median ${lagMotion.median.toFixed(2)}, longest frame ${lagMotion.maxGapMs.toFixed(0)} ms`);
 
     const loopVoice = await peakVoiceLevel(e.page, 2500);
     const loopActive = await e.page.evaluate(() => window.__net.voice.loopbackActive);
@@ -450,6 +637,10 @@ async function main() {
     report.haulLagged = lagHaul;
     check('Hauling in step heaves at 150 ms RTT', lagHaul.host.heaves >= 5,
       `${lagHaul.host.heaves} heaves, ${lagHaul.host.hauled.toFixed(2)} m hauled`);
+
+    const throwsLagged = await throwAndCatch(d, e, 14);
+    report.throwsLagged = throwsLagged;
+    checkThrows('150 ms RTT', throwsLagged, 0.35);
 
     const errors = [...a.errors, ...b.errors, ...d.errors, ...e.errors].filter(
       (m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'),
