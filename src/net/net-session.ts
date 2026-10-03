@@ -33,7 +33,11 @@ export interface ConnectionReport {
   audioBytesReceived: number;
 }
 
-/** Test-only network conditions applied to received unreliable packets. */
+/**
+ * Test-only network conditions applied to received packets. Loss and jitter
+ * apply to the unreliable channel only; reliable events get the same lag and
+ * jitter but stay in order, as they would on a real link.
+ */
 export interface SimulatedConditions {
   /** Extra one-way delay, ms. */
   lagMs: number;
@@ -81,6 +85,8 @@ export class NetSession {
   private pongBuffer = new ArrayBuffer(17);
   private readonly events: NetSessionEvents;
   private readonly simulated: SimulatedConditions | null;
+  /** When the last simulated-lag reliable event is delivered, so later ones stay in order. */
+  private reliableDue = 0;
 
   constructor(events: NetSessionEvents, simulated?: SimulatedConditions) {
     this.events = events;
@@ -309,11 +315,20 @@ export class NetSession {
     } else {
       this.reliable = channel;
       channel.onmessage = (event) => {
+        let parsed: unknown;
         try {
-          this.events.onEvent?.(JSON.parse(String(event.data)));
+          parsed = JSON.parse(String(event.data));
         } catch {
-          // ignore malformed events
+          return; // ignore malformed events
         }
+        const sim = this.simulated;
+        if (!sim) {
+          this.events.onEvent?.(parsed);
+          return;
+        }
+        const now = performance.now();
+        this.reliableDue = Math.max(this.reliableDue, now + sim.lagMs + Math.random() * sim.jitterMs);
+        setTimeout(() => this.events.onEvent?.(parsed), this.reliableDue - now);
       };
     }
     channel.onopen = () => this.checkOpen();

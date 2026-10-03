@@ -1,0 +1,47 @@
+# Spike S7: throwing and catching
+
+Status: built and tested in the emulated headset (solo grab and throw) and between two networked browsers with scripted hands that throw a fuel brick back and forth across the deck, at clean and simulated 150 ms RTT. Whether catching feels right can only be judged by two people in headsets (steps at the end). Sandbags are not built yet: they will use the same code with a different mass and shape.
+
+## How it works
+
+- **Grabbing and catching** (`src/systems/throwables-system.ts`). The game now does its own grabbing for loose objects instead of using IWSDK's `OneHandGrabbable`. Squeeze the grip within 15 cm of a brick to pick it up, and let go to throw it with the hand's velocity over the last 80 ms. Catching has an assist: while the grip is squeezed and the hand is empty, any object flying past within 20 cm of the hand (checked along its path between frames, so a fast brick can't skip through) is caught, and it eases into the hand over about 50 ms. A hand holding the crank or the mooring line doesn't grab bricks.
+- **Ownership follows the hand** (`src/net/ownership.ts`). Whoever grabs or catches an object owns it from that moment and keeps it after throwing it, until someone else takes it. The owner simulates the object in its own physics and sends a 21-byte pose 45 times a second while it moves (twice a second at rest, and at once on a grab or release). The other player draws it from those packets. The host decides races: its own grabs take effect at once, and the guest's grabs also take effect at once on the guest and are confirmed by the host. A guest grab is refused only when the host had the object first, and the guest's hand then lets go. Each change of owner bumps an epoch number that every packet carries, so packets from before a hand-over are ignored. Nobody can take an object out of the other player's hand.
+- **Catches are decided by the catcher.** A catch that looks caught on the catcher's screen is caught, because the catcher takes ownership at that moment instead of asking the thrower's physics whether the brick really reached the hand.
+- **Keeping both views in step.** The crewmate is drawn about 50 ms in the past on a clean link and about 135 ms at 150 ms RTT (S4's jitter buffer). Drawn naively, a thrown brick would leave the thrower's drawn hand at the right moment, but the catcher would see it late and the thrower would see it fly past the catcher's hand and then slide back once the catch arrived (85 cm at 150 ms RTT in the first version). Instead, the brick's time base shifts during the flight:
+  - On the thrower's screen, a brick nearing the crewmate is drawn progressively further in the past, until it is on the crewmate's delayed timeline when it reaches their drawn hand.
+  - On the catcher's screen, an incoming brick is drawn progressively further ahead, extrapolated as free flight from the recent packets, until it is drawn where it really is now.
+  - Both shifts change at most half as fast as real time, so the brick is drawn at 50–150% speed while they ease in. They are complete within 0.5 m of the catcher's hands and start 3.5 m away.
+  - After the catch reaches the thrower, the thrower keeps drawing the brick's own flight until its delayed view reaches the moment of the catch, then follows the catcher's hand.
+- **Physics.** A held object's body, and an object drawn from the crewmate's packets, carry IWSDK's `Grabbed` tag, which makes the physics body follow the drawn object instead of driving it. IWSDK has no public way to switch a body to kinematic at runtime, and its `GrabSystem` only manages the tag on its own grabbables, so the game sets it itself for these objects. The S2 release fix (put the body where the player sees it, then set the measured hand velocity) moved here from the old `ThrowSystem`. A brick that falls overboard returns to the fuel crate.
+- **Reliable events with simulated lag.** Ownership messages go on S4's reliable channel. The `netlag` and `netjitter` test settings now delay them too, keeping their order, so a simulated 150 ms link is 150 ms for every message.
+
+## Results in the cloud
+
+| Test | Result |
+| --- | --- |
+| Emulated headset: squeeze at a brick, lift it, lower it, let go | Grabbed, follows the controller, lands on the deck where released. Crank, rope and the other 14 checks still pass |
+| Unit tests (`test/ownership.test.ts`) | Guest catches are granted, refused when the host grabbed first, refused for an object a host hand holds. The host can take back an object the guest threw. Packets from before a hand-over are dropped. Flight extrapolation stays within 1 cm over 150 ms despite ±8 ms frame-time jitter |
+| Two browsers, clean link: scripted players throw a brick back and forth 2.7 m across the deck (the deck's diagonal) for 14 s, the catcher reacting to the brick as drawn on its own screen | 8 throws, 7 caught and all 7 stayed caught (the other one wasn't caught and was picked up off the deck). The thrower sees the brick in the catcher's drawn hand (within 8.3 cm, the hand's grip offset). The thrower's view slides at most 8 cm at the hand-over |
+| Same at about 150 ms RTT with jitter and 1% loss | 8 throws, 8 catches, 8 stayed caught. Brick within 8.4 cm of the catcher's drawn hand. Hand-over slide 1–23 cm over several runs, typically under 10 cm |
+
+The plan's pass mark is that catches which look caught on the catcher's side succeed at least 90% of the time. Here they succeed every time by construction. The only way to lose one is the host grabbing the same brick within one round trip, which the test never hit and the unit tests cover.
+
+## Findings
+
+1. **Let the catcher decide.** Making the catcher authoritative for its own catch is what makes catching feel fair at any latency. The cost is that the thrower's physics and the catcher's view briefly disagree, which is a display problem, solved above, not a gameplay one.
+2. **The naive hand-over slides badly at high latency.** With both players drawing the brick on the other's delayed timeline, the thrower saw it overshoot the catcher's hand by up to 85 cm and snap back. Shifting the brick's time base during the flight on both screens brought this to under 10 cm typically and 23 cm at worst at 150 ms RTT. The price is that a brick can look slightly slow as it nears the catcher on the thrower's screen and slightly fast on the catcher's. At 150 ms RTT that is up to 50% for about a quarter of a second. That needs judging in a headset.
+3. **Extrapolate flight from a fit, not from the last two packets.** The catcher draws an incoming brick up to about 140 ms ahead of its newest packet. Uneven frame times made a two-packet velocity wobble enough to put the brick 20–50 cm off. Fitting a parabola with known gravity to the last 120 ms of packets fixed it.
+4. **Grabs and releases must be sent at once**, not on the next 45 Hz tick, or the crewmate's idea of when the catch happened is up to 22 ms (12 cm of flight) off.
+5. **A scripted hand that stops dead before letting go throws at 70% speed**, because the release velocity is measured over the last 80 ms. Real arms move through the release, so this only mattered for the test. On a headset, check that throws go where you mean them to.
+6. **Clock sync must be ready before object packets are used.** Until the first clock offset is known, a packet's time can't be placed, and early packets stamped with the wrong offset made the brick freeze for over a second. Object packets are now ignored until the clock is synced, and a jitter buffer that sees time jump backwards starts again.
+7. **The deck is only 2 m × 3 m**, so the longest throw aboard is about 3 m, a little short of the plan's 3–4 m. The current ship would need a bigger deck, or the test could include throws to a crewmate on a second platform later.
+
+## Headset tests (two people)
+
+1. **Solo.** Pick a brick out of the crate (squeeze the grip near it), throw it at the bow wall, then throw one from hand to hand: hold the other hand's grip squeezed and empty, and toss the brick across. The catching hand should close on the brick with a strong pulse. Check that throws go where you aim.
+2. **Passing.** One player at the stern, one at the bow. Throw a brick back and forth, gently at first, then harder. Say whether catches feel fair (a brick that reaches your hand is caught, and one that passes outside it isn't) and whether the brick seems to change speed in flight.
+3. **Watching your own throw.** As the thrower, watch the brick arrive in your crewmate's hand. It should land in the hand without flying past and coming back.
+4. **With latency.** Repeat tests 2 and 3 with `&netlag=60&netjitter=20&netloss=0.01` added to both players' URLs, and between two homes. Note whether the speed change near the catcher is noticeable.
+5. **Grabbing at the same time.** Both reach for the same brick on the deck at once. One of you gets it; if it was the other player, your hand should let go cleanly.
+
+Pass (from the plan): catches that look caught on the catcher's side succeed at least 90% of the time, and passing doesn't feel laggy. Fallbacks if the speed change in flight bothers people: shorten the band where it eases in, or drop the thrower-side slowdown and accept a short slide.

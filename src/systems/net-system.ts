@@ -47,7 +47,7 @@ export const FLAG_LEFT_ROPE = 16;
 export const FLAG_RIGHT_ROPE = 32;
 
 /**
- * What other systems (the crank, later the rope and throws) need from the
+ * What other systems (the crank, the rope and loose objects) need from the
  * network, without reaching into NetSystem: connection state, the crewmate's
  * pose as drawn this frame and the local time it describes, extra pose flags
  * and hand positions to send, a way to send packets, and handlers for packet
@@ -72,9 +72,15 @@ export const netLink = {
     right: null as ((nowMs: number) => PoseSample) | null,
   },
   send: (_buffer: ArrayBuffer, _length: number): void => undefined,
+  /** The clock offset to the crewmate is known (packet times can be placed). */
+  clockSynced: false,
   /** Convert the crewmate's clock to ours. */
   toLocal: (peerMs: number): number => peerMs,
   handlers: new Map<number, (view: DataView) => void>(),
+  /** Send a game event on the reliable, ordered channel (an object with a string `t`). */
+  sendEvent: (_event: { t: string }): void => undefined,
+  /** Handlers for reliable events, by their `t`. */
+  events: new Map<string, (event: Record<string, unknown>) => void>(),
 };
 
 export function lobbyBaseUrl(): string {
@@ -181,12 +187,19 @@ export class NetSystem extends createSystem({}) {
         }
       },
       onPacket: (view) => this.onPacket(view),
+      onEvent: (event) => {
+        const e = event as Record<string, unknown>;
+        if (typeof e?.t === 'string') {
+          netLink.events.get(e.t)?.(e);
+        }
+      },
       onRemoteAudio: (stream) => this.voice.playRemote(stream),
     }, { lagMs: settings.netLag, jitterMs: settings.netJitter, loss: settings.netLoss });
 
     this.createRemoteAvatar();
     netLink.remote = this.remote;
     netLink.send = (buffer, length) => this.session.sendUnreliable(buffer, length);
+    netLink.sendEvent = (event) => this.session.sendEvent(event);
     netLink.toLocal = (peerMs) => this.session.clock.toLocal(peerMs);
 
     const self = this;
@@ -313,6 +326,7 @@ export class NetSystem extends createSystem({}) {
     netLink.connected = session.state === 'connected';
     netLink.isHost = session.isHost || !netLink.connected;
     netLink.haveRemote = false;
+    netLink.clockSynced = netLink.connected && session.clock.stats.samples > 0;
     if (session.state !== 'connected') {
       if (this.head.visible) {
         this.setRemoteVisible(false, 0);

@@ -15,6 +15,8 @@ export const PacketType = {
   Crank: 4,
   /** Host's authoritative mooring-line state (spike S6). */
   Rope: 5,
+  /** A loose object's state from its owner (spike S7). */
+  Object: 6,
 } as const;
 
 /** One tracked pose: position (m) and rotation quaternion. */
@@ -53,7 +55,7 @@ function clamp16(v: number): number {
   return v < -32767 ? -32767 : v > 32767 ? 32767 : Math.round(v);
 }
 
-function writePose(view: DataView, offset: number, p: PoseSample): number {
+export function writePose(view: DataView, offset: number, p: PoseSample): number {
   view.setInt16(offset, clamp16(p.px * POS_SCALE));
   view.setInt16(offset + 2, clamp16(p.py * POS_SCALE));
   view.setInt16(offset + 4, clamp16(p.pz * POS_SCALE));
@@ -75,7 +77,7 @@ function writePose(view: DataView, offset: number, p: PoseSample): number {
   return offset + 13;
 }
 
-function readPose(view: DataView, offset: number, out: PoseSample): number {
+export function readPose(view: DataView, offset: number, out: PoseSample): number {
   out.px = view.getInt16(offset) / POS_SCALE;
   out.py = view.getInt16(offset + 2) / POS_SCALE;
   out.pz = view.getInt16(offset + 4) / POS_SCALE;
@@ -220,5 +222,40 @@ export function decodeRope(view: DataView, out: RopeStatePacket): boolean {
   out.speed = view.getFloat32(9);
   out.flags = view.getUint8(13);
   out.heaves = view.getUint16(14);
+  return true;
+}
+
+/** Owner's object state: type(1) id u8(1) epoch u8(1) flags u8(1) time(4) pose(13). */
+export const OBJECT_PACKET_BYTES = 21;
+
+export interface ObjectStatePacket {
+  id: number;
+  /** Ownership epoch the sender owns the object under (see src/net/ownership.ts). */
+  epoch: number;
+  /** Bit 0: held in the sender's hand. */
+  flags: number;
+  timeMs: number;
+  pose: PoseSample;
+}
+
+export function encodeObject(buffer: ArrayBuffer, state: ObjectStatePacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.Object);
+  view.setUint8(1, state.id & 0xff);
+  view.setUint8(2, state.epoch & 0xff);
+  view.setUint8(3, state.flags & 0xff);
+  view.setUint32(4, Math.floor(state.timeMs) >>> 0);
+  return writePose(view, 8, state.pose);
+}
+
+export function decodeObject(view: DataView, out: ObjectStatePacket): boolean {
+  if (view.byteLength < OBJECT_PACKET_BYTES || view.getUint8(0) !== PacketType.Object) {
+    return false;
+  }
+  out.id = view.getUint8(1);
+  out.epoch = view.getUint8(2);
+  out.flags = view.getUint8(3);
+  out.timeMs = view.getUint32(4);
+  readPose(view, 8, out.pose);
   return true;
 }
