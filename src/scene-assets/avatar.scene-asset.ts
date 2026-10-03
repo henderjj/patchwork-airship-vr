@@ -36,3 +36,44 @@ export function createDummyAvatar(index: number): Mesh {
   mesh.name = `Crew Avatar ${index + 1}`;
   return mesh;
 }
+
+/**
+ * Networked crew avatar parts (spike S4). Each part is one draw call and is
+ * positioned every frame from the remote player's tracked poses: the head
+ * part's origin is the eye centre (looking along -Z), each hand's origin is
+ * the controller grip, and the torso hangs below the head turned only by yaw.
+ */
+export function createAvatarHead(index: number): Mesh {
+  const geometry = mergeParts([
+    { geometry: new IcosahedronGeometry(0.11, 1), color: SKIN, position: [0, -0.02, 0.03] },
+    { geometry: new IcosahedronGeometry(0.115, 1), color: LEATHER, position: [0, 0.02, 0.04], scale: [1, 0.7, 1] },
+    { geometry: new TorusGeometry(0.035, 0.012, 4, 8), color: BRASS, position: [-0.045, 0, -0.07] },
+    { geometry: new TorusGeometry(0.035, 0.012, 4, 8), color: BRASS, position: [0.045, 0, -0.07] },
+    { geometry: new CylinderGeometry(0.03, 0.03, 0.01, 8), color: GLASS, position: [-0.045, 0, -0.07], rotation: [Math.PI / 2, 0, 0] },
+    { geometry: new CylinderGeometry(0.03, 0.03, 0.01, 8), color: GLASS, position: [0.045, 0, -0.07], rotation: [Math.PI / 2, 0, 0] },
+  ]);
+  const mesh = new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  mesh.name = `Crew ${index + 1} Head`;
+  return mesh;
+}
+
+export function createAvatarTorso(index: number): Mesh {
+  const coat = CREW_COLORS[index % CREW_COLORS.length];
+  const geometry = mergeParts([
+    { geometry: new CylinderGeometry(0.17, 0.14, 0.55, 7), color: coat, position: [0, -0.42, 0.06] },
+    { geometry: new CylinderGeometry(0.1, 0.15, 0.08, 7), color: 0xe8dcc0, position: [0, -0.15, 0.06] },
+  ]);
+  const mesh = new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  mesh.name = `Crew ${index + 1} Torso`;
+  return mesh;
+}
+
+export function createAvatarHand(index: number, side: 'left' | 'right'): Mesh {
+  const geometry = mergeParts([
+    { geometry: new BoxGeometry(0.08, 0.05, 0.11), color: LEATHER, position: [0, 0, 0.02] },
+    { geometry: new BoxGeometry(0.085, 0.055, 0.03), color: CREW_COLORS[index % CREW_COLORS.length], position: [0, 0, 0.085] },
+  ]);
+  const mesh = new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  mesh.name = `Crew ${index + 1} ${side === 'left' ? 'Left' : 'Right'} Hand`;
+  return mesh;
+}

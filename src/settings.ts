@@ -28,6 +28,18 @@ export interface Settings {
   motion: string;
   /** Seed for the generated world. */
   seed: number;
+  /** Crew room code to join on load (four letters), or '' to stay solo. */
+  room: string;
+  /** Lobby base URL (ws:// or wss://); '' uses the build default. */
+  lobby: string;
+  /** Player name shown to the crewmate. */
+  name: string;
+  /** Simulated extra one-way latency on received packets, ms (testing only). */
+  netLag: number;
+  /** Simulated random extra delay on received packets, 0 to this many ms. */
+  netJitter: number;
+  /** Simulated loss of received pose packets, 0 to 1. */
+  netLoss: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -43,6 +55,12 @@ export const DEFAULT_SETTINGS: Settings = {
   hud: true,
   motion: 'still',
   seed: 1,
+  room: '',
+  lobby: '',
+  name: '',
+  netLag: 0,
+  netJitter: 0,
+  netLoss: 0,
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -78,6 +96,12 @@ export function parseSettings(search: string): Settings {
     hud: bool(params, 'hud', d.hud),
     motion: params.get('motion') ?? d.motion,
     seed: Math.round(num(params, 'seed', d.seed, 0, 1e9)),
+    room: params.get('room') ?? d.room,
+    lobby: params.get('lobby') ?? d.lobby,
+    name: (params.get('name') ?? d.name).slice(0, 24),
+    netLag: num(params, 'netlag', d.netLag, 0, 2000),
+    netJitter: num(params, 'netjitter', d.netJitter, 0, 1000),
+    netLoss: num(params, 'netloss', d.netLoss, 0, 1),
   };
 }
 
