@@ -44,6 +44,10 @@ export interface Settings {
   voice: 'spatial' | 'plain' | 'off';
   /** Route spatial voice through a loopback peer connection so echo cancellation sees it. */
   voiceLoop: boolean;
+  /** Tracked hands grip when the fingers' average curl falls below this (1 straight, about 0.4 a fist). */
+  fist: number;
+  /** Tracked hands grip when the thumb and index tips are closer than this, cm; 0 turns pinch-to-grip off. */
+  pinch: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -67,6 +71,8 @@ export const DEFAULT_SETTINGS: Settings = {
   netLoss: 0,
   voice: 'spatial',
   voiceLoop: false,
+  fist: 0.6,
+  pinch: 2,
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -114,6 +120,8 @@ export function parseSettings(search: string): Settings {
     netLoss: num(params, 'netloss', d.netLoss, 0, 1),
     voice: voiceMode(params.get('voice'), d.voice),
     voiceLoop: bool(params, 'voiceloop', d.voiceLoop),
+    fist: num(params, 'fist', d.fist, 0.2, 0.95),
+    pinch: num(params, 'pinch', d.pinch, 0, 6),
   };
 }
 

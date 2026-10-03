@@ -15,6 +15,8 @@
  *  6. flies the scripted "tour" for a few seconds and checks the bricks stay
  *     aboard while the world moves;
  *  7. checks the perf CSV has rows and no console errors were logged;
+ *  7b. switches to tracked hands (spike S9) and turns the crank and hauls
+ *     the line with a pinch, and picks up a brick;
  *  8. checks the platform report (spike S8), then re-enters XR with the
  *     frame-rate API removed, as desktop Chrome and Edge over Link may have
  *     it, and checks the game measures the refresh rate instead.
@@ -299,6 +301,70 @@ async function main() {
   await sleep(300);
   check('Letting go releases the line', evalInApp('window.__rope.holding().left') === false);
   iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: { x: -0.3, y: 1.0, z: 0.2 }, duration: 0.4 });
+
+  // 5d. Spike S9: the same with tracked hands, gripping by pinching (the
+  //     emulator's hands can pinch but not make a fist; fists are unit-tested).
+  iwsdk(['xr', 'set-input-mode'], { mode: 'hand' });
+  await sleep(500);
+  const handOffset = (side) => {
+    const { result } = iwsdk(['xr', 'get-transform'], { device: `hand-${side}` });
+    const grip = evalInApp(`window.__debug.world.player.gripSpaces.${side}.getWorldPosition(window.__debug.world.player.position.clone()).toArray()`);
+    const o = toOrigin(grip);
+    return { x: result.position.x - o.x, y: result.position.y - o.y, z: result.position.z - o.z };
+  };
+  const handTo = (side, target, duration, offset) => {
+    const o = toOrigin(target);
+    iwsdk(['xr', 'animate-to'], { device: `hand-${side}`, position: { x: o.x + offset.x, y: o.y + offset.y, z: o.z + offset.z }, duration });
+  };
+  const rightOffset = handOffset('right');
+  handTo('right', onCircle(Math.PI), 0.5, rightOffset);
+  await sleep(700);
+  iwsdk(['xr', 'set-select-value'], { device: 'hand-right', value: 1 });
+  await sleep(300);
+  const handCrank = evalInApp('window.__crank.holders().local[1]');
+  check('A pinching hand takes the crank handle', handCrank === 'right', `handle 1 held by ${handCrank}, grip ${JSON.stringify(evalInApp('window.__grip.state.right'))}`);
+  const handCrankStart = evalInApp('window.__crank.sim.angle');
+  for (let i = 1; i <= 16; i++) {
+    handTo('right', onCircle(Math.PI + (i * Math.PI) / 8), 0.12, rightOffset);
+  }
+  await sleep(400);
+  const handTurned = evalInApp('window.__crank.sim.angle') - handCrankStart;
+  check('Turning a tracked hand turns the crank', handTurned > 1.5 * Math.PI, `turned ${(handTurned / (2 * Math.PI)).toFixed(2)} turns`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.0, z: -1.2 } });
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-hand-crank.png'], {});
+  iwsdk(['xr', 'set-select-value'], { device: 'hand-right', value: 0 });
+  await sleep(300);
+  check('Opening the pinch releases the crank', evalInApp('window.__crank.holders().local[1]') === null);
+  handTo('right', [0.3, 1.0, 0.2], 0.4, rightOffset);
+
+  const leftOffset = handOffset('left');
+  handTo('left', onRope(0.3), 0.5, leftOffset);
+  await sleep(700);
+  iwsdk(['xr', 'set-select-value'], { device: 'hand-left', value: 1 });
+  await sleep(300);
+  const handRopeStart = evalInApp('window.__rope.sim.hauled');
+  handTo('left', onRope(0.8), 1.4, leftOffset);
+  await sleep(1700);
+  const handHauled = evalInApp('window.__rope.sim.hauled') - handRopeStart;
+  check('A pinching hand hauls the line', handHauled > 0.25 && evalInApp('window.__rope.holding().left') === true, `hauled ${handHauled.toFixed(2)} m`);
+  iwsdk(['xr', 'set-select-value'], { device: 'hand-left', value: 0 });
+  await sleep(300);
+  check('Opening the pinch releases the line', evalInApp('window.__rope.holding().left') === false);
+  handTo('left', [-0.3, 1.0, 0.2], 0.4, leftOffset);
+
+  const looseBrick = bricks.map((b) => ({ b, p: position(b.entityIndex) })).find(({ p }) => aboard(p) && p[1] < 0.3);
+  handTo('right', looseBrick.p, 0.5, rightOffset);
+  await sleep(700);
+  iwsdk(['xr', 'set-select-value'], { device: 'hand-right', value: 1 });
+  await sleep(300);
+  handTo('right', [0.1, 1.2, -0.6], 0.6, rightOffset);
+  await sleep(800);
+  const handBrick = position(looseBrick.b.entityIndex);
+  check('A pinching hand picks up a brick', handBrick[1] > 0.8, `brick at ${fmt(handBrick)}`);
+  iwsdk(['xr', 'set-select-value'], { device: 'hand-right', value: 0 });
+  await sleep(1500);
+  iwsdk(['xr', 'set-input-mode'], { mode: 'controller' });
+  await sleep(300);
 
   // 6. Fly the tour profile; bricks stay aboard while the world moves.
   const shipStart = evalInApp('[window.__ship.state.x, window.__ship.state.z]');

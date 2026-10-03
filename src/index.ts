@@ -4,6 +4,7 @@ import { PanelSystem } from './panel.js';
 import { CrankSystem } from './systems/crank-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
+import { GripSystem } from './systems/grip-system.js';
 import { NetSystem } from './systems/net-system.js';
 import { PerfHudSystem } from './systems/perf-hud-system.js';
 import { PlatformSystem } from './systems/platform-system.js';
@@ -20,6 +21,8 @@ World.create(
   world.registerSystem(PerfHudSystem, { priority: -100 });
   world.registerSystem(FrameRateSystem);
   world.registerSystem(ShipSystem, { priority: -10 });
+  // Before the crank, rope and throwables, which read its grip state.
+  world.registerSystem(GripSystem, { priority: -5 });
   world.registerSystem(SkyWorldSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);

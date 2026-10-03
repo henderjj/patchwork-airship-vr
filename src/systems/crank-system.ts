@@ -1,7 +1,6 @@
 import {
   CanvasTexture,
   createSystem,
-  InputComponent,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
@@ -26,6 +25,7 @@ import {
   FLAG_RIGHT_TRACKED,
   netLink,
 } from './net-system.js';
+import { grip } from './grip-system.js';
 
 /**
  * Spike S6: the two-person propeller crank in the gondola. Squeeze the grip
@@ -218,14 +218,13 @@ export class CrankSystem extends createSystem({}) {
       return;
     }
     for (const side of SIDES) {
-      const pad = this.input.xr.gamepads[side];
       if (this.hold[side] >= 0) {
-        if (!pad?.getButtonPressed(InputComponent.Squeeze)) {
+        if (!grip[side].pressed) {
           this.release(side);
         }
         continue;
       }
-      if (!pad?.getButtonDown(InputComponent.Squeeze)) {
+      if (!grip[side].down) {
         continue;
       }
       this.player.gripSpaces[side].getWorldPosition(this.handPos);

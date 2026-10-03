@@ -1,7 +1,6 @@
 import {
   createSystem,
   Grabbed,
-  InputComponent,
   PhysicsManipulation,
   PhysicsSystem,
   Quaternion,
@@ -32,6 +31,7 @@ import {
   FLAG_RIGHT_TRACKED,
   netLink,
 } from './net-system.js';
+import { grip } from './grip-system.js';
 
 /**
  * Spike S7: picking up, throwing and catching loose objects (the fuel
@@ -424,8 +424,8 @@ export class ThrowablesSystem extends createSystem({}) {
       }
       const pad = this.input.xr.gamepads[side];
       hand.present = !!pad;
-      hand.pressed = !!pad?.getButtonPressed(InputComponent.Squeeze);
-      hand.down = !!pad?.getButtonDown(InputComponent.Squeeze);
+      hand.pressed = grip[side].pressed;
+      hand.down = grip[side].down;
       if (pad) {
         const grip = this.player.gripSpaces[side];
         grip.getWorldPosition(hand.pos);
