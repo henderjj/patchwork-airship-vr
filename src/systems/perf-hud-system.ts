@@ -10,14 +10,18 @@ import {
 } from '@iwsdk/core';
 import { PerfRecorder } from '../perf/perf-recorder.js';
 import { settings } from '../settings.js';
-import { frameRateInfo } from './frame-rate-system.js';
+import { estimateRefreshHz } from '../perf/refresh-rate.js';
+import { platformInfo, summarize } from '../perf/platform-report.js';
+import { budgetHz, frameRateInfo } from './frame-rate-system.js';
 
 /** Shared recorder: the network layer writes `rttMs`, tests read `csv()`. */
 export const perf = new PerfRecorder();
 
 const CANVAS_W = 512;
-const CANVAS_H = 288;
+const CANVAS_H = 330;
 const HUD_REFRESH_MS = 250;
+/** Recent frames used to measure the refresh rate when the runtime doesn't report it. */
+const MEASURE_FRAMES = 90;
 
 interface PerfWindow {
   __perf?: {
@@ -51,6 +55,8 @@ export class PerfHudSystem extends createSystem({}) {
   private lastLog = 0;
   private visible = settings.hud;
   private sample = { intervalMs: 0, cpuMs: 0, drawCalls: 0, triangles: 0 };
+  private measureScratch = new Float32Array(MEASURE_FRAMES);
+  private immersiveFrames = 0;
 
   init(): void {
     this.canvas = document.createElement('canvas');
@@ -121,8 +127,11 @@ export class PerfHudSystem extends createSystem({}) {
       this.sample.cpuMs = Math.max(0, this.renderEnd - this.frameStart);
       this.sample.drawCalls = info.calls;
       this.sample.triangles = info.triangles;
-      const hz = frameRateInfo.actual ?? (this.world.session ? 72 : 60);
+      const hz = budgetHz(!!this.world.session);
       const summary = perf.record(now, this.sample, hz, heapMb());
+      if (summary && this.world.session && frameRateInfo.actual === null) {
+        this.measureRefresh();
+      }
       if (summary && now - this.lastLog > 10000) {
         this.lastLog = now;
         console.info(
@@ -134,10 +143,13 @@ export class PerfHudSystem extends createSystem({}) {
     this.frameStart = now;
 
     if (this.world.session) {
+      this.immersiveFrames++;
       frameRateInfo.actual = this.world.session.frameRate ?? frameRateInfo.actual;
       if (this.input.xr.gamepads.left?.getButtonDown(InputComponent.X_Button)) {
         this.visible = !this.visible;
       }
+    } else {
+      this.immersiveFrames = 0;
     }
 
     const immersive = this.world.visibilityState.peek() !== VisibilityState.NonImmersive;
@@ -155,10 +167,19 @@ export class PerfHudSystem extends createSystem({}) {
     }
   }
 
+  /** Once a second while immersive: the refresh rate from the last frames in the session. */
+  private measureRefresh(): void {
+    const count = Math.min(MEASURE_FRAMES, this.immersiveFrames, perf.intervals.count);
+    for (let i = 0; i < count; i++) {
+      this.measureScratch[i] = perf.intervals.at(i);
+    }
+    frameRateInfo.measured = estimateRefreshHz(this.measureScratch, count) ?? frameRateInfo.measured;
+  }
+
   private drawCanvas(): void {
     const ctx = this.ctx;
     const s = perf.latest;
-    const hz = frameRateInfo.actual ?? 72;
+    const hz = budgetHz(true);
     const budget = 1000 / hz;
     ctx.fillStyle = '#0d1219';
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -185,7 +206,8 @@ export class PerfHudSystem extends createSystem({}) {
 
     ctx.font = 'bold 26px monospace';
     ctx.fillStyle = s.fps >= hz * 0.97 ? '#4ade80' : '#f87171';
-    ctx.fillText(`${s.fps.toFixed(1)} fps / ${hz} Hz`, 10, graphTop + graphH + 32);
+    const measured = frameRateInfo.actual === null && frameRateInfo.measured !== null ? '~' : '';
+    ctx.fillText(`${s.fps.toFixed(1)} fps / ${measured}${hz} Hz`, 10, graphTop + graphH + 32);
     ctx.font = '20px monospace';
     ctx.fillStyle = '#e8eef5';
     ctx.fillText(
@@ -204,6 +226,10 @@ export class PerfHudSystem extends createSystem({}) {
       10,
       graphTop + graphH + 138,
     );
+    ctx.font = '17px monospace';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(`me   ${platformInfo.mine ? summarize(platformInfo.mine) : '-'}`, 10, graphTop + graphH + 164);
+    ctx.fillText(`crew ${platformInfo.crew ? summarize(platformInfo.crew) : '-'}`, 10, graphTop + graphH + 188);
     this.texture.needsUpdate = true;
   }
 

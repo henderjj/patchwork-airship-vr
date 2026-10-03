@@ -14,7 +14,10 @@
  *     which proves felt gravity reaches the physics worker and wakes bodies;
  *  6. flies the scripted "tour" for a few seconds and checks the bricks stay
  *     aboard while the world moves;
- *  7. checks the perf CSV has rows and no console errors were logged.
+ *  7. checks the perf CSV has rows and no console errors were logged;
+ *  8. checks the platform report (spike S8), then re-enters XR with the
+ *     frame-rate API removed, as desktop Chrome and Edge over Link may have
+ *     it, and checks the game measures the refresh rate instead.
  *
  * Usage: npm run test:xr   (starts the dev runtime headless if needed)
  * Exit code 0 = all checks passed. Screenshots go to artifacts/.
@@ -176,6 +179,18 @@ async function main() {
   ).catch(() => null);
   check('90 Hz requested on session start', rateLog !== null, rateLog?.message);
 
+  // 2b. The platform report (spike S8) describes the emulated Quest 3.
+  const platform = await waitFor(
+    'platform report',
+    () => evalInApp('window.__platform.mine && window.__platform.mine.inputs.length > 0 ? window.__platform.mine : null'),
+    10000,
+  ).catch(() => null);
+  check(
+    'Platform report lists the session',
+    platform !== null && platform.hzSource === 'reported' && platform.canSetRate && platform.inputs.some((i) => i.includes('controller')),
+    platform ? `${platform.hz} Hz ${platform.hzSource}, multiview ${platform.multiview}, layers ${platform.layers}, ${platform.buffer}, [${platform.inputs.join('; ')}], features [${platform.features.join(', ')}]` : 'none',
+  );
+
   // 3. Bricks settle inside the crate.
   const bricks = [];
   for (let i = 1; i <= BRICK_COUNT; i++) {
@@ -297,9 +312,47 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.4, z: -3 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-flying.png'], {});
 
-  // 7. Perf log and console.
+  // 7. Perf log.
   const rows = evalInApp('window.__perf.recorder.rows.length');
   check('Perf CSV is recording', rows > 2, `${rows - 1} rows`);
+
+  // 8. A runtime without the frame-rate API (desktop browsers over Link may
+  //    lack it): the game skips the request and measures the rate instead.
+  iwsdk(['xr', 'exit'], {});
+  await waitFor('XR session to end', () => !iwsdk(['xr', 'status'], {}).result.sessionActive, 10000);
+  evalInApp(`(() => {
+    const proto = Object.getPrototypeOf(window.__debug.world.session ?? {}) ?? {};
+    const target = window.XRSession?.prototype ?? proto;
+    Object.defineProperty(target, 'frameRate', { configurable: true, get: () => undefined });
+    Object.defineProperty(target, 'supportedFrameRates', { configurable: true, get: () => undefined });
+    Object.defineProperty(target, 'updateTargetFrameRate', { configurable: true, value: undefined });
+  })()`);
+  const pcStart = Date.now();
+  await waitFor('XR offer', () => iwsdk(['xr', 'status'], {}).result.sessionOffered, 10000);
+  iwsdk(['xr', 'enter'], {});
+  const pcRateLog = await waitFor(
+    'frame-rate log',
+    () => iwsdk(['browser', 'logs'], { count: 200, since: pcStart }).result.find((e) => e.message.includes('[FrameRate] supported')),
+    15000,
+  ).catch(() => null);
+  check('No rate request without the frame-rate API', pcRateLog?.message.includes('requesting=none') === true, pcRateLog?.message);
+  const pcPlatform = await waitFor(
+    'measured platform report',
+    () => evalInApp("window.__platform.mine && window.__platform.mine.hzSource === 'measured' ? window.__platform.mine : null"),
+    12000,
+  ).catch(() => null);
+  check(
+    'Refresh rate is measured instead',
+    pcPlatform !== null && pcPlatform.hz > 0 && !pcPlatform.canSetRate,
+    pcPlatform ? `~${pcPlatform.hz} Hz` : `report ${JSON.stringify(evalInApp('window.__platform.mine'))}`,
+  );
+  // Hold the left wrist up to see the HUD's platform lines.
+  iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: toOrigin([-0.03, 1.38, -0.3]), duration: 0.3 });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.03, y: 1.4, z: -0.3 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-pcvr-hud.png'], {});
+
+  // Console.
   const { result: logs } = iwsdk(['browser', 'logs'], { level: 'error', count: 20, since: startedAt });
   // Controller models come from a CDN the cloud test runner can't reach; a
   // headset can. Ignore only those fetch failures.

@@ -81,6 +81,8 @@ export const netLink = {
   sendEvent: (_event: { t: string }): void => undefined,
   /** Handlers for reliable events, by their `t`. */
   events: new Map<string, (event: Record<string, unknown>) => void>(),
+  /** Name of the microphone voice is using, '' before it opens. */
+  micLabel: '',
 };
 
 export function lobbyBaseUrl(): string {
@@ -161,7 +163,10 @@ export class NetSystem extends createSystem({}) {
   private statsTimer = 0;
 
   init(): void {
-    this.voice = new Voice(settings.voice, settings.voiceLoop, (track) => this.session.setMicTrack(track));
+    this.voice = new Voice(settings.voice, settings.voiceLoop, (track) => {
+      netLink.micLabel = track?.label ?? '';
+      this.session.setMicTrack(track);
+    });
     this.session = new NetSession({
       onState: (state, detail) => {
         this.ui?.update(state, this.room, detail);

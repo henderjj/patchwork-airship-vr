@@ -546,6 +546,13 @@ async function main() {
     check('Mute silences the microphone', mutedPeak < 0.002, `peak level ${mutedPeak.toFixed(4)}`);
     await a.page.evaluate(() => document.getElementById('crew-mute').click());
 
+    // Spike S8: each player sees the other's platform report, with the microphone named.
+    const crews = await waitFor('platform reports', async () => {
+      const r = await Promise.all([a, b].map((p) => p.page.evaluate(() => window.__platform?.crew)));
+      return r.every((c) => c && c.mic !== 'not open') ? r : null;
+    }, 10000).catch(() => null);
+    check('Players swap platform reports', crews !== null, crews ? `Ann sees "${crews[0].browser} on ${crews[0].os}, mic ${crews[0].mic}"` : '');
+
     const motion = await measureMotion(a, b, 3);
     report.local = { ...(await netStats(b.page)), motion };
     check('Crewmate moves smoothly (local network)',

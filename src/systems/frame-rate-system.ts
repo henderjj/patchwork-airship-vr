@@ -5,10 +5,20 @@ export interface FrameRateInfo {
   supported: number[];
   requested: number | null;
   actual: number | null;
+  /** Measured from frame intervals while immersive, for runtimes that don't report `frameRate`. */
+  measured: number | null;
+  /** The session offers `updateTargetFrameRate`. */
+  canSet: boolean;
 }
 
-/** Latest frame-rate state, read by the perf HUD. */
-export const frameRateInfo: FrameRateInfo = { supported: [], requested: null, actual: null };
+/** Latest frame-rate state, read by the perf HUD and the platform report. */
+export const frameRateInfo: FrameRateInfo = {
+  supported: [],
+  requested: null,
+  actual: null,
+  measured: null,
+  canSet: false,
+};
 
 /**
  * Choose the rate to request: the target if supported, otherwise the highest
@@ -52,11 +62,15 @@ export class FrameRateSystem extends createSystem({}) {
     const supported = Array.from(session.supportedFrameRates ?? []);
     frameRateInfo.supported = supported;
     frameRateInfo.actual = session.frameRate ?? null;
+    frameRateInfo.measured = null;
+    frameRateInfo.requested = null;
+    frameRateInfo.canSet = typeof session.updateTargetFrameRate === 'function';
     const rate = chooseFrameRate(supported, settings.hz);
     console.info(
       `[FrameRate] supported=${JSON.stringify(supported)} default=${session.frameRate ?? 'unknown'} requesting=${rate ?? 'none'}`,
     );
-    if (rate === null || typeof session.updateTargetFrameRate !== 'function') {
+    if (rate === null || !frameRateInfo.canSet) {
+      // PCVR over Link: the rate is whatever the Link app's refresh setting is.
       return;
     }
     try {
@@ -68,4 +82,9 @@ export class FrameRateSystem extends createSystem({}) {
     frameRateInfo.actual = session.frameRate ?? null;
     console.info(`[FrameRate] now ${session.frameRate ?? 'unknown'} Hz`);
   }
+}
+
+/** The rate frames are budgeted against: reported, else measured, else a guess. */
+export function budgetHz(immersive: boolean): number {
+  return frameRateInfo.actual ?? frameRateInfo.measured ?? (immersive ? 72 : 60);
 }

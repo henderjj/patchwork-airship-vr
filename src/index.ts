@@ -6,6 +6,7 @@ import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
 import { NetSystem } from './systems/net-system.js';
 import { PerfHudSystem } from './systems/perf-hud-system.js';
+import { PlatformSystem } from './systems/platform-system.js';
 import { RopeSystem } from './systems/rope-system.js';
 import { ShipSystem } from './systems/ship-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
@@ -28,6 +29,7 @@ World.create(
   // After the crank and rope, so it knows which hands they hold.
   world.registerSystem(ThrowablesSystem);
   world.registerSystem(PanelSystem);
+  world.registerSystem(PlatformSystem);
   // Handles for the automated XR tests.
   (window as unknown as { __debug: unknown }).__debug = { world, PhysicsSystem };
 });
