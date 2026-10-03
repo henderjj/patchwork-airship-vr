@@ -94,3 +94,32 @@ describe('pose buffer', () => {
     expect(buf.count).toBe(1);
   });
 });
+
+describe('crank packets', () => {
+  it('round-trip the host crank state', async () => {
+    const { encodeCrank, decodeCrank, CRANK_PACKET_BYTES } = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(CRANK_PACKET_BYTES);
+    const length = encodeCrank(buffer, { timeMs: 123456.7, angle: -2.5, omega: 8.75, gear: 0.5, flags: 5 });
+    expect(length).toBe(CRANK_PACKET_BYTES);
+    const out = { timeMs: 0, angle: 0, omega: 0, gear: 0, flags: 0 };
+    expect(decodeCrank(new DataView(buffer), out)).toBe(true);
+    expect(out.timeMs).toBe(123456);
+    expect(out.angle).toBeCloseTo(-2.5, 5);
+    expect(out.omega).toBeCloseTo(8.75, 5);
+    expect(out.gear).toBeCloseTo(0.5, 2);
+    expect(out.flags).toBe(5);
+  });
+});
+
+describe('clock sync reset', () => {
+  it('forgets the previous peer', async () => {
+    const { ClockSync } = await import('../src/net/clock-sync.js');
+    const clock = new ClockSync();
+    clock.onPong(0, 5000, 10);
+    expect(clock.stats.offset).toBeCloseTo(4995, 6);
+    clock.reset();
+    expect(clock.stats.samples).toBe(0);
+    clock.onPong(100, 120, 140);
+    expect(clock.stats.offset).toBeCloseTo(0, 6);
+  });
+});

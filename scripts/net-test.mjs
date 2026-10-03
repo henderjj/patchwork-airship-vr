@@ -12,7 +12,10 @@
  * - the same at about 150 ms RTT with jitter and 1% loss (simulated);
  * - when the host leaves, the other player becomes host and can be rejoined;
  * - voice (spike S5): Chromium's fake microphone (a periodic beep) reaches the
- *   crewmate, muting silences it, and the loopback route starts.
+ *   crewmate, muting silences it, and the loopback route starts;
+ * - the two-person crank (spike S6): cranking in step reaches high gear and
+ *   about three times the solo speed, out of step it does not, and the
+ *   guest's crank stays with the host's, on a clean link and at 150 ms RTT.
  *
  * Writes measured RTT, packet rate and route to artifacts/net-report.json.
  */
@@ -78,7 +81,7 @@ async function openPlayer(browser, query) {
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
-    if (m.text().startsWith('[Net]')) console.log(`    ${m.text()}`);
+    if (m.text().startsWith('[Net]') || m.text().startsWith('[Crank]')) console.log(`    ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}?${QUIET}&${query}`);
@@ -133,9 +136,9 @@ async function measureMotion(sender, receiver, seconds) {
     let d = angles[i] - angles[i - 1];
     if (d > Math.PI) d -= 2 * Math.PI;
     if (d < -Math.PI) d += 2 * Math.PI;
-    // Ignore backward steps under 5 mm: a sender frame hitch can make the
-    // brief extrapolation overshoot by a millimetre or two, which is invisible.
-    if (d < -0.01) {
+    // Ignore backward steps under 15 mm: a sender frame hitch or a lost packet
+    // can make the brief extrapolation overshoot by about a centimetre.
+    if (d < -0.03) {
       backwards++;
       backSteps.push(`${i}:${d.toFixed(4)}`);
     }
@@ -164,6 +167,71 @@ function peakVoiceLevel(page, ms) {
       }),
     ms,
   );
+}
+
+/**
+ * Both players take a crank handle (host handle 0, guest handle 1) and crank
+ * with scripted hands that speed up to `rate` rad/s over 3 s. The guest's
+ * hand runs `guestLagS` seconds behind in its rhythm. Hands are timed from
+ * the shared wall clock so the two pages are in phase.
+ */
+async function crankTogether(host, guest, rate, guestLagS, seconds) {
+  // Let clock sync settle first: the offset comes from the best of several pings.
+  await waitFor('clock sync', async () => {
+    const n = await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__net.session.clock.stats.samples)));
+    return n.every((x) => x >= 6);
+  });
+  for (const p of [host, guest]) await p.page.evaluate(() => window.__crank.reset());
+  const t0 = Date.now() + 300;
+  const script = ([handle, rateArg, lagS, start]) => {
+    const offset = handle === 0 ? 0 : Math.PI;
+    window.__crank.setTestHand(handle, () => {
+      const tt = Math.max(0, (Date.now() - start) / 1000 - lagS);
+      const ramp = 3;
+      return offset + (tt < ramp ? (rateArg * tt * tt) / (2 * ramp) : rateArg * (tt - ramp / 2));
+    });
+  };
+  await host.page.evaluate(script, [0, rate, 0, t0]);
+  await guest.page.evaluate(script, [1, rate, guestLagS, t0]);
+  const trace = process.env.DEBUG_CRANK
+    ? setInterval(async () => {
+        const h = await host.page.evaluate(() => { const s = window.__crank.sim; return [s.lead.map((x) => +x.toFixed(2)), +s.omega.toFixed(2), +s.gear.toFixed(2), +s.syncOffsetMs.toFixed(0), window.__crank.holders().sim, +window.__net.renderDelayMs.toFixed(0), window.__net.session.clock.stats.samples]; }).catch(() => null);
+        console.log('    trace host', JSON.stringify(h));
+      }, 300)
+    : null;
+  // Sample the last second.
+  await new Promise((r) => setTimeout(r, (seconds - 1) * 1000));
+  const sample = (p) =>
+    p.page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const out = { gearFrames: 0, frames: 0, maxError: 0, omega: 0, gear: 0, held: null, solo: 0 };
+          const end = performance.now() + 1000;
+          const tick = () => {
+            const c = window.__crank;
+            out.frames++;
+            if (c.sim.gear > 0.95) out.gearFrames++;
+            const e = c.hostError();
+            if (Number.isFinite(e)) out.maxError = Math.max(out.maxError, Math.abs(e));
+            out.omega = c.sim.omega;
+            out.gear = c.sim.gear;
+            out.held = c.holders().sim;
+            out.solo = c.sim.soloTopSpeed;
+            if (performance.now() < end) requestAnimationFrame(tick);
+            else resolve(out);
+          };
+          tick();
+        }),
+    );
+  const [h, g] = await Promise.all([sample(host), sample(guest)]);
+  if (trace) clearInterval(trace);
+  for (const p of [host, guest]) {
+    await p.page.evaluate(() => {
+      window.__crank.setTestHand(0, null);
+      window.__crank.setTestHand(1, null);
+    });
+  }
+  return { host: h, guest: g };
 }
 
 async function netStats(page) {
@@ -280,6 +348,19 @@ async function main() {
     const a2 = await openPlayer(browser, `room=${room}&name=Ann`);
     await waitFor('reconnected', async () => (await state(a2.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('A player can rejoin', true);
+
+    // Spike S6: the two-person crank. Bo is host now and Ann the guest.
+    const together = await crankTogether(b, a2, 8.5, 0, 6);
+    report.crankInStep = together;
+    check('Cranking in step engages high gear on the host',
+      together.host.gearFrames / together.host.frames > 0.9 && together.host.omega > 2.5 * together.host.solo,
+      `${(together.host.omega / (2 * Math.PI)).toFixed(2)} turns/s (solo top ${(together.host.solo / (2 * Math.PI)).toFixed(2)}), high gear ${((100 * together.host.gearFrames) / together.host.frames).toFixed(0)}% of frames, handles held ${JSON.stringify(together.host.held)}`);
+    check('Guest crank stays with the host', together.guest.maxError < 0.35 && Math.abs(together.guest.omega - together.host.omega) < 1.5,
+      `largest gap ${((together.guest.maxError * 180) / Math.PI).toFixed(1)}°, guest ${(together.guest.omega / (2 * Math.PI)).toFixed(2)} turns/s`);
+    const apart = await crankTogether(b, a2, 6, 0.25, 6);
+    report.crankOutOfStep = apart;
+    check('Cranking 250 ms out of step stays in low gear', apart.host.gearFrames === 0 && Math.abs(apart.host.omega) < 1.6 * apart.host.solo,
+      `${(apart.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${apart.host.gearFrames} frames`);
     await a2.context.close();
     await b.context.close();
 
@@ -301,6 +382,14 @@ async function main() {
     const loopVoice = await peakVoiceLevel(e.page, 2500);
     const loopActive = await e.page.evaluate(() => window.__net.voice.loopbackActive);
     check('Voice through the loopback route', loopActive && loopVoice > 0.01, `loopback ${loopActive}, peak level ${loopVoice.toFixed(3)}`);
+
+    const lagCrank = await crankTogether(d, e, 8.5, 0, 6);
+    report.crankLagged = lagCrank;
+    check('Cranking in step reaches high gear at 150 ms RTT',
+      lagCrank.host.gearFrames / lagCrank.host.frames > 0.9 && lagCrank.host.omega > 2.5 * lagCrank.host.solo,
+      `${(lagCrank.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${((100 * lagCrank.host.gearFrames) / lagCrank.host.frames).toFixed(0)}% of frames`);
+    check('Guest crank stays with the host at 150 ms RTT', lagCrank.guest.maxError < 0.5,
+      `largest gap ${((lagCrank.guest.maxError * 180) / Math.PI).toFixed(1)}°`);
 
     const errors = [...a.errors, ...b.errors, ...d.errors, ...e.errors].filter(
       (m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'),

@@ -2,7 +2,7 @@ import { createSystem, Euler, InputComponent, Mesh, Object3D, Quaternion, Vector
 import { LobbyUi } from '../net/lobby-ui.js';
 import { NetSession } from '../net/net-session.js';
 import { createAvatarPose, decodePose, encodePose, type AvatarPose, type PoseHeader, type PoseSample, POSE_PACKET_BYTES, seqNewer } from '../net/pose-codec.js';
-import { PoseBuffer } from '../net/pose-buffer.js';
+import { copyAvatar, copyPose, PoseBuffer } from '../net/pose-buffer.js';
 import { Voice } from '../net/voice.js';
 import { createAvatarHand, createAvatarHead, createAvatarTorso, CREW_COLORS } from '../scene-assets/avatar.scene-asset.js';
 import { settings } from '../settings.js';
@@ -36,6 +36,43 @@ const STATS_LOG_MS = 5000;
 export function bufferDelayMs(packetIntervalMs: number, arrivalJitterMs: number): number {
   return Math.min(200, Math.max(30, 1.5 * packetIntervalMs + 3 * arrivalJitterMs + 5));
 }
+
+/** Pose flag bits: hand tracked (0, 1) and hand holding a crank handle (2, 3). */
+export const FLAG_LEFT_TRACKED = 1;
+export const FLAG_RIGHT_TRACKED = 2;
+export const FLAG_LEFT_CRANK = 4;
+export const FLAG_RIGHT_CRANK = 8;
+
+/**
+ * What other systems (the crank, later the rope and throws) need from the
+ * network, without reaching into NetSystem: connection state, the crewmate's
+ * pose as drawn this frame and the local time it describes, extra pose flags
+ * and hand positions to send, a way to send packets, and handlers for packet
+ * types other than poses.
+ */
+export const netLink = {
+  connected: false,
+  isHost: true,
+  /** The crewmate's pose as drawn this frame (valid when haveRemote). */
+  remote: createAvatarPose(),
+  haveRemote: false,
+  /** Local time the drawn crewmate pose describes, ms. */
+  remoteAtMs: Number.NaN,
+  /** Extra flag bits OR-ed into this player's pose packets. */
+  extraFlags: 0,
+  /**
+   * Hand poses to send instead of the tracked ones (tests without a headset),
+   * as functions of the send time so the pose matches its timestamp, or null.
+   */
+  handOverride: {
+    left: null as ((nowMs: number) => PoseSample) | null,
+    right: null as ((nowMs: number) => PoseSample) | null,
+  },
+  send: (_buffer: ArrayBuffer, _length: number): void => undefined,
+  /** Convert the crewmate's clock to ours. */
+  toLocal: (peerMs: number): number => peerMs,
+  handlers: new Map<number, (view: DataView) => void>(),
+};
 
 export function lobbyBaseUrl(): string {
   if (settings.lobby) {
@@ -145,6 +182,9 @@ export class NetSystem extends createSystem({}) {
     }, { lagMs: settings.netLag, jitterMs: settings.netJitter, loss: settings.netLoss });
 
     this.createRemoteAvatar();
+    netLink.remote = this.remote;
+    netLink.send = (buffer, length) => this.session.sendUnreliable(buffer, length);
+    netLink.toLocal = (peerMs) => this.session.clock.toLocal(peerMs);
 
     const self = this;
     this.debug = {
@@ -232,6 +272,7 @@ export class NetSystem extends createSystem({}) {
 
   private onPacket(view: DataView): void {
     if (!decodePose(view, this.header, this.incoming)) {
+      netLink.handlers.get(view.getUint8(0))?.(view);
       return;
     }
     this.accept(this.header.seq, this.header.timeMs, this.incoming);
@@ -266,6 +307,9 @@ export class NetSystem extends createSystem({}) {
 
   update(delta: number): void {
     const session = this.session;
+    netLink.connected = session.state === 'connected';
+    netLink.isHost = session.isHost || !netLink.connected;
+    netLink.haveRemote = false;
     if (session.state !== 'connected') {
       if (this.head.visible) {
         this.setRemoteVisible(false, 0);
@@ -284,7 +328,17 @@ export class NetSystem extends createSystem({}) {
       this.sendAccumulator = Math.min(this.sendAccumulator - 1 / SEND_HZ, 1 / SEND_HZ);
       const now = performance.now();
       const test = this.testPose;
-      const pose = test === null ? this.readLocalPose() : typeof test === 'function' ? test(now) : test;
+      const pose = test === null ? this.readLocalPose() : this.local;
+      if (test !== null) {
+        copyAvatar(typeof test === 'function' ? test(now) : test, this.local);
+      }
+      pose.flags |= netLink.extraFlags;
+      if (netLink.handOverride.left) {
+        copyPose(netLink.handOverride.left(now), pose.left);
+      }
+      if (netLink.handOverride.right) {
+        copyPose(netLink.handOverride.right(now), pose.right);
+      }
       const length = encodePose(this.sendBuffer, this.seq, now, pose);
       this.seq = (this.seq + 1) & 0xffff;
       session.sendUnreliable(this.sendBuffer, length);
@@ -295,6 +349,8 @@ export class NetSystem extends createSystem({}) {
     this.delayMs = Math.max(0, this.transit) + bufferDelayMs(this.packetInterval, this.arrivalJitter);
     if (this.buffer.count > 0 && this.buffer.sample(performance.now() - this.delayMs, this.remote)) {
       this.haveRemote = true;
+      netLink.haveRemote = true;
+      netLink.remoteAtMs = performance.now() - this.delayMs;
       this.applyRemote();
       this.placeVoice();
     }
@@ -326,11 +382,11 @@ export class NetSystem extends createSystem({}) {
     let flags = 0;
     if (immersive && xr.getPrimaryInputSource('left')) {
       readWorldPose(player.gripSpaces.left, this.local.left, this.tmpPos, this.tmpQuat, this.tmpScale);
-      flags |= 1;
+      flags |= FLAG_LEFT_TRACKED;
     }
     if (immersive && xr.getPrimaryInputSource('right')) {
       readWorldPose(player.gripSpaces.right, this.local.right, this.tmpPos, this.tmpQuat, this.tmpScale);
-      flags |= 2;
+      flags |= FLAG_RIGHT_TRACKED;
     }
     this.local.flags = flags;
     return this.local;
@@ -352,8 +408,8 @@ export class NetSystem extends createSystem({}) {
   private setRemoteVisible(visible: boolean, flags: number): void {
     this.head.visible = visible;
     this.torso.visible = visible;
-    this.leftHand.visible = visible && (flags & 1) !== 0;
-    this.rightHand.visible = visible && (flags & 2) !== 0;
+    this.leftHand.visible = visible && (flags & FLAG_LEFT_TRACKED) !== 0;
+    this.rightHand.visible = visible && (flags & FLAG_RIGHT_TRACKED) !== 0;
   }
 }
 
