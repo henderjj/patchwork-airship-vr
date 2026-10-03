@@ -21,7 +21,7 @@ Status: built and tested in the emulated headset (solo grab and throw) and betwe
 | --- | --- |
 | Emulated headset: squeeze at a brick, lift it, lower it, let go | Grabbed, follows the controller, lands on the deck where released. Crank, rope and the other 14 checks still pass |
 | Unit tests (`test/ownership.test.ts`) | Guest catches are granted, refused when the host grabbed first, refused for an object a host hand holds. The host can take back an object the guest threw. Packets from before a hand-over are dropped. Flight extrapolation stays within 1 cm over 150 ms despite ±8 ms frame-time jitter |
-| Two browsers, clean link: scripted players throw a brick back and forth 2.7 m across the deck (the deck's diagonal) for 14 s, the catcher reacting to the brick as drawn on its own screen | 8 throws, 7 caught and all 7 stayed caught (the other one wasn't caught and was picked up off the deck). The thrower sees the brick in the catcher's drawn hand (within 8.3 cm, the hand's grip offset). The thrower's view slides at most 8 cm at the hand-over |
+| Two browsers, clean link: scripted players throw a brick back and forth 2.7 m across the deck (the deck's diagonal) for 14 s, the catcher reacting to the brick as drawn on its own screen | 8 throws, 7 caught and all 7 stayed caught (the other one wasn't caught and was picked up off the deck). The thrower sees the brick in the catcher's drawn hand (within 8.3 cm, the hand's grip offset). The thrower's view slides 8–13 cm at the hand-over in most runs, and once 30 cm |
 | Same at about 150 ms RTT with jitter and 1% loss | 8 throws, 8 catches, 8 stayed caught. Brick within 8.4 cm of the catcher's drawn hand. Hand-over slide 1–23 cm over several runs, typically under 10 cm |
 
 The plan's pass mark is that catches which look caught on the catcher's side succeed at least 90% of the time. Here they succeed every time by construction. The only way to lose one is the host grabbing the same brick within one round trip, which the test never hit and the unit tests cover.
@@ -34,7 +34,8 @@ The plan's pass mark is that catches which look caught on the catcher's side suc
 4. **Grabs and releases must be sent at once**, not on the next 45 Hz tick, or the crewmate's idea of when the catch happened is up to 22 ms (12 cm of flight) off.
 5. **A scripted hand that stops dead before letting go throws at 70% speed**, because the release velocity is measured over the last 80 ms. Real arms move through the release, so this only mattered for the test. On a headset, check that throws go where you mean them to.
 6. **Clock sync must be ready before object packets are used.** Until the first clock offset is known, a packet's time can't be placed, and early packets stamped with the wrong offset made the brick freeze for over a second. Object packets are now ignored until the clock is synced, and a jitter buffer that sees time jump backwards starts again.
-7. **The deck is only 2 m × 3 m**, so the longest throw aboard is about 3 m, a little short of the plan's 3–4 m. The current ship would need a bigger deck, or the test could include throws to a crewmate on a second platform later.
+7. **The slide depends on frame rate.** In the cloud the test pages render in software at 15–30 fps, so the catcher's extrapolated brick and the place its catch assist grabs it (up to 20 cm from the path) are coarser than on a headset at 90 Hz. The tests allow 30 cm on a clean link and 35 cm at 150 ms RTT; a headset should do better.
+8. **The deck is only 2 m × 3 m**, so the longest throw aboard is about 3 m, a little short of the plan's 3–4 m. The current ship would need a bigger deck, or the test could include throws to a crewmate on a second platform later.
 
 ## Headset tests (two people)
 
