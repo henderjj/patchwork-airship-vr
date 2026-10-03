@@ -2,6 +2,7 @@ import {
   createSystem,
   eq,
   Grabbed,
+  InputComponent,
   PhysicsBody,
   PhysicsManipulation,
   PhysicsState,
@@ -10,6 +11,7 @@ import {
 import {
   createShipState,
   MOTION_PROFILES,
+  type MotionProfile,
   type ShipState,
   stepShip,
   updateFeltGravity,
@@ -19,6 +21,35 @@ import { settings } from '../settings.js';
 
 /** The ship's current world pose, read by the sky and trim systems. */
 export const ship: ShipState = createShipState();
+
+/** The motion profile in use and whether the ship is held still, for the comfort log. */
+export const shipInfo = { motion: 'still', paused: false };
+
+/**
+ * The profile named by `?motion=`, with any of its limits replaced from the
+ * URL (`?speed=`, `?turn=`, `?climb=`, `?tilt=`, `?gust=`), so comfort tests
+ * can try values between the named profiles. A changed profile is named
+ * after its base with a `*`.
+ */
+export function motionProfileFromSettings(): MotionProfile {
+  const base = MOTION_PROFILES[settings.motion] ?? MOTION_PROFILES.still;
+  const pick = (value: number, fallback: number) => (Number.isNaN(value) ? fallback : value);
+  const profile: MotionProfile = {
+    name: base.name,
+    speed: pick(settings.motionSpeed, base.speed),
+    maxYawRateDeg: pick(settings.motionTurn, base.maxYawRateDeg),
+    maxClimb: pick(settings.motionClimb, base.maxClimb),
+    maxTiltDeg: pick(settings.motionTilt, base.maxTiltDeg),
+    gust: pick(settings.motionGust, base.gust),
+  };
+  const changed =
+    profile.speed !== base.speed || profile.maxYawRateDeg !== base.maxYawRateDeg || profile.maxClimb !== base.maxClimb ||
+    profile.maxTiltDeg !== base.maxTiltDeg || profile.gust !== base.gust;
+  if (changed) {
+    profile.name = `${base.name}*`;
+  }
+  return profile;
+}
 
 /** How far felt gravity must move (m/s²) before the physics worker is told. */
 const GRAVITY_EPSILON = 0.01;
@@ -40,7 +71,7 @@ export class ShipSystem extends createSystem({
     where: [eq(PhysicsBody, 'state', PhysicsState.Dynamic)],
   },
 }) {
-  private profile = MOTION_PROFILES[settings.motion] ?? MOTION_PROFILES.still;
+  private profile = motionProfileFromSettings();
   private physics: PhysicsSystem | undefined;
   private sentGravity: [number, number, number] = [0, -9.81, 0];
   private wokenGravity: [number, number, number] = [0, -9.81, 0];
@@ -77,6 +108,13 @@ export class ShipSystem extends createSystem({
   }
 
   update(delta: number): void {
+    // B on the right controller stops the ship at once, and starts it again
+    // (a comfort escape for playtests; P does the same on a keyboard).
+    if (this.input.xr.gamepads.right?.getButtonDown(InputComponent.B_Button)) {
+      this.paused = !this.paused;
+    }
+    shipInfo.motion = this.profile.name;
+    shipInfo.paused = this.paused;
     if (this.paused) {
       return;
     }

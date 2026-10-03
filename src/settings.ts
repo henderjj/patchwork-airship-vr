@@ -48,6 +48,16 @@ export interface Settings {
   fist: number;
   /** Tracked hands grip when the thumb and index tips are closer than this, cm; 0 turns pinch-to-grip off. */
   pinch: number;
+  /** Spike S3: overrides for the motion profile's limits; NaN keeps the profile's own value. */
+  motionSpeed: number;
+  motionTurn: number;
+  motionClimb: number;
+  motionTilt: number;
+  motionGust: number;
+  /** Spike S3: ask for a comfort rating this often while in VR, s; 0 never asks. */
+  comfort: number;
+  /** A tag for this session (tester or variant) written into the perf and comfort logs. */
+  label: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -73,6 +83,13 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceLoop: false,
   fist: 0.6,
   pinch: 2,
+  motionSpeed: Number.NaN,
+  motionTurn: Number.NaN,
+  motionClimb: Number.NaN,
+  motionTilt: Number.NaN,
+  motionGust: Number.NaN,
+  comfort: 0,
+  label: '',
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -122,6 +139,13 @@ export function parseSettings(search: string): Settings {
     voiceLoop: bool(params, 'voiceloop', d.voiceLoop),
     fist: num(params, 'fist', d.fist, 0.2, 0.95),
     pinch: num(params, 'pinch', d.pinch, 0, 6),
+    motionSpeed: num(params, 'speed', d.motionSpeed, 0, 30),
+    motionTurn: num(params, 'turn', d.motionTurn, 0, 30),
+    motionClimb: num(params, 'climb', d.motionClimb, 0, 10),
+    motionTilt: num(params, 'tilt', d.motionTilt, 0, 20),
+    motionGust: num(params, 'gust', d.motionGust, 0, 10),
+    comfort: num(params, 'comfort', d.comfort, 0, 600),
+    label: (params.get('label') ?? d.label).slice(0, 40),
   };
 }
 

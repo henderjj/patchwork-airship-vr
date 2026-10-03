@@ -24,6 +24,7 @@ import {
   SKY_DOME_SIDE,
   SKY_HORIZON,
 } from '../world/sky-assets.js';
+import { wrapNear } from '../sim/world-tile.js';
 import { ship } from './ship-system.js';
 
 const ISLAND_VARIANTS = 4;
@@ -54,6 +55,8 @@ export class SkyWorldSystem extends createSystem({}) {
   private sky!: Mesh;
   private sun!: DirectionalLight;
   private islands: Placement[] = [];
+  private clouds: Placement[] = [];
+  private cloudMeshes: InstancedMesh[] = [];
   private islandMeshes: { high: InstancedMesh; low: InstancedMesh }[] = [];
   private frame = 0;
   private shipQuat = new Quaternion();
@@ -146,17 +149,18 @@ export class SkyWorldSystem extends createSystem({}) {
       meshes.push(this.instanced(createCloudGeometry(settings.seed * 3 + v), material, perVariant, `Clouds${v}`));
       meshes[v].count = 0;
     }
-    const m = this.tmpMatrix;
     for (let i = 0; i < settings.clouds; i++) {
-      const mesh = meshes[i % CLOUD_VARIANTS];
       const angle = random() * Math.PI * 2;
       const distance = 25 + Math.pow(random(), 0.7) * 650;
       const size = 10 + random() * 30;
-      this.tmpVec.set(Math.cos(angle) * distance, 70 + random() * 110, Math.sin(angle) * distance);
-      this.tmpQuat.setFromAxisAngle(this.worldUp, random() * Math.PI * 2);
-      m.compose(this.tmpVec, this.tmpQuat, new Vector3(size, size * (0.6 + random() * 0.5), size * (0.6 + random() * 0.4)));
-      mesh.setMatrixAt(mesh.count++, m);
+      this.clouds.push({
+        position: new Vector3(Math.cos(angle) * distance, 70 + random() * 110, Math.sin(angle) * distance),
+        rotationY: random() * Math.PI * 2,
+        scale: new Vector3(size, size * (0.6 + random() * 0.5), size * (0.6 + random() * 0.4)),
+        variant: i % CLOUD_VARIANTS,
+      });
     }
+    this.cloudMeshes = meshes;
   }
 
   private instanced(geometry: BufferGeometry, material: MeshLambertMaterial, count: number, name: string): InstancedMesh {
@@ -175,22 +179,45 @@ export class SkyWorldSystem extends createSystem({}) {
       pair.high.count = 0;
       pair.low.count = 0;
     }
-    const m = this.tmpMatrix;
     for (const island of this.islands) {
-      const dx = island.position.x - ship.x;
-      const dy = island.position.y - ship.y;
-      const dz = island.position.z - ship.z;
+      const p = this.wrapped(island.position);
+      const dx = p.x - ship.x;
+      const dy = p.y - ship.y;
+      const dz = p.z - ship.z;
       const near = dx * dx + dy * dy + dz * dz < LOD_DISTANCE * LOD_DISTANCE;
       const pair = this.islandMeshes[island.variant];
-      const mesh = near ? pair.high : pair.low;
-      this.tmpQuat.setFromAxisAngle(this.worldUp, island.rotationY);
-      m.compose(island.position, this.tmpQuat, island.scale);
-      mesh.setMatrixAt(mesh.count++, m);
+      this.place(near ? pair.high : pair.low, island);
     }
     for (const pair of this.islandMeshes) {
       pair.high.instanceMatrix.needsUpdate = true;
       pair.low.instanceMatrix.needsUpdate = true;
     }
+  }
+
+  /** Put the clouds in the copy of the world tile nearest the ship. */
+  private updateClouds(): void {
+    for (const mesh of this.cloudMeshes) {
+      mesh.count = 0;
+    }
+    for (const cloud of this.clouds) {
+      this.wrapped(cloud.position);
+      this.place(this.cloudMeshes[cloud.variant], cloud);
+    }
+    for (const mesh of this.cloudMeshes) {
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** `position` moved by whole world tiles to within half a tile of the ship, in `tmpVec`. */
+  private wrapped(position: Vector3): Vector3 {
+    return this.tmpVec.set(wrapNear(position.x, ship.x), position.y, wrapNear(position.z, ship.z));
+  }
+
+  /** Add an instance of `placement` at `tmpVec` to `mesh`. */
+  private place(mesh: InstancedMesh, placement: Placement): void {
+    this.tmpQuat.setFromAxisAngle(this.worldUp, placement.rotationY);
+    this.tmpMatrix.compose(this.tmpVec, this.tmpQuat, placement.scale);
+    mesh.setMatrixAt(mesh.count++, this.tmpMatrix);
   }
 
   update(): void {
@@ -210,6 +237,7 @@ export class SkyWorldSystem extends createSystem({}) {
 
     if (this.frame++ % LOD_INTERVAL_FRAMES === 0) {
       this.updateIslandLod();
+      this.updateClouds();
     }
   }
 }

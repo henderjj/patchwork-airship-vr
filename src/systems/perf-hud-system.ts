@@ -110,6 +110,7 @@ export class PerfHudSystem extends createSystem({}) {
     window.addEventListener('keydown', onKey);
     this.cleanupFuncs.push(() => window.removeEventListener('keydown', onKey));
 
+    perf.label = settings.label.replace(/[,\n]/g, ' ');
     (window as PerfWindow).__perf = {
       recorder: perf,
       csv: () => perf.csv(),
