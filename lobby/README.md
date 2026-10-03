@@ -14,8 +14,8 @@ CI deploys the lobby. Every push to `main` runs the `lobby` job in `.github/work
 ### One-time setup (done by hand, by the account owner)
 
 1. Create a free Cloudflare account at <https://dash.cloudflare.com/sign-up> and verify the email address. The free Workers plan is enough for the lobby.
-2. In the dashboard, open **Compute (Workers) → Workers & Pages** once. If it asks you to choose a `workers.dev` subdomain, pick one (for example your name). The lobby will live at `https://patchwork-lobby.<subdomain>.workers.dev`.
-3. Copy your **Account ID**. It is shown on the **Workers & Pages** overview page (right-hand side) and under the account name's **⋯ → Copy account ID** menu on the dashboard home page.
+2. In the dashboard, open **Compute (Workers) → Workers & Pages**. Do not use **Create application**: CI creates the Worker on its first deploy, and connecting GitHub there would add a second, competing deploy. Instead check the **Account details** panel on the right: it shows your `workers.dev` **Subdomain**; if none is set, set one there (for example your name). The lobby will live at `https://patchwork-lobby.<subdomain>.workers.dev`.
+3. Copy your **Account ID** from the same **Account details** panel.
 4. Create an API token for CI: profile icon (top right) → **My Profile → API Tokens → Create Token**, then use the **Edit Cloudflare Workers** template.
    - Token name: `patchwork-airship-ci`.
    - Permissions: leave the template's list as it is (its key permission is Account → Workers Scripts → Edit, which covers deploying the Worker, its Durable Object and its secrets).
