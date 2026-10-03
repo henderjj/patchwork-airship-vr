@@ -88,8 +88,21 @@ interface LayerLike {
   fixedFoveation?: number | null;
 }
 
+/**
+ * The GPU's name. Reading it waits for the GPU process to catch up, which can
+ * stall the page for a long time on a busy machine, so read it once at start.
+ */
+export function readGpu(gl: WebGLRenderingContext | WebGL2RenderingContext): string {
+  try {
+    const debug = gl.getExtension('WEBGL_debug_renderer_info');
+    return String(gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');
+  } catch {
+    return 'unknown';
+  }
+}
+
 export interface PlatformSources {
-  gl: WebGLRenderingContext | WebGL2RenderingContext;
+  gpu: string;
   session: XRSession | undefined;
   layer: LayerLike | null;
   multiview: boolean;
@@ -101,14 +114,7 @@ export interface PlatformSources {
 }
 
 export function collectPlatform(sources: PlatformSources): PlatformReport {
-  const { gl, session, layer } = sources;
-  let gpu = '';
-  try {
-    const debug = gl.getExtension('WEBGL_debug_renderer_info');
-    gpu = String(gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');
-  } catch {
-    gpu = 'unknown';
-  }
+  const { session, layer } = sources;
   let buffer = '';
   if (layer?.textureWidth) {
     buffer = `${layer.textureWidth}x${layer.textureHeight}${layer.textureArrayLength && layer.textureArrayLength > 1 ? `x${layer.textureArrayLength}` : ''}`;
@@ -124,7 +130,7 @@ export function collectPlatform(sources: PlatformSources): PlatformReport {
   const features = Array.from((session as (XRSession & { enabledFeatures?: readonly string[] }) | undefined)?.enabledFeatures ?? []);
   return {
     ...describeBrowser(navigator.userAgent),
-    gpu,
+    gpu: sources.gpu,
     hz: sources.hz,
     hzSource: sources.hzSource,
     rates: sources.rates,

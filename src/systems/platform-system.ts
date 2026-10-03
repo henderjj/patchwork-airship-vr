@@ -1,5 +1,5 @@
 import { createSystem, VisibilityState } from '@iwsdk/core';
-import { collectPlatform, type PlatformReport, platformInfo, summarize } from '../perf/platform-report.js';
+import { collectPlatform, type PlatformReport, platformInfo, readGpu, summarize } from '../perf/platform-report.js';
 import { frameRateInfo } from './frame-rate-system.js';
 import { netLink } from './net-system.js';
 
@@ -21,8 +21,10 @@ export class PlatformSystem extends createSystem({}) {
   private session: XRSession | undefined;
   private sentToCrew = false;
   private micLabel = '';
+  private gpu = '';
 
   init(): void {
+    this.gpu = readGpu(this.renderer.getContext());
     netLink.events.set('platform', (event) => {
       const report = event.report as PlatformReport | undefined;
       if (report && typeof report.browser === 'string' && Array.isArray(report.inputs)) {
@@ -81,7 +83,7 @@ export class PlatformSystem extends createSystem({}) {
     const session = this.world.session ?? undefined;
     const hzSource = frameRateInfo.actual !== null ? 'reported' : frameRateInfo.measured !== null ? 'measured' : 'unknown';
     const report = collectPlatform({
-      gl: this.renderer.getContext(),
+      gpu: this.gpu,
       session,
       layer: session ? (xr.getBaseLayer() as unknown as Parameters<typeof collectPlatform>[0]['layer']) : null,
       multiview: session ? !!xr.isMultiview : false,
