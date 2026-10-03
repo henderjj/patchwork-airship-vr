@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -33,7 +33,7 @@ jobs:
       - name: Stop the dev runtime
         if: always()
         run: npx iwsdk dev down || true
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: xr-screenshots
@@ -46,14 +46,17 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     permissions:
+      # Job-level permissions replace the workflow's, so checkout needs this
+      # again (without it a private repo reads as "not found").
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -61,8 +64,8 @@ jobs:
       - run: npm run build
         env:
           NODE_ENV: production
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

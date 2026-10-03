@@ -83,6 +83,10 @@ const results = [];
 function check(name, pass, detail) {
   results.push({ name, pass });
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
+  if (!pass && process.env.GITHUB_ACTIONS) {
+    // An annotation shows on the run summary without needing the full log.
+    console.log(`::error title=XR check failed::${name}${detail ? ` (${detail})` : ''}`.replace(/\r?\n/g, ' '));
+  }
 }
 
 async function waitFor(label, fn, timeoutMs = 60000, intervalMs = 500) {
@@ -267,5 +271,8 @@ async function main() {
 
 main().catch((error) => {
   console.error(`ERROR  ${error.message}`);
+  if (process.env.GITHUB_ACTIONS) {
+    console.log(`::error title=XR test aborted::${error.message}`.replace(/\r?\n/g, ' '));
+  }
   process.exitCode = 1;
 });
