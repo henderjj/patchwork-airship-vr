@@ -2,6 +2,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
+  CylinderGeometry,
   Euler,
   Matrix4,
   Quaternion,
@@ -136,4 +137,22 @@ export function pick<T>(list: readonly T[], random: () => number): T {
 
 export function triangleCount(geometry: BufferGeometry): number {
   return (geometry.index ? geometry.index.count : geometry.getAttribute('position').count) / 3;
+}
+
+const beamUp = new Vector3(0, 1, 0);
+const beamDir = new Vector3();
+const beamQuat = new Quaternion();
+
+/** A thin cylinder from a to b. */
+export function beam(a: readonly number[], b: readonly number[], radius: number, color: number, sides = 5): Part {
+  const start = new Vector3(a[0], a[1], a[2]);
+  const end = new Vector3(b[0], b[1], b[2]);
+  beamDir.subVectors(end, start);
+  const length = beamDir.length();
+  const geometry = new CylinderGeometry(radius, radius, length, sides, 1);
+  beamQuat.setFromUnitVectors(beamUp, beamDir.normalize());
+  geometry.applyQuaternion(beamQuat);
+  const mid = start.add(end).multiplyScalar(0.5);
+  geometry.translate(mid.x, mid.y, mid.z);
+  return { geometry, color };
 }

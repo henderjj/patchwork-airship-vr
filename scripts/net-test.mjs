@@ -10,7 +10,14 @@
  * - a pose sent by one arrives intact at the other;
  * - the crewmate moves smoothly while the sender walks in a circle;
  * - the same at about 150 ms RTT with jitter and 1% loss (simulated);
- * - when the host leaves, the other player becomes host and can be rejoined.
+ * - when the host leaves, the other player becomes host and can be rejoined;
+ * - voice (spike S5): Chromium's fake microphone (a periodic beep) reaches the
+ *   crewmate, muting silences it, and the loopback route starts;
+ * - the two-person crank (spike S6): cranking in step reaches high gear and
+ *   about three times the solo speed, out of step it does not, and the
+ *   guest's crank stays with the host's, on a clean link and at 150 ms RTT;
+ * - the hand-over-hand rope haul (spike S6): strokes together heave, strokes
+ *   250 ms apart do not, also at 150 ms RTT.
  *
  * Writes measured RTT, packet rate and route to artifacts/net-report.json.
  */
@@ -76,7 +83,7 @@ async function openPlayer(browser, query) {
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
-    if (m.text().startsWith('[Net]')) console.log(`    ${m.text()}`);
+    if (/^\[(Net|Crank|Rope)\]/.test(m.text())) console.log(`    ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}?${QUIET}&${query}`);
@@ -131,9 +138,9 @@ async function measureMotion(sender, receiver, seconds) {
     let d = angles[i] - angles[i - 1];
     if (d > Math.PI) d -= 2 * Math.PI;
     if (d < -Math.PI) d += 2 * Math.PI;
-    // Ignore backward steps under 5 mm: a sender frame hitch can make the
-    // brief extrapolation overshoot by a millimetre or two, which is invisible.
-    if (d < -0.01) {
+    // Ignore backward steps under 15 mm: a sender frame hitch or a lost packet
+    // can make the brief extrapolation overshoot by about a centimetre.
+    if (d < -0.03) {
       backwards++;
       backSteps.push(`${i}:${d.toFixed(4)}`);
     }
@@ -144,6 +151,131 @@ async function measureMotion(sender, receiver, seconds) {
   steps.sort((a, b) => a - b);
   const median = steps[Math.floor(steps.length / 2)] ?? 0;
   return { frames: samples.length, backwards, backSteps, maxStep, median, radiusError };
+}
+
+/** Loudest level of the crewmate's voice over `ms`. */
+function peakVoiceLevel(page, ms) {
+  return page.evaluate(
+    (duration) =>
+      new Promise((resolve) => {
+        let peak = 0;
+        const end = performance.now() + duration;
+        const tick = () => {
+          peak = Math.max(peak, window.__net.voice.remoteLevel());
+          if (performance.now() < end) setTimeout(tick, 10);
+          else resolve(peak);
+        };
+        tick();
+      }),
+    ms,
+  );
+}
+
+/**
+ * Both players take a crank handle (host handle 0, guest handle 1) and crank
+ * with scripted hands that speed up to `rate` rad/s over 3 s. The guest's
+ * hand runs `guestLagS` seconds behind in its rhythm. Hands are timed from
+ * the shared wall clock so the two pages are in phase.
+ */
+async function crankTogether(host, guest, rate, guestLagS, seconds) {
+  // Let clock sync settle first: the offset comes from the best of several pings.
+  await waitFor('clock sync', async () => {
+    const n = await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__net.session.clock.stats.samples)));
+    return n.every((x) => x >= 6);
+  });
+  for (const p of [host, guest]) await p.page.evaluate(() => window.__crank.reset());
+  const t0 = Date.now() + 300;
+  const script = ([handle, rateArg, lagS, start]) => {
+    const offset = handle === 0 ? 0 : Math.PI;
+    window.__crank.setTestHand(handle, () => {
+      const tt = Math.max(0, (Date.now() - start) / 1000 - lagS);
+      const ramp = 3;
+      return offset + (tt < ramp ? (rateArg * tt * tt) / (2 * ramp) : rateArg * (tt - ramp / 2));
+    });
+  };
+  await host.page.evaluate(script, [0, rate, 0, t0]);
+  await guest.page.evaluate(script, [1, rate, guestLagS, t0]);
+  const trace = process.env.DEBUG_CRANK
+    ? setInterval(async () => {
+        const h = await host.page.evaluate(() => { const s = window.__crank.sim; return [s.lead.map((x) => +x.toFixed(2)), +s.omega.toFixed(2), +s.gear.toFixed(2), +s.syncOffsetMs.toFixed(0), window.__crank.holders().sim, +window.__net.renderDelayMs.toFixed(0), window.__net.session.clock.stats.samples]; }).catch(() => null);
+        console.log('    trace host', JSON.stringify(h));
+      }, 300)
+    : null;
+  // Sample the last second.
+  await new Promise((r) => setTimeout(r, (seconds - 1) * 1000));
+  const sample = (p) =>
+    p.page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const out = { gearFrames: 0, frames: 0, maxError: 0, omega: 0, gear: 0, held: null, solo: 0 };
+          const end = performance.now() + 1000;
+          const tick = () => {
+            const c = window.__crank;
+            out.frames++;
+            if (c.sim.gear > 0.95) out.gearFrames++;
+            const e = c.hostError();
+            if (Number.isFinite(e)) out.maxError = Math.max(out.maxError, Math.abs(e));
+            out.omega = c.sim.omega;
+            out.gear = c.sim.gear;
+            out.held = c.holders().sim;
+            out.solo = c.sim.soloTopSpeed;
+            if (performance.now() < end) requestAnimationFrame(tick);
+            else resolve(out);
+          };
+          tick();
+        }),
+    );
+  const [h, g] = await Promise.all([sample(host), sample(guest)]);
+  if (trace) clearInterval(trace);
+  for (const p of [host, guest]) {
+    await p.page.evaluate(() => {
+      window.__crank.setTestHand(0, null);
+      window.__crank.setTestHand(1, null);
+    });
+  }
+  return { host: h, guest: g };
+}
+
+/**
+ * Both players haul the mooring line hand over hand: each hand in turn pulls
+ * 0.5 m over 0.5 s (eased), then lets go and reaches forward while the other
+ * pulls. The guest's rhythm lags by `guestLagS`. Timed from the wall clock.
+ */
+async function haulTogether(host, guest, guestLagS, seconds) {
+  for (const p of [host, guest]) await p.page.evaluate(() => window.__rope.reset());
+  const t0 = Date.now() + 300;
+  const script = ([lagS, start]) => {
+    ['left', 'right'].forEach((side, sideIndex) => {
+      window.__rope.setTestHand(side, () => {
+        const tt = (Date.now() - start) / 1000 - lagS;
+        if (tt < 0) return null;
+        const stroke = Math.floor(tt / 0.5);
+        if (stroke % 2 !== sideIndex) return null;
+        const phase = tt / 0.5 - stroke;
+        return 0.4 + (0.5 * (1 - Math.cos(Math.PI * phase))) / 2;
+      });
+    });
+  };
+  await host.page.evaluate(script, [0, t0]);
+  await guest.page.evaluate(script, [guestLagS, t0]);
+  const trace = process.env.DEBUG_ROPE
+    ? setInterval(async () => {
+        const h = await host.page.evaluate(() => { const s = window.__rope.sim; return [s.stroking, s.strokeStart.map((x) => Math.round(x % 100000)), s.handSpeed.map((x) => +x.toFixed(2)), s.heave, s.heaves]; }).catch(() => null);
+        console.log('    trace host', JSON.stringify(h));
+      }, 100)
+    : null;
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+  if (trace) clearInterval(trace);
+  const read = (p) =>
+    p.page.evaluate(() => ({ hauled: window.__rope.sim.hauled, heaves: window.__rope.sim.heaves, error: window.__rope.hostError() }));
+  const [h, g] = await Promise.all([read(host), read(guest)]);
+  for (const p of [host, guest]) {
+    await p.page.evaluate(() => {
+      window.__rope.setTestHand('left', null);
+      window.__rope.setTestHand('right', null);
+    });
+  }
+  return { host: h, guest: g };
 }
 
 async function netStats(page) {
@@ -162,6 +294,11 @@ async function netStats(page) {
       arrivalJitterMs: n.arrivalJitterMs,
       lateFrames: n.lateFrames,
       host: n.session.isHost,
+      audioJitterBufferMs: n.session.report.audioJitterBufferMs,
+      audioLost: n.session.report.audioLost,
+      audioConcealed: n.session.report.audioConcealed,
+      audioBytesReceived: n.session.report.audioBytesReceived,
+      audioContext: n.voice.audioState,
     };
   });
 }
@@ -172,7 +309,15 @@ async function main() {
   await start('npx', ['vite', 'preview', '--port', String(PREVIEW_PORT), '--strictPort'], 'Local');
 
   const browser = await chromium.launch({
-    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+    args: [
+      '--use-angle=swiftshader',
+      '--enable-unsafe-swiftshader',
+      '--ignore-gpu-blocklist',
+      // A fake microphone that beeps, granted without a prompt, and audio without a click.
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      '--autoplay-policy=no-user-gesture-required',
+    ],
   });
   const report = {};
   try {
@@ -221,6 +366,15 @@ async function main() {
     );
     check('Crewmate avatar is drawn', visible);
 
+    // Voice: the fake microphone beeps about once a second.
+    const voicePeak = await peakVoiceLevel(b.page, 2500);
+    check('Crewmate voice arrives', voicePeak > 0.01, `peak level ${voicePeak.toFixed(3)}`);
+    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+    await new Promise((r) => setTimeout(r, 500));
+    const mutedPeak = await peakVoiceLevel(b.page, 2500);
+    check('Mute silences the microphone', mutedPeak < 0.002, `peak level ${mutedPeak.toFixed(4)}`);
+    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+
     const motion = await measureMotion(a, b, 3);
     report.local = { ...(await netStats(b.page)), motion };
     check('Crewmate moves smoothly (local network)',
@@ -238,12 +392,36 @@ async function main() {
     const a2 = await openPlayer(browser, `room=${room}&name=Ann`);
     await waitFor('reconnected', async () => (await state(a2.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('A player can rejoin', true);
+
+    // Spike S6: the two-person crank. Bo is host now and Ann the guest.
+    const together = await crankTogether(b, a2, 8.5, 0, 6);
+    report.crankInStep = together;
+    check('Cranking in step engages high gear on the host',
+      together.host.gearFrames / together.host.frames > 0.9 && together.host.omega > 2.5 * together.host.solo,
+      `${(together.host.omega / (2 * Math.PI)).toFixed(2)} turns/s (solo top ${(together.host.solo / (2 * Math.PI)).toFixed(2)}), high gear ${((100 * together.host.gearFrames) / together.host.frames).toFixed(0)}% of frames, handles held ${JSON.stringify(together.host.held)}`);
+    check('Guest crank stays with the host', together.guest.maxError < 0.35 && Math.abs(together.guest.omega - together.host.omega) < 1.5,
+      `largest gap ${((together.guest.maxError * 180) / Math.PI).toFixed(1)}°, guest ${(together.guest.omega / (2 * Math.PI)).toFixed(2)} turns/s`);
+    const apart = await crankTogether(b, a2, 6, 0.25, 6);
+    report.crankOutOfStep = apart;
+    check('Cranking 250 ms out of step stays in low gear', apart.host.gearFrames === 0 && Math.abs(apart.host.omega) < 1.6 * apart.host.solo,
+      `${(apart.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${apart.host.gearFrames} frames`);
+
+    const hauled = await haulTogether(b, a2, 0, 6);
+    report.haulInStep = hauled;
+    check('Hauling in step heaves together', hauled.host.heaves >= 5 && hauled.host.hauled > 1.5,
+      `${hauled.host.heaves} heaves, ${hauled.host.hauled.toFixed(2)} m hauled in 6 s; guest sees ${hauled.guest.hauled.toFixed(2)} m`);
+    check('Guest line stays with the host', Math.abs(hauled.guest.hauled - hauled.host.hauled) < 0.15,
+      `host ${hauled.host.hauled.toFixed(2)} m, guest ${hauled.guest.hauled.toFixed(2)} m`);
+    const ragged = await haulTogether(b, a2, 0.25, 6);
+    report.haulOutOfStep = ragged;
+    check('Hauling 250 ms out of step never heaves', ragged.host.heaves === 0,
+      `${ragged.host.heaves} heaves, ${ragged.host.hauled.toFixed(2)} m hauled`);
     await a2.context.close();
     await b.context.close();
 
     // The plan's worst playable case: about 150 ms RTT (60 ms each way plus
     // 0 to 20 ms jitter on each side, which also reorders packets) and 1% loss.
-    const lag = 'netlag=60&netjitter=20&netloss=0.01';
+    const lag = 'netlag=60&netjitter=20&netloss=0.01&voiceloop=1';
     const d = await openPlayer(browser, `room=LAGS&name=Di&${lag}`);
     const e = await openPlayer(browser, `room=LAGS&name=Ed&${lag}`);
     await waitFor('lagged pair connected', async () => (await state(d.page)) === 'connected' && (await state(e.page)) === 'connected');
@@ -255,6 +433,23 @@ async function main() {
     check('Crewmate moves smoothly (simulated lag and jitter)',
       lagMotion.frames >= 20 && lagMotion.backwards === 0 && lagMotion.maxStep < Math.max(0.12, lagMotion.median * 4) && lagMotion.radiusError < 0.02,
       `${lagMotion.frames} frames, ${lagMotion.backwards} backward steps ${lagMotion.backSteps.join(' ')}, max step ${lagMotion.maxStep.toFixed(3)} rad vs median ${lagMotion.median.toFixed(3)}`);
+
+    const loopVoice = await peakVoiceLevel(e.page, 2500);
+    const loopActive = await e.page.evaluate(() => window.__net.voice.loopbackActive);
+    check('Voice through the loopback route', loopActive && loopVoice > 0.01, `loopback ${loopActive}, peak level ${loopVoice.toFixed(3)}`);
+
+    const lagCrank = await crankTogether(d, e, 8.5, 0, 6);
+    report.crankLagged = lagCrank;
+    check('Cranking in step reaches high gear at 150 ms RTT',
+      lagCrank.host.gearFrames / lagCrank.host.frames > 0.9 && lagCrank.host.omega > 2.5 * lagCrank.host.solo,
+      `${(lagCrank.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${((100 * lagCrank.host.gearFrames) / lagCrank.host.frames).toFixed(0)}% of frames`);
+    check('Guest crank stays with the host at 150 ms RTT', lagCrank.guest.maxError < 0.5,
+      `largest gap ${((lagCrank.guest.maxError * 180) / Math.PI).toFixed(1)}°`);
+
+    const lagHaul = await haulTogether(d, e, 0, 6);
+    report.haulLagged = lagHaul;
+    check('Hauling in step heaves at 150 ms RTT', lagHaul.host.heaves >= 5,
+      `${lagHaul.host.heaves} heaves, ${lagHaul.host.hauled.toFixed(2)} m hauled`);
 
     const errors = [...a.errors, ...b.errors, ...d.errors, ...e.errors].filter(
       (m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'),

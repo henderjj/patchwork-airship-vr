@@ -1,8 +1,9 @@
-import { createSystem, Euler, Mesh, Object3D, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
+import { createSystem, Euler, InputComponent, Mesh, Object3D, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
 import { LobbyUi } from '../net/lobby-ui.js';
 import { NetSession } from '../net/net-session.js';
 import { createAvatarPose, decodePose, encodePose, type AvatarPose, type PoseHeader, type PoseSample, POSE_PACKET_BYTES, seqNewer } from '../net/pose-codec.js';
-import { PoseBuffer } from '../net/pose-buffer.js';
+import { copyAvatar, copyPose, PoseBuffer } from '../net/pose-buffer.js';
+import { Voice } from '../net/voice.js';
 import { createAvatarHand, createAvatarHead, createAvatarTorso, CREW_COLORS } from '../scene-assets/avatar.scene-asset.js';
 import { settings } from '../settings.js';
 import { perf } from './perf-hud-system.js';
@@ -16,9 +17,14 @@ import { perf } from './perf-hud-system.js';
  *
  * The crew panel on the flat page creates or joins a room; `?room=ABCD` in
  * the URL joins on load. With no room the game is solo and nothing here runs.
+ *
+ * Spike S5 adds voice on the same connection (see src/net/voice.ts): the
+ * crewmate's voice is placed at their mouth and heard from this player's
+ * head. The Y button (left controller) or the crew panel's Mic button mutes.
  */
 
 const SEND_HZ = 45;
+const STATS_LOG_MS = 5000;
 
 /**
  * How far behind the newest packet to draw the crewmate: long enough that the
@@ -30,6 +36,46 @@ const SEND_HZ = 45;
 export function bufferDelayMs(packetIntervalMs: number, arrivalJitterMs: number): number {
   return Math.min(200, Math.max(30, 1.5 * packetIntervalMs + 3 * arrivalJitterMs + 5));
 }
+
+/** Pose flag bits: hand tracked (0, 1) and hand holding a crank handle (2, 3). */
+export const FLAG_LEFT_TRACKED = 1;
+export const FLAG_RIGHT_TRACKED = 2;
+export const FLAG_LEFT_CRANK = 4;
+export const FLAG_RIGHT_CRANK = 8;
+/** Pose flag bits: hand holding the mooring line (4, 5). */
+export const FLAG_LEFT_ROPE = 16;
+export const FLAG_RIGHT_ROPE = 32;
+
+/**
+ * What other systems (the crank, later the rope and throws) need from the
+ * network, without reaching into NetSystem: connection state, the crewmate's
+ * pose as drawn this frame and the local time it describes, extra pose flags
+ * and hand positions to send, a way to send packets, and handlers for packet
+ * types other than poses.
+ */
+export const netLink = {
+  connected: false,
+  isHost: true,
+  /** The crewmate's pose as drawn this frame (valid when haveRemote). */
+  remote: createAvatarPose(),
+  haveRemote: false,
+  /** Local time the drawn crewmate pose describes, ms. */
+  remoteAtMs: Number.NaN,
+  /** Extra flag bits OR-ed into this player's pose packets, one entry per system (crank, rope). */
+  extraFlags: {} as Record<string, number>,
+  /**
+   * Hand poses to send instead of the tracked ones (tests without a headset),
+   * as functions of the send time so the pose matches its timestamp, or null.
+   */
+  handOverride: {
+    left: null as ((nowMs: number) => PoseSample) | null,
+    right: null as ((nowMs: number) => PoseSample) | null,
+  },
+  send: (_buffer: ArrayBuffer, _length: number): void => undefined,
+  /** Convert the crewmate's clock to ours. */
+  toLocal: (peerMs: number): number => peerMs,
+  handlers: new Map<number, (view: DataView) => void>(),
+};
 
 export function lobbyBaseUrl(): string {
   if (settings.lobby) {
@@ -63,6 +109,7 @@ interface NetDebug {
   remotePose(): AvatarPose | null;
   join(room: string): void;
   leave(): void;
+  voice: Voice;
 }
 
 export class NetSystem extends createSystem({}) {
@@ -99,12 +146,21 @@ export class NetSystem extends createSystem({}) {
   private tmpScale = new Vector3();
   private tmpEuler = new Euler(0, 0, 0, 'YXZ');
   private debug!: NetDebug;
+  private voice!: Voice;
+  private listenerPos = new Vector3();
+  private listenerQuat = new Quaternion();
+  private forward = new Vector3();
+  private up = new Vector3();
+  private mouth = new Vector3();
+  private statsTimer = 0;
 
   init(): void {
+    this.voice = new Voice(settings.voice, settings.voiceLoop, (track) => this.session.setMicTrack(track));
     this.session = new NetSession({
       onState: (state, detail) => {
         this.ui?.update(state, this.room, detail);
         console.info(`[Net] ${state}${detail ? `: ${detail}` : ''}`);
+        clearInterval(this.statsTimer);
         if (state === 'connected') {
           // Which route the connection took, and how long it took to set up.
           setTimeout(() => {
@@ -114,8 +170,10 @@ export class NetSystem extends createSystem({}) {
               ),
             );
           }, 1000);
+          this.statsTimer = window.setInterval(() => void this.logStats(), STATS_LOG_MS);
         }
         if (state !== 'connected') {
+          this.voice.stopRemote();
           this.haveRemote = false;
           this.buffer.clear();
           this.lastSeq = -1;
@@ -123,9 +181,13 @@ export class NetSystem extends createSystem({}) {
         }
       },
       onPacket: (view) => this.onPacket(view),
+      onRemoteAudio: (stream) => this.voice.playRemote(stream),
     }, { lagMs: settings.netLag, jitterMs: settings.netJitter, loss: settings.netLoss });
 
     this.createRemoteAvatar();
+    netLink.remote = this.remote;
+    netLink.send = (buffer, length) => this.session.sendUnreliable(buffer, length);
+    netLink.toLocal = (peerMs) => this.session.clock.toLocal(peerMs);
 
     const self = this;
     this.debug = {
@@ -141,14 +203,26 @@ export class NetSystem extends createSystem({}) {
       remotePose: () => (this.haveRemote ? this.remote : null),
       join: (room) => this.join(room),
       leave: () => this.leave(),
+      voice: this.voice,
     } as NetDebug;
     (window as unknown as { __net: NetDebug }).__net = this.debug;
 
-    this.ui = new LobbyUi((room) => this.join(room), () => this.leave());
+    this.ui = new LobbyUi((room) => this.join(room), () => this.leave(), () => this.toggleMute());
+    // Browsers only start audio after a user gesture: any click, or entering VR.
+    const resume = () => this.voice.resume();
+    window.addEventListener('pointerdown', resume);
     this.cleanupFuncs.push(
+      () => window.removeEventListener('pointerdown', resume),
+      () => clearInterval(this.statsTimer),
       () => this.session.close(),
+      () => this.voice.dispose(),
       () => this.ui?.dispose(),
-      this.world.visibilityState.subscribe((v) => this.ui?.show(v === VisibilityState.NonImmersive)),
+      this.world.visibilityState.subscribe((v) => {
+        this.ui?.show(v === VisibilityState.NonImmersive);
+        if (v !== VisibilityState.NonImmersive) {
+          this.voice.resume();
+        }
+      }),
     );
     if (settings.room) {
       this.ui.join(settings.room.toUpperCase());
@@ -160,6 +234,25 @@ export class NetSystem extends createSystem({}) {
     const color = Math.floor(Math.random() * CREW_COLORS.length);
     const name = settings.name || `Crew ${Math.floor(Math.random() * 900 + 100)}`;
     this.session.join(lobbyBaseUrl(), room, name, color);
+    this.voice.resume();
+    void this.voice.startMic().then(() => this.ui?.setMic(this.voice.muted, this.voice.micError));
+  }
+
+  private toggleMute(): void {
+    this.voice.setMuted(!this.voice.muted);
+    this.ui?.setMic(this.voice.muted, this.voice.micError);
+    console.info(`[Voice] ${this.voice.muted ? 'muted' : 'unmuted'}`);
+  }
+
+  private async logStats(): Promise<void> {
+    await this.session.updateReport();
+    const s = this.session.clock.stats;
+    const r = this.session.report;
+    console.info(
+      `[Net] rtt ${s.srtt.toFixed(1)} ms (jitter ${s.jitter.toFixed(1)}), avatar delay ${this.delayMs.toFixed(0)} ms, ` +
+        `pose packets ${r.received} lost ${r.lost}, voice buffer ${r.audioJitterBufferMs.toFixed(0)} ms lost ${r.audioLost} ` +
+        `concealed ${(r.audioConcealed * 100).toFixed(1)}%, route ${r.candidates}`,
+    );
   }
 
   private leave(): void {
@@ -182,6 +275,7 @@ export class NetSystem extends createSystem({}) {
 
   private onPacket(view: DataView): void {
     if (!decodePose(view, this.header, this.incoming)) {
+      netLink.handlers.get(view.getUint8(0))?.(view);
       return;
     }
     this.accept(this.header.seq, this.header.timeMs, this.incoming);
@@ -216,6 +310,9 @@ export class NetSystem extends createSystem({}) {
 
   update(delta: number): void {
     const session = this.session;
+    netLink.connected = session.state === 'connected';
+    netLink.isHost = session.isHost || !netLink.connected;
+    netLink.haveRemote = false;
     if (session.state !== 'connected') {
       if (this.head.visible) {
         this.setRemoteVisible(false, 0);
@@ -224,6 +321,9 @@ export class NetSystem extends createSystem({}) {
     }
     const stats = session.clock.stats;
     perf.rttMs = stats.srtt;
+    if (this.input.xr.gamepads.left?.getButtonDown(InputComponent.Y_Button)) {
+      this.toggleMute();
+    }
 
     // Send this player's pose at 45 Hz.
     this.sendAccumulator += delta;
@@ -231,7 +331,19 @@ export class NetSystem extends createSystem({}) {
       this.sendAccumulator = Math.min(this.sendAccumulator - 1 / SEND_HZ, 1 / SEND_HZ);
       const now = performance.now();
       const test = this.testPose;
-      const pose = test === null ? this.readLocalPose() : typeof test === 'function' ? test(now) : test;
+      const pose = test === null ? this.readLocalPose() : this.local;
+      if (test !== null) {
+        copyAvatar(typeof test === 'function' ? test(now) : test, this.local);
+      }
+      for (const key in netLink.extraFlags) {
+        pose.flags |= netLink.extraFlags[key];
+      }
+      if (netLink.handOverride.left) {
+        copyPose(netLink.handOverride.left(now), pose.left);
+      }
+      if (netLink.handOverride.right) {
+        copyPose(netLink.handOverride.right(now), pose.right);
+      }
       const length = encodePose(this.sendBuffer, this.seq, now, pose);
       this.seq = (this.seq + 1) & 0xffff;
       session.sendUnreliable(this.sendBuffer, length);
@@ -242,8 +354,29 @@ export class NetSystem extends createSystem({}) {
     this.delayMs = Math.max(0, this.transit) + bufferDelayMs(this.packetInterval, this.arrivalJitter);
     if (this.buffer.count > 0 && this.buffer.sample(performance.now() - this.delayMs, this.remote)) {
       this.haveRemote = true;
+      netLink.haveRemote = true;
+      netLink.remoteAtMs = performance.now() - this.delayMs;
       this.applyRemote();
+      this.placeVoice();
     }
+  }
+
+  /** Hear the crewmate's voice from their mouth, relative to this player's head. */
+  private placeVoice(): void {
+    const immersive = this.world.visibilityState.peek() !== VisibilityState.NonImmersive;
+    const head = immersive ? this.player.head : this.camera;
+    head.updateWorldMatrix(true, false);
+    head.matrixWorld.decompose(this.listenerPos, this.listenerQuat, this.tmpScale);
+    this.forward.set(0, 0, -1).applyQuaternion(this.listenerQuat);
+    this.up.set(0, 1, 0).applyQuaternion(this.listenerQuat);
+    this.voice.setListener(this.listenerPos, this.forward, this.up);
+    const h = this.remote.head;
+    this.tmpQuat.set(h.qx, h.qy, h.qz, h.qw);
+    this.mouth.set(0, -0.08, -0.06).applyQuaternion(this.tmpQuat);
+    this.mouth.x += h.px;
+    this.mouth.y += h.py;
+    this.mouth.z += h.pz;
+    this.voice.setSource(this.mouth);
   }
 
   private readLocalPose(): AvatarPose {
@@ -254,11 +387,11 @@ export class NetSystem extends createSystem({}) {
     let flags = 0;
     if (immersive && xr.getPrimaryInputSource('left')) {
       readWorldPose(player.gripSpaces.left, this.local.left, this.tmpPos, this.tmpQuat, this.tmpScale);
-      flags |= 1;
+      flags |= FLAG_LEFT_TRACKED;
     }
     if (immersive && xr.getPrimaryInputSource('right')) {
       readWorldPose(player.gripSpaces.right, this.local.right, this.tmpPos, this.tmpQuat, this.tmpScale);
-      flags |= 2;
+      flags |= FLAG_RIGHT_TRACKED;
     }
     this.local.flags = flags;
     return this.local;
@@ -280,8 +413,8 @@ export class NetSystem extends createSystem({}) {
   private setRemoteVisible(visible: boolean, flags: number): void {
     this.head.visible = visible;
     this.torso.visible = visible;
-    this.leftHand.visible = visible && (flags & 1) !== 0;
-    this.rightHand.visible = visible && (flags & 2) !== 0;
+    this.leftHand.visible = visible && (flags & FLAG_LEFT_TRACKED) !== 0;
+    this.rightHand.visible = visible && (flags & FLAG_RIGHT_TRACKED) !== 0;
   }
 }
 

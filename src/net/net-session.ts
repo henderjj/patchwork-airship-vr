@@ -11,8 +11,10 @@ import { encodePing, encodePong, PacketType } from './pose-codec.js';
  *   holds up newer ones;
  * - `r`: reliable and ordered (grabs, releases, ownership and game events).
  *
- * The host (first to join) makes the offer. Voice (spike S5) will add an
- * audio track to the same connection.
+ * The host (first to join) makes the offer. The offer also carries one
+ * two-way audio transceiver for voice (spike S5); the microphone track is
+ * attached with replaceTrack whenever it becomes available, so muting or a
+ * late microphone permission never needs a renegotiation.
  */
 
 export type SessionState = 'idle' | 'lobby' | 'waiting' | 'connecting' | 'connected' | 'full' | 'closed' | 'error';
@@ -24,6 +26,11 @@ export interface ConnectionReport {
   /** Packets the peer sent that never arrived (from pose sequence gaps). */
   lost: number;
   received: number;
+  /** Voice receive stats: average jitter-buffer delay (ms), lost packets, fraction of audio concealed. */
+  audioJitterBufferMs: number;
+  audioLost: number;
+  audioConcealed: number;
+  audioBytesReceived: number;
 }
 
 /** Test-only network conditions applied to received unreliable packets. */
@@ -40,6 +47,8 @@ export interface NetSessionEvents {
   onState?(state: SessionState, detail?: string): void;
   onPacket?(view: DataView): void;
   onEvent?(event: unknown): void;
+  /** The crewmate's voice arrived (or restarted). */
+  onRemoteAudio?(stream: MediaStream): void;
 }
 
 const PING_INTERVAL_MS = 500;
@@ -50,7 +59,10 @@ export class NetSession {
   you: CrewMember | null = null;
   peer: CrewMember | null = null;
   readonly clock = new ClockSync();
-  readonly report: ConnectionReport = { candidates: '', protocol: '', lost: 0, received: 0 };
+  readonly report: ConnectionReport = {
+    candidates: '', protocol: '', lost: 0, received: 0,
+    audioJitterBufferMs: Number.NaN, audioLost: 0, audioConcealed: 0, audioBytesReceived: 0,
+  };
   /** Milliseconds from starting to join until the data channels opened. */
   connectMs = Number.NaN;
 
@@ -60,6 +72,8 @@ export class NetSession {
   private reliable: RTCDataChannel | null = null;
   private iceServers: RTCIceServerLike[] = [];
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private audio: RTCRtpTransceiver | null = null;
+  private micTrack: MediaStreamTrack | null = null;
   private pingTimer = 0;
   private connectTimer = 0;
   private joinStarted = 0;
@@ -93,6 +107,12 @@ export class NetSession {
         this.setState('error', 'lobby connection closed');
       }
     };
+  }
+
+  /** Use `track` as this player's voice (null sends silence). */
+  setMicTrack(track: MediaStreamTrack | null): void {
+    this.micTrack = track;
+    void this.audio?.sender.replaceTrack(track).catch(() => undefined);
   }
 
   /** Send a binary packet on the unreliable channel. */
@@ -193,9 +213,15 @@ export class NetSession {
         this.setState('connecting', 'connection interrupted');
       }
     };
+    pc.ontrack = (event) => {
+      if (event.track.kind === 'audio') {
+        this.events.onRemoteAudio?.(event.streams[0] ?? new MediaStream([event.track]));
+      }
+    };
     if (this.isHost) {
       this.attachChannel(pc.createDataChannel('u', { ordered: false, maxRetransmits: 0 }));
       this.attachChannel(pc.createDataChannel('r', { ordered: true }));
+      this.audio = pc.addTransceiver(this.micTrack ?? 'audio', { direction: 'sendrecv', streams: [new MediaStream()] });
     } else {
       pc.ondatachannel = (event) => this.attachChannel(event.channel);
     }
@@ -214,6 +240,7 @@ export class NetSession {
     this.pc?.close();
     this.unreliable = this.reliable = null;
     this.pc = null;
+    this.audio = null;
     this.pendingCandidates = [];
   }
 
@@ -231,6 +258,12 @@ export class NetSession {
     }
     if (data.kind === 'offer') {
       await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
+      // Answer the host's audio transceiver with our own microphone.
+      this.audio = pc.getTransceivers().find((t) => t.receiver.track.kind === 'audio') ?? null;
+      if (this.audio) {
+        this.audio.direction = 'sendrecv';
+        await this.audio.sender.replaceTrack(this.micTrack).catch(() => undefined);
+      }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       this.signal({ kind: 'answer', sdp: answer.sdp ?? '' });
@@ -329,6 +362,13 @@ export class NetSession {
         const remote = stats.get(s.remoteCandidateId);
         this.report.candidates = `${local?.candidateType ?? '?'}/${remote?.candidateType ?? '?'}`;
         this.report.protocol = local?.protocol ?? '';
+      }
+      if (s.type === 'inbound-rtp' && s.kind === 'audio') {
+        const r = this.report;
+        r.audioJitterBufferMs = s.jitterBufferEmittedCount > 0 ? (1000 * s.jitterBufferDelay) / s.jitterBufferEmittedCount : Number.NaN;
+        r.audioLost = s.packetsLost ?? 0;
+        r.audioConcealed = s.totalSamplesReceived > 0 ? (s.concealedSamples ?? 0) / s.totalSamplesReceived : 0;
+        r.audioBytesReceived = s.bytesReceived ?? 0;
       }
     });
   }

@@ -95,6 +95,22 @@ describe('pose buffer', () => {
   });
 });
 
+describe('crank packets', () => {
+  it('round-trip the host crank state', async () => {
+    const { encodeCrank, decodeCrank, CRANK_PACKET_BYTES } = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(CRANK_PACKET_BYTES);
+    const length = encodeCrank(buffer, { timeMs: 123456.7, angle: -2.5, omega: 8.75, gear: 0.5, flags: 5 });
+    expect(length).toBe(CRANK_PACKET_BYTES);
+    const out = { timeMs: 0, angle: 0, omega: 0, gear: 0, flags: 0 };
+    expect(decodeCrank(new DataView(buffer), out)).toBe(true);
+    expect(out.timeMs).toBe(123456);
+    expect(out.angle).toBeCloseTo(-2.5, 5);
+    expect(out.omega).toBeCloseTo(8.75, 5);
+    expect(out.gear).toBeCloseTo(0.5, 2);
+    expect(out.flags).toBe(5);
+  });
+});
+
 describe('clock sync reset', () => {
   it('forgets the previous peer', async () => {
     const { ClockSync } = await import('../src/net/clock-sync.js');
@@ -105,5 +121,16 @@ describe('clock sync reset', () => {
     expect(clock.stats.samples).toBe(0);
     clock.onPong(100, 120, 140);
     expect(clock.stats.offset).toBeCloseTo(0, 6);
+  });
+});
+
+describe('rope packets', () => {
+  it('round-trip the host line state', async () => {
+    const { encodeRope, decodeRope, ROPE_PACKET_BYTES } = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(ROPE_PACKET_BYTES);
+    expect(encodeRope(buffer, { timeMs: 99.9, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 })).toBe(ROPE_PACKET_BYTES);
+    const out = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0 };
+    expect(decodeRope(new DataView(buffer), out)).toBe(true);
+    expect(out).toEqual({ timeMs: 99, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 });
   });
 });
