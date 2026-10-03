@@ -42,6 +42,9 @@ export const FLAG_LEFT_TRACKED = 1;
 export const FLAG_RIGHT_TRACKED = 2;
 export const FLAG_LEFT_CRANK = 4;
 export const FLAG_RIGHT_CRANK = 8;
+/** Pose flag bits: hand holding the mooring line (4, 5). */
+export const FLAG_LEFT_ROPE = 16;
+export const FLAG_RIGHT_ROPE = 32;
 
 /**
  * What other systems (the crank, later the rope and throws) need from the
@@ -58,8 +61,8 @@ export const netLink = {
   haveRemote: false,
   /** Local time the drawn crewmate pose describes, ms. */
   remoteAtMs: Number.NaN,
-  /** Extra flag bits OR-ed into this player's pose packets. */
-  extraFlags: 0,
+  /** Extra flag bits OR-ed into this player's pose packets, one entry per system (crank, rope). */
+  extraFlags: {} as Record<string, number>,
   /**
    * Hand poses to send instead of the tracked ones (tests without a headset),
    * as functions of the send time so the pose matches its timestamp, or null.
@@ -332,7 +335,9 @@ export class NetSystem extends createSystem({}) {
       if (test !== null) {
         copyAvatar(typeof test === 'function' ? test(now) : test, this.local);
       }
-      pose.flags |= netLink.extraFlags;
+      for (const key in netLink.extraFlags) {
+        pose.flags |= netLink.extraFlags[key];
+      }
       if (netLink.handOverride.left) {
         copyPose(netLink.handOverride.left(now), pose.left);
       }

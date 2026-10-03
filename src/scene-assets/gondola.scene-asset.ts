@@ -4,10 +4,8 @@ import {
   IcosahedronGeometry,
   Mesh,
   MeshLambertMaterial,
-  Quaternion,
-  Vector3,
 } from '@iwsdk/core';
-import { jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly.js';
+import { beam, jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly.js';
 
 /**
  * The gondola: a 2 × 3 m wood-and-canvas deck that is the players' fixed frame
@@ -113,24 +111,6 @@ function box(
   rotation?: [number, number, number],
 ): Part {
   return { geometry: new BoxGeometry(...size), color, position, rotation };
-}
-
-const up = new Vector3(0, 1, 0);
-const dir = new Vector3();
-const quat = new Quaternion();
-
-/** A thin cylinder from a to b. */
-function beam(a: readonly number[], b: readonly number[], radius: number, color: number): Part {
-  const start = new Vector3(a[0], a[1], a[2]);
-  const end = new Vector3(b[0], b[1], b[2]);
-  dir.subVectors(end, start);
-  const length = dir.length();
-  const geometry = new CylinderGeometry(radius, radius, length, 5, 1);
-  quat.setFromUnitVectors(up, dir.normalize());
-  geometry.applyQuaternion(quat);
-  const mid = start.add(end).multiplyScalar(0.5);
-  geometry.translate(mid.x, mid.y, mid.z);
-  return { geometry, color };
 }
 
 function deckParts(): Part[] {

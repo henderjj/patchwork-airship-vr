@@ -15,7 +15,9 @@
  *   crewmate, muting silences it, and the loopback route starts;
  * - the two-person crank (spike S6): cranking in step reaches high gear and
  *   about three times the solo speed, out of step it does not, and the
- *   guest's crank stays with the host's, on a clean link and at 150 ms RTT.
+ *   guest's crank stays with the host's, on a clean link and at 150 ms RTT;
+ * - the hand-over-hand rope haul (spike S6): strokes together heave, strokes
+ *   250 ms apart do not, also at 150 ms RTT.
  *
  * Writes measured RTT, packet rate and route to artifacts/net-report.json.
  */
@@ -81,7 +83,7 @@ async function openPlayer(browser, query) {
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
-    if (m.text().startsWith('[Net]') || m.text().startsWith('[Crank]')) console.log(`    ${m.text()}`);
+    if (/^\[(Net|Crank|Rope)\]/.test(m.text())) console.log(`    ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}?${QUIET}&${query}`);
@@ -234,6 +236,48 @@ async function crankTogether(host, guest, rate, guestLagS, seconds) {
   return { host: h, guest: g };
 }
 
+/**
+ * Both players haul the mooring line hand over hand: each hand in turn pulls
+ * 0.5 m over 0.5 s (eased), then lets go and reaches forward while the other
+ * pulls. The guest's rhythm lags by `guestLagS`. Timed from the wall clock.
+ */
+async function haulTogether(host, guest, guestLagS, seconds) {
+  for (const p of [host, guest]) await p.page.evaluate(() => window.__rope.reset());
+  const t0 = Date.now() + 300;
+  const script = ([lagS, start]) => {
+    ['left', 'right'].forEach((side, sideIndex) => {
+      window.__rope.setTestHand(side, () => {
+        const tt = (Date.now() - start) / 1000 - lagS;
+        if (tt < 0) return null;
+        const stroke = Math.floor(tt / 0.5);
+        if (stroke % 2 !== sideIndex) return null;
+        const phase = tt / 0.5 - stroke;
+        return 0.4 + (0.5 * (1 - Math.cos(Math.PI * phase))) / 2;
+      });
+    });
+  };
+  await host.page.evaluate(script, [0, t0]);
+  await guest.page.evaluate(script, [guestLagS, t0]);
+  const trace = process.env.DEBUG_ROPE
+    ? setInterval(async () => {
+        const h = await host.page.evaluate(() => { const s = window.__rope.sim; return [s.stroking, s.strokeStart.map((x) => Math.round(x % 100000)), s.handSpeed.map((x) => +x.toFixed(2)), s.heave, s.heaves]; }).catch(() => null);
+        console.log('    trace host', JSON.stringify(h));
+      }, 100)
+    : null;
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+  if (trace) clearInterval(trace);
+  const read = (p) =>
+    p.page.evaluate(() => ({ hauled: window.__rope.sim.hauled, heaves: window.__rope.sim.heaves, error: window.__rope.hostError() }));
+  const [h, g] = await Promise.all([read(host), read(guest)]);
+  for (const p of [host, guest]) {
+    await p.page.evaluate(() => {
+      window.__rope.setTestHand('left', null);
+      window.__rope.setTestHand('right', null);
+    });
+  }
+  return { host: h, guest: g };
+}
+
 async function netStats(page) {
   return page.evaluate(() => {
     const n = window.__net;
@@ -361,6 +405,17 @@ async function main() {
     report.crankOutOfStep = apart;
     check('Cranking 250 ms out of step stays in low gear', apart.host.gearFrames === 0 && Math.abs(apart.host.omega) < 1.6 * apart.host.solo,
       `${(apart.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${apart.host.gearFrames} frames`);
+
+    const hauled = await haulTogether(b, a2, 0, 6);
+    report.haulInStep = hauled;
+    check('Hauling in step heaves together', hauled.host.heaves >= 5 && hauled.host.hauled > 1.5,
+      `${hauled.host.heaves} heaves, ${hauled.host.hauled.toFixed(2)} m hauled in 6 s; guest sees ${hauled.guest.hauled.toFixed(2)} m`);
+    check('Guest line stays with the host', Math.abs(hauled.guest.hauled - hauled.host.hauled) < 0.15,
+      `host ${hauled.host.hauled.toFixed(2)} m, guest ${hauled.guest.hauled.toFixed(2)} m`);
+    const ragged = await haulTogether(b, a2, 0.25, 6);
+    report.haulOutOfStep = ragged;
+    check('Hauling 250 ms out of step never heaves', ragged.host.heaves === 0,
+      `${ragged.host.heaves} heaves, ${ragged.host.hauled.toFixed(2)} m hauled`);
     await a2.context.close();
     await b.context.close();
 
@@ -390,6 +445,11 @@ async function main() {
       `${(lagCrank.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${((100 * lagCrank.host.gearFrames) / lagCrank.host.frames).toFixed(0)}% of frames`);
     check('Guest crank stays with the host at 150 ms RTT', lagCrank.guest.maxError < 0.5,
       `largest gap ${((lagCrank.guest.maxError * 180) / Math.PI).toFixed(1)}°`);
+
+    const lagHaul = await haulTogether(d, e, 0, 6);
+    report.haulLagged = lagHaul;
+    check('Hauling in step heaves at 150 ms RTT', lagHaul.host.heaves >= 5,
+      `${lagHaul.host.heaves} heaves, ${lagHaul.host.hauled.toFixed(2)} m hauled`);
 
     const errors = [...a.errors, ...b.errors, ...d.errors, ...e.errors].filter(
       (m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'),

@@ -123,3 +123,14 @@ describe('clock sync reset', () => {
     expect(clock.stats.offset).toBeCloseTo(0, 6);
   });
 });
+
+describe('rope packets', () => {
+  it('round-trip the host line state', async () => {
+    const { encodeRope, decodeRope, ROPE_PACKET_BYTES } = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(ROPE_PACKET_BYTES);
+    expect(encodeRope(buffer, { timeMs: 99.9, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 })).toBe(ROPE_PACKET_BYTES);
+    const out = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0 };
+    expect(decodeRope(new DataView(buffer), out)).toBe(true);
+    expect(out).toEqual({ timeMs: 99, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 });
+  });
+});

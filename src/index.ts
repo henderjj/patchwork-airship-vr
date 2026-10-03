@@ -6,6 +6,7 @@ import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
 import { NetSystem } from './systems/net-system.js';
 import { PerfHudSystem } from './systems/perf-hud-system.js';
+import { RopeSystem } from './systems/rope-system.js';
 import { ShipSystem } from './systems/ship-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
 import { ThrowSystem } from './systems/throw-system.js';
@@ -24,6 +25,7 @@ World.create(
   world.registerSystem(NetSystem);
   // After NetSystem, so it sees the crewmate's pose drawn this frame.
   world.registerSystem(CrankSystem);
+  world.registerSystem(RopeSystem);
   world.registerSystem(PanelSystem);
   // Handles for the automated XR tests.
   (window as unknown as { __debug: unknown }).__debug = { world, PhysicsSystem };

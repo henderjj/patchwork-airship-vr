@@ -13,6 +13,8 @@ export const PacketType = {
   Pong: 3,
   /** Host's authoritative crank state (spike S6). */
   Crank: 4,
+  /** Host's authoritative mooring-line state (spike S6). */
+  Rope: 5,
 } as const;
 
 /** One tracked pose: position (m) and rotation quaternion. */
@@ -183,5 +185,40 @@ export function decodeCrank(view: DataView, out: CrankStatePacket): boolean {
   out.omega = view.getFloat32(9);
   out.gear = view.getUint8(13) / 255;
   out.flags = view.getUint8(14);
+  return true;
+}
+
+/** Host's line state: type(1) time(4) hauled f32(4) speed f32(4) flags u8(1) heaves u16(2). */
+export const ROPE_PACKET_BYTES = 16;
+
+export interface RopeStatePacket {
+  timeMs: number;
+  hauled: number;
+  speed: number;
+  /** Bit 0: heave in progress. Bit 1: docked. */
+  flags: number;
+  heaves: number;
+}
+
+export function encodeRope(buffer: ArrayBuffer, state: RopeStatePacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.Rope);
+  view.setUint32(1, Math.floor(state.timeMs) >>> 0);
+  view.setFloat32(5, state.hauled);
+  view.setFloat32(9, state.speed);
+  view.setUint8(13, state.flags & 0xff);
+  view.setUint16(14, state.heaves & 0xffff);
+  return ROPE_PACKET_BYTES;
+}
+
+export function decodeRope(view: DataView, out: RopeStatePacket): boolean {
+  if (view.byteLength < ROPE_PACKET_BYTES || view.getUint8(0) !== PacketType.Rope) {
+    return false;
+  }
+  out.timeMs = view.getUint32(1);
+  out.hauled = view.getFloat32(5);
+  out.speed = view.getFloat32(9);
+  out.flags = view.getUint8(13);
+  out.heaves = view.getUint16(14);
   return true;
 }

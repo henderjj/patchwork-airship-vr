@@ -1,6 +1,6 @@
 # Spike S6, part 1: the two-person crank
 
-Status: the crank is built and tested in the emulated headset and between two networked browsers with scripted hands, at clean and simulated 150 ms RTT. Whether it feels solid can only be judged by two people in headsets (steps at the end). The hand-over-hand rope haul, the second half of S6, comes next.
+Status: the crank is built and tested in the emulated headset and between two networked browsers with scripted hands, at clean and simulated 150 ms RTT. Whether it feels solid can only be judged by two people in headsets (steps at the end). The hand-over-hand rope haul, the second half of S6, is in [s6-rope.md](s6-rope.md).
 
 ## How it works
 

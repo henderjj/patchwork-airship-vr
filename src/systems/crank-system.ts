@@ -152,7 +152,7 @@ export class CrankSystem extends createSystem({}) {
         extraFlags |= side === 'left' ? FLAG_LEFT_TRACKED : FLAG_RIGHT_TRACKED;
       }
     }
-    netLink.extraFlags = extraFlags;
+    netLink.extraFlags.crank = extraFlags;
     if (netLink.connected && netLink.haveRemote) {
       const r = netLink.remote;
       for (const side of SIDES) {

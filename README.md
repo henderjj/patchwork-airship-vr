@@ -58,6 +58,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
 - Grab fuel bricks with the grip (squeeze) button.
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
+- **Mooring line:** squeeze the grip near the line along the port rail and haul it towards the stern hand over hand. Strokes started together by both players are heaves (see [docs/spikes/s6-rope.md](docs/spikes/s6-rope.md)).
 
 ## Testing on a headset
 
@@ -74,10 +75,10 @@ src/index.ts               world creation and system registration
 src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
-src/sim/                   engine-free simulation: ship motion, release velocity, crank
+src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul
 src/net/                   lobby protocol, WebRTC session, pose packets, clock sync, jitter buffer
 src/perf/                  frame statistics and CSV
-src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws, network, crank
+src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws, network, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

@@ -261,6 +261,26 @@ async function main() {
   check('Letting go releases the crank', evalInApp('window.__crank.holders().local[1]') === null);
   iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: { x: 0.3, y: 1.0, z: 0.2 }, duration: 0.4 });
 
+  // 5c. Take the mooring line along the port rail with the left hand and haul it in.
+  const ROPE = { x: -0.85, y: 0.95, z0: -1.35 };
+  const onRope = (along) => [ROPE.x, ROPE.y, ROPE.z0 + along];
+  iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: toOrigin(onRope(0.3)), duration: 0.5 });
+  await sleep(700);
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: SQUEEZE, value: 1 }] });
+  await sleep(300);
+  check('Squeeze takes hold of the mooring line', evalInApp('window.__rope.holding().left') === true);
+  const ropeStart = evalInApp('window.__rope.sim.hauled');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: toOrigin(onRope(0.8)), duration: 1.4 });
+  await sleep(1700);
+  const hauledIn = evalInApp('window.__rope.sim.hauled') - ropeStart;
+  check('Pulling the hand hauls the line in', hauledIn > 0.25 && evalInApp('window.__rope.holding().left') === true, `hauled ${hauledIn.toFixed(2)} m`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.85, y: 0.9, z: -0.5 } });
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-rope.png'], {});
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: SQUEEZE, value: 0 }] });
+  await sleep(300);
+  check('Letting go releases the line', evalInApp('window.__rope.holding().left') === false);
+  iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: { x: -0.3, y: 1.0, z: 0.2 }, duration: 0.4 });
+
   // 6. Fly the tour profile; bricks stay aboard while the world moves.
   const shipStart = evalInApp('[window.__ship.state.x, window.__ship.state.z]');
   evalInApp("window.__ship.setProfile('tour')");
