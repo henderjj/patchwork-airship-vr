@@ -125,7 +125,7 @@ async function measureMotion(sender, receiver, seconds) {
         const end = performance.now() + ms;
         const frame = () => {
           const p = window.__net.remotePose();
-          if (p) out.push([p.head.px, p.head.pz, performance.now()]);
+          if (p) out.push([p.head.px, p.head.pz, performance.now(), window.__net.remoteAtMs]);
           if (performance.now() < end) requestAnimationFrame(frame);
           else resolve(out);
         };
@@ -134,9 +134,10 @@ async function measureMotion(sender, receiver, seconds) {
     seconds * 1000,
   );
   // Angle along the circle for each drawn frame; it should only ever advance,
-  // at an even speed (1 rad/s). Speed rather than step per frame, so a stall
-  // in the receiving page's own frames (common with several software-rendered
-  // pages on one CI runner) isn't mistaken for a network stutter.
+  // at an even speed (1 rad/s) against the time the drawn pose describes.
+  // That time, not when this callback ran: the test's frame callback can run
+  // before or after the game's in a frame, and on a slow page frames take
+  // 100 ms or more, so callback times would make even motion look jerky.
   const angles = samples.map(([x, z]) => Math.atan2(z, x));
   let backwards = 0;
   const backSteps = [];
@@ -154,11 +155,11 @@ async function measureMotion(sender, receiver, seconds) {
       backwards++;
       backSteps.push(`${i}:${d.toFixed(4)}`);
     }
-    const dt = samples[i][2] - samples[last][2];
-    if (dt < 8) continue; // two callbacks in one frame; measure over the next
+    const dt = samples[i][3] - samples[last][3];
+    maxGapMs = Math.max(maxGapMs, samples[i][2] - samples[i - 1][2]);
+    if (dt < 8) continue; // the same game frame read twice; measure over the next
     rates.push((d * 1000) / dt);
     maxRate = Math.max(maxRate, (d * 1000) / dt);
-    maxGapMs = Math.max(maxGapMs, dt);
     last = i;
   }
   const radiusError = Math.max(...samples.map(([x, z]) => Math.abs(Math.hypot(x, z) - 0.5)));
