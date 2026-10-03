@@ -320,6 +320,9 @@ async function main() {
   //    lack it): the game skips the request and measures the rate instead.
   iwsdk(['xr', 'exit'], {});
   await waitFor('XR session to end', () => !iwsdk(['xr', 'status'], {}).result.sessionActive, 10000);
+  await sleep(2500);
+  const flatHz = evalInApp("window.__perf.recorder.rows.at(-1).split(',')[1]");
+  check('Leaving VR stops budgeting frames at the headset rate', flatHz === '60', `latest perf row at ${flatHz} Hz`);
   evalInApp(`(() => {
     const proto = Object.getPrototypeOf(window.__debug.world.session ?? {}) ?? {};
     const target = window.XRSession?.prototype ?? proto;

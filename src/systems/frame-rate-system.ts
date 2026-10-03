@@ -48,7 +48,14 @@ export class FrameRateSystem extends createSystem({}) {
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((state) => {
         const session = this.world.session;
-        if (state === VisibilityState.NonImmersive || !session || session === this.currentSession) {
+        if (state === VisibilityState.NonImmersive) {
+          // Back in the 2D page, which runs at the browser's own rate: forget
+          // the headset's, or the perf log keeps budgeting frames against it.
+          frameRateInfo.actual = null;
+          frameRateInfo.measured = null;
+          return;
+        }
+        if (!session || session === this.currentSession) {
           return;
         }
         this.currentSession = session;
@@ -84,7 +91,7 @@ export class FrameRateSystem extends createSystem({}) {
   }
 }
 
-/** The rate frames are budgeted against: reported, else measured, else a guess. */
+/** The rate frames are budgeted against: in XR the reported, else measured, rate; outside it 60 Hz. */
 export function budgetHz(immersive: boolean): number {
-  return frameRateInfo.actual ?? frameRateInfo.measured ?? (immersive ? 72 : 60);
+  return immersive ? frameRateInfo.actual ?? frameRateInfo.measured ?? 72 : 60;
 }
