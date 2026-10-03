@@ -13,7 +13,11 @@ npm test           # unit tests (simulation, perf stats)
 npm run typecheck
 npm run test:xr    # headless emulated-headset smoke test (screenshots in artifacts/)
 npm run build      # static site in dist/
+npm run lobby      # local crew lobby on port 8787 (the dev server proxies /parties to it)
+npm run test:net   # two-player network test against the local lobby (run after build)
 ```
+
+To play two-player locally, run `npm run lobby` next to `npm run dev`, then open the game in two browsers (or a browser and a headset) and use the crew panel in the top right: **New crew** makes a four-letter code and puts it in the address bar, and the other player types it and presses **Join**. The deployed lobby is a Cloudflare Worker; see [lobby/README.md](lobby/README.md).
 
 Every push to `main` is built, tested and deployed to GitHub Pages by `.github/workflows/ci.yml`.
 
@@ -35,6 +39,12 @@ Test builds are tuned from the address bar, so a headset can try variations with
 | `hud` | 1 | Show the perf HUD from the start |
 | `motion` | still | Ship motion: `still`, `gentle`, `tour` or `lively` |
 | `seed` | 1 | World generation seed |
+| `room` | | Crew code to join on load, e.g. `room=KXQT` |
+| `lobby` | | Lobby URL (`wss://...`); defaults to the build's `VITE_LOBBY_URL`, else the page's own server |
+| `name` | | Your name as the crewmate sees it |
+| `netlag` | 0 | Testing: extra delay on received packets, ms |
+| `netjitter` | 0 | Testing: extra random delay, 0 to this many ms |
+| `netloss` | 0 | Testing: fraction of received packets dropped, 0 to 1 |
 
 Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
@@ -61,14 +71,19 @@ src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
 src/sim/                   engine-free simulation: ship motion, release velocity
+src/net/                   lobby protocol, WebRTC session, pose packets, clock sync, jitter buffer
 src/perf/                  frame statistics and CSV
-src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws
+src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws, network
+lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI
+scripts/net-test.mjs       two-player test in two browser profiles
 ```
 
 Simulation code in `src/sim/` has no rendering or IWSDK imports, so the host's authoritative simulation could later move to a server if the plan needs it.
 
 The gondola never moves in the player's tracking space. The world is drawn with the inverse of the ship's pose, and physics uses the felt gravity in ship space. See [docs/spikes/s2-moving-ship.md](docs/spikes/s2-moving-ship.md).
+
+Players connect peer to peer over WebRTC after meeting in the lobby. See [docs/spikes/s4-networking.md](docs/spikes/s4-networking.md).
 
 IWSDK conventions for this project are in [AGENTS.md](AGENTS.md).

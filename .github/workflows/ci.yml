@@ -30,14 +30,20 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Emulated-headset smoke test
         run: npm run test:xr
+      - name: Two-player network test
+        run: npm run test:net
+      - name: Typecheck the lobby worker
+        run: npm ci --prefix lobby && npm run --prefix lobby typecheck
       - name: Stop the dev runtime
         if: always()
         run: npx iwsdk dev down || true
       - uses: actions/upload-artifact@v5
         if: always()
         with:
-          name: xr-screenshots
-          path: artifacts/*.png
+          name: test-artifacts
+          path: |
+            artifacts/*.png
+            artifacts/net-report.json
           if-no-files-found: ignore
 
   deploy:
@@ -61,6 +67,8 @@ jobs:
       - run: npm run build
         env:
           NODE_ENV: production
+          # The deployed crew lobby (wss://...), set under Settings → Secrets and variables → Actions → Variables.
+          VITE_LOBBY_URL: ${{ vars.LOBBY_URL }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
