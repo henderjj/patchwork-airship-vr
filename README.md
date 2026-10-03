@@ -47,6 +47,8 @@ Test builds are tuned from the address bar, so a headset can try variations with
 | `netloss` | 0 | Testing: fraction of received packets dropped, 0 to 1 |
 | `voice` | spatial | Crewmate voice: `spatial` (from their head), `plain` (not positioned) or `off` |
 | `voiceloop` | 0 | `1` routes spatial voice through a local loopback so echo cancellation can hear it |
+| `fist` | 0.6 | Tracked hands grip when the fingers' curl falls below this (1 straight, about 0.4 a fist) |
+| `pinch` | 2 | Tracked hands also grip when thumb and index tips are closer than this, cm; `0` turns it off |
 
 Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
@@ -58,6 +60,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
 - **Fuel bricks:** squeeze the grip near a brick to pick it up and let go to throw it. With the grip already squeezed and the hand empty, a brick flying past within 20 cm is caught. Throwing to a crewmate works the same at up to 150 ms of network delay (see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md)).
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
+- **Tracked hands:** put the controllers down and grip with a fist or a pinch wherever these controls say to squeeze the grip. The wrist HUD then shows a `hands` line for tuning (see [docs/spikes/s9-hand-tracking.md](docs/spikes/s9-hand-tracking.md)).
 - **Mooring line:** squeeze the grip near the line along the port rail and haul it towards the stern hand over hand. Strokes started together by both players are heaves (see [docs/spikes/s6-rope.md](docs/spikes/s6-rope.md)).
 
 ## Testing on a headset
@@ -75,10 +78,10 @@ src/index.ts               world creation and system registration
 src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
-src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul
+src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul, hand grip
 src/net/                   lobby protocol, WebRTC session, packets, clock sync, jitter buffers, object ownership
 src/perf/                  frame statistics and CSV, measured refresh rate, platform report
-src/systems/               ECS systems: frame rate, perf HUD, platform report, ship, sky, gondola, throws, network, crank, rope
+src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, gondola, throws, network, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

@@ -1,7 +1,6 @@
 import {
   CanvasTexture,
   createSystem,
-  InputComponent,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
@@ -21,6 +20,7 @@ import {
 } from '../scene-assets/rope.scene-asset.js';
 import { createRopeHandInput, ROPE_SLOTS, RopeHaulSim } from '../sim/rope-haul.js';
 import { FLAG_LEFT_ROPE, FLAG_LEFT_TRACKED, FLAG_RIGHT_ROPE, FLAG_RIGHT_TRACKED, netLink } from './net-system.js';
+import { grip } from './grip-system.js';
 
 /**
  * Spike S6, part 2: hauling the mooring line hand over hand. Squeeze the grip
@@ -187,14 +187,13 @@ export class RopeSystem extends createSystem({}) {
       return;
     }
     for (const side of SIDES) {
-      const pad = this.input.xr.gamepads[side];
       if (this.hold[side]) {
-        if (!pad?.getButtonPressed(InputComponent.Squeeze)) {
+        if (!grip[side].pressed) {
           this.release(side);
         }
         continue;
       }
-      if (!pad?.getButtonDown(InputComponent.Squeeze)) {
+      if (!grip[side].down) {
         continue;
       }
       this.player.gripSpaces[side].getWorldPosition(this.handPos);

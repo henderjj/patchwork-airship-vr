@@ -13,12 +13,13 @@ import { settings } from '../settings.js';
 import { estimateRefreshHz } from '../perf/refresh-rate.js';
 import { platformInfo, summarize } from '../perf/platform-report.js';
 import { budgetHz, frameRateInfo } from './frame-rate-system.js';
+import { grip, handGrips } from './grip-system.js';
 
 /** Shared recorder: the network layer writes `rttMs`, tests read `csv()`. */
 export const perf = new PerfRecorder();
 
 const CANVAS_W = 512;
-const CANVAS_H = 330;
+const CANVAS_H = 356;
 const HUD_REFRESH_MS = 250;
 /** Recent frames used to measure the refresh rate when the runtime doesn't report it. */
 const MEASURE_FRAMES = 90;
@@ -230,6 +231,15 @@ export class PerfHudSystem extends createSystem({}) {
     ctx.fillStyle = '#cbd5e1';
     ctx.fillText(`me   ${platformInfo.mine ? summarize(platformInfo.mine) : '-'}`, 10, graphTop + graphH + 164);
     ctx.fillText(`crew ${platformInfo.crew ? summarize(platformInfo.crew) : '-'}`, 10, graphTop + graphH + 188);
+    if (grip.left.hand || grip.right.hand) {
+      // Hand tracking (spike S9): how curled each hand is (1 open, under 0.6 a fist) and the pinch gap.
+      const l = handGrips.left, r = handGrips.right;
+      ctx.fillText(
+        `hands L ${l.curl.toFixed(2)} ${(l.pinchDistance * 100).toFixed(0)}cm${grip.left.pressed ? '*' : ''}  R ${r.curl.toFixed(2)} ${(r.pinchDistance * 100).toFixed(0)}cm${grip.right.pressed ? '*' : ''}`,
+        10,
+        graphTop + graphH + 212,
+      );
+    }
     this.texture.needsUpdate = true;
   }
 
