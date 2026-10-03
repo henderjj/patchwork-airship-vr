@@ -30,13 +30,15 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Emulated-headset smoke test
         run: npm run test:xr
+      # Stop the emulated headset first: its browser keeps rendering and the
+      # runner's two CPUs are needed for the four software-rendered pages.
+      - name: Stop the dev runtime
+        if: always()
+        run: npx iwsdk dev down || true
       - name: Two-player network test
         run: npm run test:net
       - name: Typecheck the lobby worker
         run: npm ci --prefix lobby && npm run --prefix lobby typecheck
-      - name: Stop the dev runtime
-        if: always()
-        run: npx iwsdk dev down || true
       - uses: actions/upload-artifact@v5
         if: always()
         with:
