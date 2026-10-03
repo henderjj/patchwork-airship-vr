@@ -52,7 +52,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
 ## Controls
 
-- **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip.
+- **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip. The last two lines describe this player's browser and headset runtime (`me`) and the crewmate's (`crew`); a `~` before the Hz means the rate was measured because the runtime didn't report it (see [docs/spikes/s8-pcvr.md](docs/spikes/s8-pcvr.md)).
 - **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
 - **P** pauses the ship's motion (desktop).
 - **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
@@ -64,7 +64,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
 On Quest 3: open the GitHub Pages URL in the Quest Browser, press Enter XR, and check the HUD shows 90 Hz. For a local build, run `npm run dev`, connect the headset by USB with developer mode on, run `adb reverse tcp:8081 tcp:8081`, and open `https://localhost:8081/`. On the same Wi-Fi you can instead open the network URL from `npx iwsdk dev status` and accept the certificate warning.
 
-On PC VR: make Meta Horizon Link the active OpenXR runtime, connect the Quest with Link or Air Link, and open the same URL in Chrome or Edge on Windows.
+On PC VR: make Meta Horizon Link the active OpenXR runtime, connect the Quest with Link or Air Link, and open the same URL in Chrome or Edge on Windows. Set-up steps are in [docs/spikes/s8-pcvr.md](docs/spikes/s8-pcvr.md).
 
 ## How the code is laid out
 
@@ -77,8 +77,8 @@ src/scene-assets/          procedural low-poly assets (gondola, avatar, merge he
 src/world/                 sky dome, islands and clouds
 src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul
 src/net/                   lobby protocol, WebRTC session, packets, clock sync, jitter buffers, object ownership
-src/perf/                  frame statistics and CSV
-src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws, network, crank, rope
+src/perf/                  frame statistics and CSV, measured refresh rate, platform report
+src/systems/               ECS systems: frame rate, perf HUD, platform report, ship, sky, gondola, throws, network, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

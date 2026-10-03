@@ -148,6 +148,8 @@ export interface ThrowStats {
   handovers: number;
   /** Largest jump between this player's version and the crewmate's at a hand-over, m. */
   maxHandoverOffset: number;
+  /** Every hand-over's jump, m, newest last (the last 64). */
+  handoverOffsets: number[];
 }
 
 interface ThrowDebug {
@@ -192,7 +194,7 @@ export class ThrowablesSystem extends createSystem({}) {
   private oldSample = createPoseSample();
   private catchOld = createPoseSample();
   private catchNew = createPoseSample();
-  private stats: ThrowStats = { grabs: 0, catches: 0, throws: 0, refused: 0, handovers: 0, maxHandoverOffset: 0 };
+  private stats: ThrowStats = { grabs: 0, catches: 0, throws: 0, refused: 0, handovers: 0, maxHandoverOffset: 0, handoverOffsets: [] };
 
   init(): void {
     if (!Grabbed.bitmask) {
@@ -492,7 +494,7 @@ export class ThrowablesSystem extends createSystem({}) {
           const first = o.buffer.oldestTime();
           if (o.measureBlend && o.history.sample(first, this.catchOld) >= 0 && o.buffer.sample(first, this.catchNew) >= 0) {
             const gap = Math.hypot(this.catchOld.px - this.catchNew.px, this.catchOld.py - this.catchNew.py, this.catchOld.pz - this.catchNew.pz);
-            this.stats.maxHandoverOffset = Math.max(this.stats.maxHandoverOffset, gap);
+            this.recordHandover(gap);
           }
           o.history.clear();
           o.blendPending = true;
@@ -511,7 +513,7 @@ export class ThrowablesSystem extends createSystem({}) {
         }
         if (o.measureBlend && !oldValid) {
           // A hand-over with no flight to compare (for example a refused claim).
-          this.stats.maxHandoverOffset = Math.max(this.stats.maxHandoverOffset, o.blend.length());
+          this.recordHandover(o.blend.length());
         }
       } else {
         o.blend.multiplyScalar(decay);
@@ -573,6 +575,15 @@ export class ThrowablesSystem extends createSystem({}) {
       console.info(`[Throw] caught brick ${best.id} with the ${side} hand at ${bestDistance.toFixed(2)} m`);
     }
     this.pulse(side, caught ? 0.8 : 0.4, caught ? 60 : 30);
+  }
+
+  /** Hand-overs are rare (one per catch), so keeping a short list costs nothing per frame. */
+  private recordHandover(gap: number): void {
+    this.stats.maxHandoverOffset = Math.max(this.stats.maxHandoverOffset, gap);
+    this.stats.handoverOffsets.push(gap);
+    if (this.stats.handoverOffsets.length > 64) {
+      this.stats.handoverOffsets.shift();
+    }
   }
 
   private follow(o: Throwable, hand: HandState, now: number, dt: number): void {

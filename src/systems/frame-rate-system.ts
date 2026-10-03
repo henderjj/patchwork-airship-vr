@@ -5,10 +5,20 @@ export interface FrameRateInfo {
   supported: number[];
   requested: number | null;
   actual: number | null;
+  /** Measured from frame intervals while immersive, for runtimes that don't report `frameRate`. */
+  measured: number | null;
+  /** The session offers `updateTargetFrameRate`. */
+  canSet: boolean;
 }
 
-/** Latest frame-rate state, read by the perf HUD. */
-export const frameRateInfo: FrameRateInfo = { supported: [], requested: null, actual: null };
+/** Latest frame-rate state, read by the perf HUD and the platform report. */
+export const frameRateInfo: FrameRateInfo = {
+  supported: [],
+  requested: null,
+  actual: null,
+  measured: null,
+  canSet: false,
+};
 
 /**
  * Choose the rate to request: the target if supported, otherwise the highest
@@ -38,7 +48,14 @@ export class FrameRateSystem extends createSystem({}) {
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((state) => {
         const session = this.world.session;
-        if (state === VisibilityState.NonImmersive || !session || session === this.currentSession) {
+        if (state === VisibilityState.NonImmersive) {
+          // Back in the 2D page, which runs at the browser's own rate: forget
+          // the headset's, or the perf log keeps budgeting frames against it.
+          frameRateInfo.actual = null;
+          frameRateInfo.measured = null;
+          return;
+        }
+        if (!session || session === this.currentSession) {
           return;
         }
         this.currentSession = session;
@@ -52,11 +69,15 @@ export class FrameRateSystem extends createSystem({}) {
     const supported = Array.from(session.supportedFrameRates ?? []);
     frameRateInfo.supported = supported;
     frameRateInfo.actual = session.frameRate ?? null;
+    frameRateInfo.measured = null;
+    frameRateInfo.requested = null;
+    frameRateInfo.canSet = typeof session.updateTargetFrameRate === 'function';
     const rate = chooseFrameRate(supported, settings.hz);
     console.info(
       `[FrameRate] supported=${JSON.stringify(supported)} default=${session.frameRate ?? 'unknown'} requesting=${rate ?? 'none'}`,
     );
-    if (rate === null || typeof session.updateTargetFrameRate !== 'function') {
+    if (rate === null || !frameRateInfo.canSet) {
+      // PCVR over Link: the rate is whatever the Link app's refresh setting is.
       return;
     }
     try {
@@ -68,4 +89,9 @@ export class FrameRateSystem extends createSystem({}) {
     frameRateInfo.actual = session.frameRate ?? null;
     console.info(`[FrameRate] now ${session.frameRate ?? 'unknown'} Hz`);
   }
+}
+
+/** The rate frames are budgeted against: in XR the reported, else measured, rate; outside it 60 Hz. */
+export function budgetHz(immersive: boolean): number {
+  return immersive ? frameRateInfo.actual ?? frameRateInfo.measured ?? 72 : 60;
 }

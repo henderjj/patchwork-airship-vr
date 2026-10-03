@@ -67,6 +67,17 @@ describe('clock sync', () => {
     expect(sync.stats.rtt).toBe(90);
     expect(sync.toLocal(peerAhead + 500)).toBeCloseTo(500, 6);
   });
+
+  it('does not let one slow pong at the start linger in the smoothed RTT', () => {
+    const sync = new ClockSync();
+    // The page was busy while connecting: the first pong took 1.9 s.
+    sync.onPong(0, 950, 1900);
+    for (let i = 1; i <= 3; i++) {
+      sync.onPong(i * 500, i * 500 + 75, i * 500 + 150);
+    }
+    expect(sync.stats.srtt).toBe(150);
+    expect(sync.stats.offset).toBeCloseTo(0, 6);
+  });
 });
 
 describe('pose buffer', () => {
