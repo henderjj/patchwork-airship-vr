@@ -1,0 +1,21 @@
+# Keep npm packages and GitHub Actions on their latest releases (project rule).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      iwsdk:
+        patterns: ['@iwsdk/*']
+    ignore:
+      # IWSDK pins three to super-three; upgrading it separately breaks IWSDK.
+      - dependency-name: three
+      - dependency-name: '@types/three'
+      # @iwsdk/vite-plugin-dev 1.0.1 requires Vite 7.
+      - dependency-name: vite
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

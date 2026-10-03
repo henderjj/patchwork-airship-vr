@@ -1,46 +1,74 @@
-# IWSDK App
+# Patchwork Airship VR
 
-This project uses `iwsdk.config.json` for declarative scene, asset, component,
-XR, and emulator configuration. Application systems remain explicit in
-`src/index.ts`.
+A two-player co-op VR airship game that runs in the browser, built with [IWSDK](https://iwsdk.dev) (Immersive Web SDK). Targets 90 Hz on Meta Quest 3 and also runs on PC VR through Meta Horizon Link. The design and plan live in the project's `docs/` folder (development plan, performance budget, network latency, tech stack).
+
+This repository is at the start of Phase 0 and Phase 1 of the plan: foundations plus the early de-risking spikes. Spike write-ups are in [docs/spikes/](docs/spikes/).
+
+## Run it
 
 ```sh
 npm install
-npm run dev
+npm run dev        # IWSDK dev server + managed browser with an emulated Quest 3
+npm test           # unit tests (simulation, perf stats)
+npm run typecheck
+npm run test:xr    # headless emulated-headset smoke test (screenshots in artifacts/)
+npm run build      # static site in dist/
 ```
 
-Use the Runtime and Editor controls in the managed browser to switch between
-the running experience and its authored scene.
+Every push to `main` is built, tested and deployed to GitHub Pages by `.github/workflows/ci.yml`.
 
-## Starter content
+## Settings in the URL
 
-The robot and welcome panel are small examples of authored scene content plus
-runtime systems. The robot turns toward the player's head and plays a sound
-when pressed. To remove the robot, delete its scene node, its `RobotSystem`
-registration from `src/index.ts` or `src/index.js`, and its `Robot` registration
-from `src/components.ts` or `src/components.js`; you can then delete the unused
-robot component and system files. To remove the welcome panel, delete its scene
-node and its `PanelSystem` registration from the application entry point.
+Test builds are tuned from the address bar, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
 
-- Minimal scene walkthrough: https://iwsdk.dev/guides/01b-minimal-scene.html
-- XR-enabled projects — IWER emulator controls: https://iwsdk.dev/guides/02-testing-experience.html#iwer-controls
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `hz` | 90 | Requested refresh rate; the nearest supported rate at or below is used |
+| `islands` | 30 | Floating islands (instanced, two levels of detail) |
+| `clouds` | 40 | Cloud clusters (instanced) |
+| `rain` | 0 | `1` adds instanced rain around the gondola |
+| `shadows` | 0 | `1` adds one shadow-casting light limited to the gondola |
+| `foveation` | 1 | Fixed foveated rendering, 0 (off) to 1 (maximum) |
+| `fbscale` | 1 | WebXR framebuffer scale |
+| `avatars` | 2 | Dummy crew avatars on the deck |
+| `bricks` | 8 | Loose physics fuel bricks |
+| `hud` | 1 | Show the perf HUD from the start |
+| `motion` | still | Ship motion: `still`, `gentle`, `tour` or `lively` |
+| `seed` | 1 | World generation seed |
 
-## Grab/physics test bench
+Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
-In front of the player's spawn point is a small bench with two cubes and a ball. All three have physics and can be picked up with the squeeze (grip) button. An invisible floor collider stops thrown props from falling forever. The props are defined in `src/scene-assets/test-bench.scene-asset.ts` and placed in `public/scenes/main.iwsdk.scene.json`. Keep each prop's mesh size and its `PhysicsShape` dimensions in step.
+## Controls
 
-## Automated XR smoke test
+- **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip.
+- **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
+- **P** pauses the ship's motion (desktop).
+- Grab fuel bricks with the grip (squeeze) button.
 
-```sh
-npm run test:xr
+## Testing on a headset
+
+On Quest 3: open the GitHub Pages URL in the Quest Browser, press Enter XR, and check the HUD shows 90 Hz. For a local build, run `npm run dev`, connect the headset by USB with developer mode on, run `adb reverse tcp:8081 tcp:8081`, and open `https://localhost:8081/`. On the same Wi-Fi you can instead open the network URL from `npx iwsdk dev status` and accept the certificate warning.
+
+On PC VR: make Meta Horizon Link the active OpenXR runtime, connect the Quest with Link or Air Link, and open the same URL in Chrome or Edge on Windows.
+
+## How the code is laid out
+
+```
+iwsdk.config.json          IWSDK project config (scene, features, physics at 90 Hz)
+public/scenes/             scene composition (gondola hull and rigging, welcome panel)
+src/index.ts               world creation and system registration
+src/settings.ts            URL settings
+src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
+src/world/                 sky dome, islands and clouds
+src/sim/                   engine-free simulation: ship motion, release velocity
+src/perf/                  frame statistics and CSV
+src/systems/               ECS systems: frame rate, perf HUD, ship, sky, gondola, throws
+test/                      unit tests (Vitest)
+scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI
 ```
 
-This starts or reuses the headless dev runtime, which runs an emulated Meta Quest 3 in Chromium. It then reloads the app, enters XR, checks that every prop settled on the bench, uses the right controller to grab the blue cube, lifts it, releases it, checks that it lands back on the bench, and checks that no console errors appeared. It saves `artifacts/xr-smoke.png` and exits with code 1 if any check fails. Stop the runtime with `npm run dev:down`.
+Simulation code in `src/sim/` has no rendering or IWSDK imports, so the host's authoritative simulation could later move to a server if the plan needs it.
 
-## On a real Quest 3
+The gondola never moves in the player's tracking space. The world is drawn with the inverse of the ship's pose, and physics uses the felt gravity in ship space. See [docs/spikes/s2-moving-ship.md](docs/spikes/s2-moving-ship.md).
 
-1. Turn on developer mode for the headset in the Meta Horizon phone app, connect it by USB and accept the debugging prompt.
-2. Run `npm run dev`, then `adb reverse tcp:8081 tcp:8081`.
-3. Open `https://localhost:8081/` in the Quest browser. Alternatively, on the same Wi-Fi network, open the network URL printed by `npx @iwsdk/cli dev status` and accept the certificate warning.
-
-Note: when Claude runs inside the Claude desktop app on Windows, AppData writes are redirected, so Playwright's Chromium must live elsewhere. `.claude/settings.local.json` sets `PLAYWRIGHT_BROWSERS_PATH` for that case. A normal terminal doesn't need it.
+IWSDK conventions for this project are in [AGENTS.md](AGENTS.md).
