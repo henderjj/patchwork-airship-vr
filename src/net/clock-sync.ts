@@ -56,6 +56,18 @@ export class ClockSync {
     s.offset = this.offsets[best];
   }
 
+  /** Forget all samples (a new peer has a different clock). */
+  reset(): void {
+    const s = this.stats;
+    s.rtt = Number.NaN;
+    s.srtt = Number.NaN;
+    s.jitter = 0;
+    s.offset = 0;
+    s.samples = 0;
+    this.next = 0;
+    this.count = 0;
+  }
+
   /** Convert a peer timestamp to local time. */
   toLocal(peerTimeMs: number): number {
     return peerTimeMs - this.stats.offset;

@@ -94,3 +94,16 @@ describe('pose buffer', () => {
     expect(buf.count).toBe(1);
   });
 });
+
+describe('clock sync reset', () => {
+  it('forgets the previous peer', async () => {
+    const { ClockSync } = await import('../src/net/clock-sync.js');
+    const clock = new ClockSync();
+    clock.onPong(0, 5000, 10);
+    expect(clock.stats.offset).toBeCloseTo(4995, 6);
+    clock.reset();
+    expect(clock.stats.samples).toBe(0);
+    clock.onPong(100, 120, 140);
+    expect(clock.stats.offset).toBeCloseTo(0, 6);
+  });
+});

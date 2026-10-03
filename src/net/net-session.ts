@@ -191,6 +191,8 @@ export class NetSession {
 
   private createPeerConnection(): void {
     this.resetPeerConnection();
+    // A new crewmate's clock has its own origin; old offsets would misplace every packet.
+    this.clock.reset();
     this.setState('connecting');
     const pc = new RTCPeerConnection({ iceServers: this.iceServers as RTCIceServer[] });
     this.pc = pc;
