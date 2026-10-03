@@ -15,8 +15,15 @@ export interface CrewMember {
 }
 
 export type ClientMessage =
-  | { t: 'hello'; name: string; color: number }
-  | { t: 'signal'; to: string; data: SignalData };
+  /**
+   * `player` is a random key the page keeps for its whole life, so a player
+   * rejoining after a network drop replaces their own stale connection
+   * instead of finding the room full.
+   */
+  | { t: 'hello'; name: string; color: number; player?: string }
+  | { t: 'signal'; to: string; data: SignalData }
+  /** Keeps the lobby connection from looking idle while the players are connected directly. */
+  | { t: 'ping' };
 
 export type ServerMessage =
   | { t: 'welcome'; you: CrewMember; crew: CrewMember[]; iceServers: RTCIceServerLike[] }
@@ -56,7 +63,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   try {
     const m = JSON.parse(raw);
     if (m?.t === 'hello' && typeof m.name === 'string' && typeof m.color === 'number') {
-      return { t: 'hello', name: m.name.slice(0, 24), color: m.color >>> 0 };
+      const player = typeof m.player === 'string' && m.player.length > 0 ? m.player.slice(0, 32) : undefined;
+      return { t: 'hello', name: m.name.slice(0, 24), color: m.color >>> 0, player };
+    }
+    if (m?.t === 'ping') {
+      return { t: 'ping' };
     }
     if (m?.t === 'signal' && typeof m.to === 'string' && m.data && typeof m.data.kind === 'string') {
       return { t: 'signal', to: m.to, data: m.data };
@@ -80,6 +91,8 @@ export interface Outbox {
 export class LobbyRoom {
   readonly members = new Map<string, CrewMember>();
   private order: string[] = [];
+  /** Connection id of each member's player key. */
+  private players = new Map<string, string>();
   private readonly outbox: Outbox;
   private readonly iceServers: () => Promise<RTCIceServerLike[]> | RTCIceServerLike[];
 
@@ -94,16 +107,25 @@ export class LobbyRoom {
       this.outbox.send(connectionId, { t: 'error', message: 'bad message' });
       return;
     }
+    if (message.t === 'ping') {
+      return;
+    }
     if (message.t === 'hello') {
-      await this.join(connectionId, message.name, message.color);
+      await this.join(connectionId, message.name, message.color, message.player);
     } else if (this.members.has(connectionId) && this.members.has(message.to)) {
       this.outbox.send(message.to, { t: 'signal', from: connectionId, data: message.data });
     }
   }
 
-  private async join(id: string, name: string, color: number): Promise<void> {
+  private async join(id: string, name: string, color: number, player?: string): Promise<void> {
     if (this.members.has(id)) {
       return;
+    }
+    const stale = player !== undefined ? this.players.get(player) : undefined;
+    if (stale !== undefined && stale !== id) {
+      // The same player again on a new connection: their old one is dead.
+      this.onClose(stale);
+      this.outbox.close(stale);
     }
     if (this.members.size >= MAX_CREW) {
       this.outbox.send(id, { t: 'full' });
@@ -114,6 +136,9 @@ export class LobbyRoom {
     const crew = [...this.members.values()];
     this.members.set(id, member);
     this.order.push(id);
+    if (player !== undefined) {
+      this.players.set(player, id);
+    }
     this.outbox.send(id, { t: 'welcome', you: member, crew, iceServers: await this.iceServers() });
     for (const other of crew) {
       this.outbox.send(other.id, { t: 'joined', member });
@@ -127,6 +152,11 @@ export class LobbyRoom {
     }
     this.members.delete(connectionId);
     this.order = this.order.filter((id) => id !== connectionId);
+    for (const [player, id] of this.players) {
+      if (id === connectionId) {
+        this.players.delete(player);
+      }
+    }
     let newHost: string | null = null;
     if (member.host && this.order.length > 0) {
       const next = this.members.get(this.order[0])!;

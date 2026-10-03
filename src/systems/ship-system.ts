@@ -16,6 +16,7 @@ import {
   updateQuaternion,
 } from '../sim/ship-motion.js';
 import { settings } from '../settings.js';
+import { crewPresence } from '../net/crew-presence.js';
 
 /** The ship's current world pose, read by the sky and trim systems. */
 export const ship: ShipState = createShipState();
@@ -77,7 +78,8 @@ export class ShipSystem extends createSystem({
   }
 
   update(delta: number): void {
-    if (this.paused) {
+    // Spike S10: the ship waits while the crewmate can't play.
+    if (this.paused || crewPresence.paused) {
       return;
     }
     // Clamp long frames (tab switches) so the flight doesn't jump.

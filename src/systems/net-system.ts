@@ -6,6 +6,7 @@ import { copyAvatar, copyPose, PoseBuffer } from '../net/pose-buffer.js';
 import { Voice } from '../net/voice.js';
 import { createAvatarHand, createAvatarHead, createAvatarTorso, CREW_COLORS } from '../scene-assets/avatar.scene-asset.js';
 import { settings } from '../settings.js';
+import { crewPresence } from '../net/crew-presence.js';
 import { perf } from './perf-hud-system.js';
 
 /**
@@ -146,6 +147,10 @@ export class NetSystem extends createSystem({}) {
   private packetInterval = 1000 / SEND_HZ;
   private arrivalJitter = 0;
   private lastArrival = Number.NaN;
+  /** Spike S10: when the connection opened, the crewmate's last presence report, and ours. */
+  private connectedAt = 0;
+  private crewAway = false;
+  private sentAway: boolean | null = null;
   private lastTransit = Number.NaN;
   private head!: Mesh;
   private torso!: Mesh;
@@ -185,6 +190,9 @@ export class NetSystem extends createSystem({}) {
           }, 1000);
           this.statsTimer = window.setInterval(() => void this.logStats(), STATS_LOG_MS);
         }
+        this.crewAway = false;
+        this.sentAway = null;
+        this.connectedAt = performance.now();
         if (state !== 'connected') {
           this.voice.stopRemote();
           this.haveRemote = false;
@@ -243,10 +251,38 @@ export class NetSystem extends createSystem({}) {
         if (v !== VisibilityState.NonImmersive) {
           this.voice.resume();
         }
+        this.sendPresence();
       }),
+      () => document.removeEventListener('visibilitychange', onPageVisibility),
+      () => netLink.events.delete('presence'),
     );
+    // Spike S10: tell the crewmate when this player stops seeing the game
+    // (headset off, Meta button, tab hidden). These events still fire while
+    // the page's frames are paused.
+    const onPageVisibility = () => this.sendPresence();
+    document.addEventListener('visibilitychange', onPageVisibility);
+    netLink.events.set('presence', (event) => {
+      this.crewAway = event.away === true;
+    });
     if (settings.room) {
       this.ui.join(settings.room.toUpperCase());
+    }
+  }
+
+  /** Hidden page, headset off or asleep, or a system menu over the game. */
+  private isAway(): boolean {
+    const v = this.world.visibilityState.peek();
+    return document.visibilityState === 'hidden' || v === VisibilityState.Hidden || v === VisibilityState.VisibleBlurred;
+  }
+
+  private sendPresence(): void {
+    if (this.session?.state !== 'connected') {
+      return;
+    }
+    const away = this.isAway();
+    if (away !== this.sentAway) {
+      this.sentAway = away;
+      this.session.sendEvent({ t: 'presence', away });
     }
   }
 
@@ -335,6 +371,13 @@ export class NetSystem extends createSystem({}) {
     netLink.isHost = session.isHost || !netLink.connected;
     netLink.haveRemote = false;
     netLink.clockSynced = netLink.connected && session.clock.stats.samples > 0;
+    const now = performance.now();
+    crewPresence.update(
+      session.state,
+      session.reconnecting,
+      this.crewAway,
+      Number.isNaN(this.lastArrival) ? now - this.connectedAt : now - this.lastArrival,
+    );
     if (session.state !== 'connected') {
       if (this.head.visible) {
         this.setRemoteVisible(false, 0);
