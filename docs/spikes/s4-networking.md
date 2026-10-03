@@ -37,12 +37,12 @@ Status: built and tested between two browsers in the cloud. Not yet tested on tw
 ## Not done yet
 
 - **LiveKit comparison.** The plan asks for the same pose sync on LiveKit Cloud as a fallback comparison. It needs a LiveKit account, so it waits until the direct WebRTC results from two homes are in; if those pass, the comparison is optional.
-- **Deployed lobby.** The Worker builds and runs under `wrangler dev`, but deploying it needs a Cloudflare account. Steps are in [lobby/README.md](../../lobby/README.md).
+- **Deployed lobby.** The Worker builds and runs under `wrangler dev`, but deploying it needs a Cloudflare account. CI deploys it on every push to `main` once the Cloudflare secrets are in the repository; the one-time setup is in [lobby/README.md](../../lobby/README.md).
 - **Voice** is spike S5, on this same connection.
 
 ## Headset tests (needs two people)
 
-Before these, the lobby must be deployed and the game hosted (GitHub Pages or elsewhere), with the lobby address in the `LOBBY_URL` repository variable.
+Before these, the lobby must be deployed and the game hosted (GitHub Pages or elsewhere), which CI does on `main` once the Cloudflare secrets from [lobby/README.md](../../lobby/README.md) are set.
 
 1. **Two homes, fibre.** Each player opens the game URL in the Quest Browser. One presses **New crew** in the top right panel and reads out the four-letter code; the other types it and presses **Join**. When the panel says "connected", both enter VR. Check that the crewmate's head and hands move smoothly and that the RTT on the wrist HUD (X button) is in the range the latency research predicts for your distance. Repeat ten times and note how many connect within five seconds.
 2. **Forced relay.** One player uses a phone's mobile hotspot. In remote DevTools (or the console), the line `[Net] connected via relay/...` shows the TURN relay was used. This needs the TURN secrets on the Worker.
