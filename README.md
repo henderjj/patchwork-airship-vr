@@ -45,6 +45,8 @@ Test builds are tuned from the address bar, so a headset can try variations with
 | `netlag` | 0 | Testing: extra delay on received packets, ms |
 | `netjitter` | 0 | Testing: extra random delay, 0 to this many ms |
 | `netloss` | 0 | Testing: fraction of received packets dropped, 0 to 1 |
+| `voice` | spatial | Crewmate voice: `spatial` (from their head), `plain` (not positioned) or `off` |
+| `voiceloop` | 0 | `1` routes spatial voice through a local loopback so echo cancellation can hear it |
 
 Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
@@ -53,6 +55,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip.
 - **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
 - **P** pauses the ship's motion (desktop).
+- **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
 - Grab fuel bricks with the grip (squeeze) button.
 
 ## Testing on a headset
@@ -84,6 +87,6 @@ Simulation code in `src/sim/` has no rendering or IWSDK imports, so the host's a
 
 The gondola never moves in the player's tracking space. The world is drawn with the inverse of the ship's pose, and physics uses the felt gravity in ship space. See [docs/spikes/s2-moving-ship.md](docs/spikes/s2-moving-ship.md).
 
-Players connect peer to peer over WebRTC after meeting in the lobby. See [docs/spikes/s4-networking.md](docs/spikes/s4-networking.md).
+Players connect peer to peer over WebRTC after meeting in the lobby. See [docs/spikes/s4-networking.md](docs/spikes/s4-networking.md). Voice runs on the same connection; see [docs/spikes/s5-voice.md](docs/spikes/s5-voice.md).
 
 IWSDK conventions for this project are in [AGENTS.md](AGENTS.md).

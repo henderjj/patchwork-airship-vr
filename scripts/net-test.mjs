@@ -10,7 +10,9 @@
  * - a pose sent by one arrives intact at the other;
  * - the crewmate moves smoothly while the sender walks in a circle;
  * - the same at about 150 ms RTT with jitter and 1% loss (simulated);
- * - when the host leaves, the other player becomes host and can be rejoined.
+ * - when the host leaves, the other player becomes host and can be rejoined;
+ * - voice (spike S5): Chromium's fake microphone (a periodic beep) reaches the
+ *   crewmate, muting silences it, and the loopback route starts.
  *
  * Writes measured RTT, packet rate and route to artifacts/net-report.json.
  */
@@ -146,6 +148,24 @@ async function measureMotion(sender, receiver, seconds) {
   return { frames: samples.length, backwards, backSteps, maxStep, median, radiusError };
 }
 
+/** Loudest level of the crewmate's voice over `ms`. */
+function peakVoiceLevel(page, ms) {
+  return page.evaluate(
+    (duration) =>
+      new Promise((resolve) => {
+        let peak = 0;
+        const end = performance.now() + duration;
+        const tick = () => {
+          peak = Math.max(peak, window.__net.voice.remoteLevel());
+          if (performance.now() < end) setTimeout(tick, 10);
+          else resolve(peak);
+        };
+        tick();
+      }),
+    ms,
+  );
+}
+
 async function netStats(page) {
   return page.evaluate(() => {
     const n = window.__net;
@@ -162,6 +182,11 @@ async function netStats(page) {
       arrivalJitterMs: n.arrivalJitterMs,
       lateFrames: n.lateFrames,
       host: n.session.isHost,
+      audioJitterBufferMs: n.session.report.audioJitterBufferMs,
+      audioLost: n.session.report.audioLost,
+      audioConcealed: n.session.report.audioConcealed,
+      audioBytesReceived: n.session.report.audioBytesReceived,
+      audioContext: n.voice.audioState,
     };
   });
 }
@@ -172,7 +197,15 @@ async function main() {
   await start('npx', ['vite', 'preview', '--port', String(PREVIEW_PORT), '--strictPort'], 'Local');
 
   const browser = await chromium.launch({
-    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+    args: [
+      '--use-angle=swiftshader',
+      '--enable-unsafe-swiftshader',
+      '--ignore-gpu-blocklist',
+      // A fake microphone that beeps, granted without a prompt, and audio without a click.
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      '--autoplay-policy=no-user-gesture-required',
+    ],
   });
   const report = {};
   try {
@@ -221,6 +254,15 @@ async function main() {
     );
     check('Crewmate avatar is drawn', visible);
 
+    // Voice: the fake microphone beeps about once a second.
+    const voicePeak = await peakVoiceLevel(b.page, 2500);
+    check('Crewmate voice arrives', voicePeak > 0.01, `peak level ${voicePeak.toFixed(3)}`);
+    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+    await new Promise((r) => setTimeout(r, 500));
+    const mutedPeak = await peakVoiceLevel(b.page, 2500);
+    check('Mute silences the microphone', mutedPeak < 0.002, `peak level ${mutedPeak.toFixed(4)}`);
+    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+
     const motion = await measureMotion(a, b, 3);
     report.local = { ...(await netStats(b.page)), motion };
     check('Crewmate moves smoothly (local network)',
@@ -243,7 +285,7 @@ async function main() {
 
     // The plan's worst playable case: about 150 ms RTT (60 ms each way plus
     // 0 to 20 ms jitter on each side, which also reorders packets) and 1% loss.
-    const lag = 'netlag=60&netjitter=20&netloss=0.01';
+    const lag = 'netlag=60&netjitter=20&netloss=0.01&voiceloop=1';
     const d = await openPlayer(browser, `room=LAGS&name=Di&${lag}`);
     const e = await openPlayer(browser, `room=LAGS&name=Ed&${lag}`);
     await waitFor('lagged pair connected', async () => (await state(d.page)) === 'connected' && (await state(e.page)) === 'connected');
@@ -255,6 +297,10 @@ async function main() {
     check('Crewmate moves smoothly (simulated lag and jitter)',
       lagMotion.frames > 60 && lagMotion.backwards === 0 && lagMotion.maxStep < Math.max(0.12, lagMotion.median * 4) && lagMotion.radiusError < 0.02,
       `${lagMotion.frames} frames, ${lagMotion.backwards} backward steps ${lagMotion.backSteps.join(' ')}, max step ${lagMotion.maxStep.toFixed(3)} rad vs median ${lagMotion.median.toFixed(3)}`);
+
+    const loopVoice = await peakVoiceLevel(e.page, 2500);
+    const loopActive = await e.page.evaluate(() => window.__net.voice.loopbackActive);
+    check('Voice through the loopback route', loopActive && loopVoice > 0.01, `loopback ${loopActive}, peak level ${loopVoice.toFixed(3)}`);
 
     const errors = [...a.errors, ...b.errors, ...d.errors, ...e.errors].filter(
       (m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'),

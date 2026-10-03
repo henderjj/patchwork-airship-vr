@@ -40,6 +40,10 @@ export interface Settings {
   netJitter: number;
   /** Simulated loss of received pose packets, 0 to 1. */
   netLoss: number;
+  /** Crewmate voice: 'spatial' (HRTF at their head), 'plain' (not positioned) or 'off'. */
+  voice: 'spatial' | 'plain' | 'off';
+  /** Route spatial voice through a loopback peer connection so echo cancellation sees it. */
+  voiceLoop: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -61,6 +65,8 @@ export const DEFAULT_SETTINGS: Settings = {
   netLag: 0,
   netJitter: 0,
   netLoss: 0,
+  voice: 'spatial',
+  voiceLoop: false,
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -78,6 +84,10 @@ function bool(params: URLSearchParams, key: string, fallback: boolean): boolean 
     return fallback;
   }
   return raw === '1' || raw === 'true' || raw === 'on' || raw === '';
+}
+
+function voiceMode(raw: string | null, fallback: Settings['voice']): Settings['voice'] {
+  return raw === 'spatial' || raw === 'plain' || raw === 'off' ? raw : fallback;
 }
 
 export function parseSettings(search: string): Settings {
@@ -102,6 +112,8 @@ export function parseSettings(search: string): Settings {
     netLag: num(params, 'netlag', d.netLag, 0, 2000),
     netJitter: num(params, 'netjitter', d.netJitter, 0, 1000),
     netLoss: num(params, 'netloss', d.netLoss, 0, 1),
+    voice: voiceMode(params.get('voice'), d.voice),
+    voiceLoop: bool(params, 'voiceloop', d.voiceLoop),
   };
 }
 

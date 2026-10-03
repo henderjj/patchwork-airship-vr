@@ -11,10 +11,11 @@ export class LobbyUi {
   private root = document.createElement('div');
   private status = document.createElement('div');
   private input = document.createElement('input');
+  private mic = document.createElement('div');
   private onJoin: (room: string) => void;
   private onLeave: () => void;
 
-  constructor(onJoin: (room: string) => void, onLeave: () => void) {
+  constructor(onJoin: (room: string) => void, onLeave: () => void, onMute: () => void) {
     this.onJoin = onJoin;
     this.onLeave = onLeave;
     this.root.id = 'crew-panel';
@@ -45,9 +46,13 @@ export class LobbyUi {
       url.searchParams.delete('room');
       history.replaceState(null, '', url);
     });
-    row.append(create, this.input, join, leave);
+    const mute = button('Mic', onMute);
+    mute.id = 'crew-mute';
+    row.append(create, this.input, join, leave, mute);
     this.status.id = 'crew-status';
-    this.root.append(row, this.status);
+    this.mic.id = 'crew-mic';
+    this.mic.style.cssText = 'color:#94a3b8';
+    this.root.append(row, this.status, this.mic);
     document.body.appendChild(this.root);
     this.setStatus('Playing solo.');
   }
@@ -76,6 +81,14 @@ export class LobbyUi {
       error: `Crew ${room}: ${detail ?? 'connection problem'}.`,
     };
     this.setStatus(detail && state !== 'error' ? `${messages[state]} (${detail})` : messages[state]);
+  }
+
+  setMic(muted: boolean, error: string): void {
+    this.mic.textContent = error
+      ? `Microphone unavailable (${error}); you can still hear your crewmate.`
+      : muted
+        ? 'Microphone muted (Mic button, or Y in VR).'
+        : 'Microphone on (Mic button, or Y in VR, mutes).';
   }
 
   private setStatus(text: string): void {
