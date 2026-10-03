@@ -547,11 +547,28 @@ async function main() {
     check('Head and hand poses arrive intact', posErr < 0.002 && rotDot > 0.9999 && got?.flags === 3,
       `position error ${(posErr * 1000).toFixed(2)} mm, rotation error ${((Math.acos(Math.min(1, rotDot)) * 2 * 180) / Math.PI).toFixed(3)}°`);
     const visible = await b.page.evaluate(() =>
-      ['Crew 2 Head', 'Crew 2 Torso', 'Crew 2 Left Hand', 'Crew 2 Right Hand'].every(
+      ['Crew 2 Head', 'Crew 2 Torso', 'Crew 2 Legs', 'Crew 2 Left Hand', 'Crew 2 Right Hand'].every(
         (name) => window.__debug.world.scene.getObjectByName(name)?.visible,
       ),
     );
     check('Crewmate avatar is drawn', visible);
+    if (process.env.SHOT_DIR) {
+      // A picture of the crewmate facing this player, for checking the avatar by eye.
+      const facing = { qx: 0, qy: 1, qz: 0, qw: 0 };
+      await a.page.evaluate((pose) => window.__net.setTestPose(pose), {
+        head: { px: 0, py: 1.62, pz: -1.3, ...facing },
+        left: { px: -0.22, py: 1.05, pz: -1.0, ...facing },
+        right: { px: 0.22, py: 1.05, pz: -1.0, ...facing },
+        flags: 3,
+      });
+      const size = b.page.viewportSize();
+      await b.page.setViewportSize({ width: 960, height: 600 });
+      await b.page.evaluate(() => document.querySelectorAll('body > div:not(#scene-container)').forEach((e) => { e.style.display = 'none'; }));
+      await b.page.waitForTimeout(1500);
+      await b.page.screenshot({ path: `${process.env.SHOT_DIR}/crewmate.png` });
+      // Back to the small page: software rendering at full size slows the timing checks that follow.
+      await b.page.setViewportSize(size);
+    }
 
     // Voice: the fake microphone beeps about once a second.
     const voicePeak = await peakVoiceLevel(b.page, 2500);

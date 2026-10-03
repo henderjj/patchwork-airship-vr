@@ -4,7 +4,15 @@ import { NetSession } from '../net/net-session.js';
 import { createAvatarPose, decodePose, encodePose, type AvatarPose, type PoseHeader, type PoseSample, POSE_PACKET_BYTES, seqNewer } from '../net/pose-codec.js';
 import { copyAvatar, copyPose, PoseBuffer } from '../net/pose-buffer.js';
 import { Voice } from '../net/voice.js';
-import { createAvatarHand, createAvatarHead, createAvatarTorso, CREW_COLORS } from '../scene-assets/avatar.scene-asset.js';
+import {
+  createAvatarHand,
+  createAvatarHead,
+  createAvatarLegs,
+  createAvatarTorso,
+  CREW_COLORS,
+  HIP_BELOW_EYES,
+  LEG_LENGTH,
+} from '../scene-assets/avatar.scene-asset.js';
 import { settings } from '../settings.js';
 import { perf } from './perf-hud-system.js';
 
@@ -149,6 +157,7 @@ export class NetSystem extends createSystem({}) {
   private lastTransit = Number.NaN;
   private head!: Mesh;
   private torso!: Mesh;
+  private legs!: Mesh;
   private leftHand!: Mesh;
   private rightHand!: Mesh;
   private tmpPos = new Vector3();
@@ -286,9 +295,10 @@ export class NetSystem extends createSystem({}) {
     const index = 1;
     this.head = createAvatarHead(index);
     this.torso = createAvatarTorso(index);
+    this.legs = createAvatarLegs(index);
     this.leftHand = createAvatarHand(index, 'left');
     this.rightHand = createAvatarHand(index, 'right');
-    for (const mesh of [this.head, this.torso, this.leftHand, this.rightHand]) {
+    for (const mesh of [this.head, this.torso, this.legs, this.leftHand, this.rightHand]) {
       mesh.visible = false;
       this.world.createTransformEntity(mesh);
     }
@@ -427,6 +437,11 @@ export class NetSystem extends createSystem({}) {
     this.tmpQuat.set(r.head.qx, r.head.qy, r.head.qz, r.head.qw);
     this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ');
     this.torso.rotation.set(0, this.tmpEuler.y, 0);
+    // Legs stand on the deck under the torso and stretch or squash to reach
+    // it, so a crouching or seated crewmate never sinks into the floor.
+    this.legs.position.set(r.head.px, 0, r.head.pz);
+    this.legs.rotation.set(0, this.tmpEuler.y, 0);
+    this.legs.scale.y = Math.min(1.3, Math.max(0.3, (r.head.py - HIP_BELOW_EYES) / LEG_LENGTH));
     setFromPose(this.leftHand, r.left);
     setFromPose(this.rightHand, r.right);
     this.setRemoteVisible(true, r.flags);
@@ -435,6 +450,7 @@ export class NetSystem extends createSystem({}) {
   private setRemoteVisible(visible: boolean, flags: number): void {
     this.head.visible = visible;
     this.torso.visible = visible;
+    this.legs.visible = visible;
     this.leftHand.visible = visible && (flags & FLAG_LEFT_TRACKED) !== 0;
     this.rightHand.visible = visible && (flags & FLAG_RIGHT_TRACKED) !== 0;
   }
