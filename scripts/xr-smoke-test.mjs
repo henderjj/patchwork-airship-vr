@@ -412,6 +412,33 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.4, z: -3 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-flying.png'], {});
 
+  // 6b. Phase 2 flight model, driven from the keyboard (each CLI call takes
+  //     a second or two, so the fuel left is only roughly known):
+  //     B feeds the burner, V (held) opens the vent, . (held) swings the rudder to starboard.
+  const key = (type, k) => evalInApp(`window.dispatchEvent(new KeyboardEvent('${type}', { key: '${k}' }))`);
+  evalInApp('window.__ship.fly()');
+  const heat0 = evalInApp('window.__ship.info.heat');
+  key('keydown', 'b');
+  key('keyup', 'b');
+  key('keydown', 'b');
+  key('keyup', 'b');
+  key('keydown', '.');
+  await sleep(4000);
+  key('keyup', '.');
+  const burning = evalInApp('({ ...window.__ship.info, rudder: window.__ship.controls.rudder, yaw: window.__ship.state.yaw })');
+  check('Fuel heats the envelope and the rudder turns the ship',
+    burning.burner && burning.heat > heat0 + 1 && burning.burnLeft > 20 && burning.burnLeft < 40 && burning.rudder > 0.5 && burning.yaw < -0.002,
+    `heat ${heat0.toFixed(1)} → ${burning.heat.toFixed(1)} °C, ${burning.burnLeft.toFixed(0)} s of fuel left, rudder ${burning.rudder.toFixed(2)}, heading ${((burning.yaw * 180) / Math.PI).toFixed(1)}°`);
+  key('keydown', 'v');
+  await sleep(2000);
+  const venting = evalInApp('window.__ship.info');
+  key('keyup', 'v');
+  check('The vent dumps heat even with the burner lit', venting.vent && venting.heat < burning.heat,
+    `heat ${burning.heat.toFixed(1)} → ${venting.heat.toFixed(1)} °C`);
+  const flownBricks = bricks.map((b) => position(b.entityIndex));
+  check('All bricks stay aboard under the flight model', flownBricks.every(aboard), flownBricks.filter((p) => !aboard(p)).map(fmt).join(' | '));
+  evalInApp("window.__ship.setProfile('tour')");
+
   // 7. Perf log.
   const rows = evalInApp('window.__perf.recorder.rows.length');
   check('Perf CSV is recording', rows > 2, `${rows - 1} rows`);

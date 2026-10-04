@@ -17,6 +17,8 @@ export const PacketType = {
   Rope: 5,
   /** A loose object's state from its owner (spike S7). */
   Object: 6,
+  /** Host's authoritative ship state (Phase 2 flight). */
+  Ship: 7,
 } as const;
 
 /** One tracked pose: position (m) and rotation quaternion. */
@@ -257,5 +259,71 @@ export function decodeObject(view: DataView, out: ObjectStatePacket): boolean {
   out.flags = view.getUint8(3);
   out.timeMs = view.getUint32(4);
   readPose(view, 8, out.pose);
+  return true;
+}
+
+/** Host's ship state: type(1) flags u8(1) time(4) then 16 × f32. */
+export const SHIP_PACKET_BYTES = 6 + 16 * 4;
+
+/** Ship packet flag bits. */
+export const SHIP_FLAG_PAUSED = 1;
+export const SHIP_FLAG_BURNER = 2;
+export const SHIP_FLAG_VENT = 4;
+
+export interface ShipStatePacket {
+  /** Sender's clock when the state was taken, ms. */
+  timeMs: number;
+  flags: number;
+  /** Ship clock, s. */
+  shipTime: number;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  ax: number;
+  ay: number;
+  az: number;
+  /** Turn rate, rad/s. */
+  yawRate: number;
+  /** Envelope heat, °C above the outside air (0 for scripted motion). */
+  heat: number;
+  /** Airspeed, m/s. */
+  airspeed: number;
+}
+
+export function createShipStatePacket(): ShipStatePacket {
+  return {
+    timeMs: 0, flags: 0, shipTime: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
+    vx: 0, vy: 0, vz: 0, ax: 0, ay: 0, az: 0, yawRate: 0, heat: 0, airspeed: 0,
+  };
+}
+
+const SHIP_FIELDS = ['shipTime', 'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vy', 'vz', 'ax', 'ay', 'az', 'yawRate', 'heat', 'airspeed'] as const;
+
+export function encodeShip(buffer: ArrayBuffer, state: ShipStatePacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.Ship);
+  view.setUint8(1, state.flags & 0xff);
+  view.setUint32(2, Math.floor(state.timeMs) >>> 0);
+  for (let i = 0; i < SHIP_FIELDS.length; i++) {
+    view.setFloat32(6 + i * 4, state[SHIP_FIELDS[i]]);
+  }
+  return SHIP_PACKET_BYTES;
+}
+
+export function decodeShip(view: DataView, out: ShipStatePacket): boolean {
+  if (view.byteLength < SHIP_PACKET_BYTES || view.getUint8(0) !== PacketType.Ship) {
+    return false;
+  }
+  out.flags = view.getUint8(1);
+  out.timeMs = view.getUint32(2);
+  for (let i = 0; i < SHIP_FIELDS.length; i++) {
+    out[SHIP_FIELDS[i]] = view.getFloat32(6 + i * 4);
+  }
   return true;
 }

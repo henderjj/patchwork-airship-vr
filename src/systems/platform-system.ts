@@ -5,6 +5,9 @@ import { netLink } from './net-system.js';
 
 /** Long enough after a session starts for input sources to appear and the refresh rate to be measured. */
 const SETTLE_MS = 3000;
+/** While the refresh rate is still unknown in a session, look again this often, this many times. */
+const RATE_RETRY_MS = 1000;
+const RATE_RETRIES = 15;
 
 /**
  * Spike S8: reports what this browser and headset runtime offer (refresh
@@ -20,6 +23,7 @@ export class PlatformSystem extends createSystem({}) {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private session: XRSession | undefined;
   private sentToCrew = false;
+  private rateRetries = 0;
   private micLabel = '';
   private gpu = '';
 
@@ -42,6 +46,7 @@ export class PlatformSystem extends createSystem({}) {
         this.session?.removeEventListener('inputsourceschange', onInputs);
         this.session = session;
         session.addEventListener('inputsourceschange', onInputs);
+        this.rateRetries = 0;
         this.schedule(SETTLE_MS);
       }),
       () => {
@@ -97,6 +102,12 @@ export class PlatformSystem extends createSystem({}) {
     console.info(`[Platform] me${session ? '' : ' (not immersive)'}: ${summarize(report)} ${JSON.stringify(report)}`);
     // Tell the crewmate again whenever the report changes (entering XR, hands appearing).
     this.sentToCrew = false;
+    // A slow start (a busy PC, software rendering) may not have measured the
+    // refresh rate yet: report again once it has.
+    if (session && hzSource === 'unknown' && this.rateRetries < RATE_RETRIES) {
+      this.rateRetries++;
+      this.schedule(RATE_RETRY_MS);
+    }
     return report;
   }
 }

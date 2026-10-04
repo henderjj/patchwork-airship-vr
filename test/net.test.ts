@@ -145,3 +145,23 @@ describe('rope packets', () => {
     expect(out).toEqual({ timeMs: 99, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 });
   });
 });
+
+describe('ship packets', () => {
+  it('round-trip the host ship state, with world positions kilometres out', async () => {
+    const { encodeShip, decodeShip, createShipStatePacket, SHIP_PACKET_BYTES } = await import('../src/net/pose-codec.js');
+    const state = {
+      ...createShipStatePacket(), timeMs: 765432.9, flags: 5, shipTime: 312.5, x: -1834.25, y: 121.5, z: 2950.75,
+      yaw: -2.75, pitch: 0.03, roll: -0.06, vx: 4.5, vy: -0.75, vz: -2.25, ax: 0.1, ay: -0.02, az: 0.3, yawRate: 0.05, heat: 63.5, airspeed: 6.25,
+    };
+    const buffer = new ArrayBuffer(SHIP_PACKET_BYTES);
+    expect(encodeShip(buffer, state)).toBe(SHIP_PACKET_BYTES);
+    const out = createShipStatePacket();
+    expect(decodeShip(new DataView(buffer), out)).toBe(true);
+    expect(out.timeMs).toBe(765432);
+    expect(out.flags).toBe(5);
+    for (const key of ['shipTime', 'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vy', 'vz', 'ax', 'ay', 'az', 'yawRate', 'heat', 'airspeed'] as const) {
+      // f32 keeps millimetres at 3 km.
+      expect(Math.abs(out[key] - state[key])).toBeLessThan(1e-3);
+    }
+  });
+});

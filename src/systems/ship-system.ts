@@ -17,14 +17,55 @@ import {
   updateFeltGravity,
   updateQuaternion,
 } from '../sim/ship-motion.js';
+import { createFlightControls, FlightSim } from '../sim/flight.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
+import {
+  createShipStatePacket,
+  encodeShip,
+  decodeShip,
+  PacketType,
+  SHIP_FLAG_BURNER,
+  SHIP_FLAG_PAUSED,
+  SHIP_FLAG_VENT,
+  SHIP_PACKET_BYTES,
+} from '../net/pose-codec.js';
+import { ShipFollower } from '../net/ship-follow.js';
+import { crankInfo } from './crank-system.js';
+import { netLink } from './net-system.js';
 
 /** The ship's current world pose, read by the sky and trim systems. */
 export const ship: ShipState = createShipState();
 
 /** The motion profile in use and whether the ship is held still, for the comfort log. */
 export const shipInfo = { motion: 'still', paused: false };
+
+/** Phase 2: the crew-controlled flight model (`?motion=flight`) and what the crew is doing to it. */
+export const flight = new FlightSim();
+export const flightControls = createFlightControls();
+/** Seconds of full flame one fuel brick gives, and the most the burner holds at once. */
+export const BRICK_BURN_SECONDS = 20;
+const MAX_BURN_SECONDS = 60;
+/** Where the flight starts: a little above the scripted path's height, facing world -Z. */
+const FLIGHT_START = [0, 120, 0] as const;
+/** How fast the keyboard swings the rudder, full travel per second. */
+const RUDDER_KEY_RATE = 0.8;
+/** Ship states the host sends the guest per second. */
+const SHIP_SEND_HZ = 20;
+
+/** Flight readings for instruments, tests and the guest (who gets them from the host). */
+export const flightInfo = {
+  flying: false,
+  /** Seconds of burn left in the burner. */
+  burnLeft: 0,
+  heat: 0,
+  climb: 0,
+  airspeed: 0,
+  /** The steady climb the current heat is heading for, m/s. */
+  liftRate: 0,
+  burner: false,
+  vent: false,
+};
 
 /**
  * The profile named by `?motion=`, with any of its limits replaced from the
@@ -78,21 +119,88 @@ export class ShipSystem extends createSystem({
   private wokenGravity: [number, number, number] = [0, -9.81, 0];
   private paused = false;
   private fixedTilt: [number, number] | null = null;
+  private flying = settings.motion === 'flight';
+  private keys = { vent: false, port: false, starboard: false };
+  private follower = new ShipFollower();
+  private following = false;
+  private incoming = createShipStatePacket();
+  private outgoing = createShipStatePacket();
+  private sendBuffer = new ArrayBuffer(SHIP_PACKET_BYTES);
+  private sendAccumulator = 0;
 
   init(): void {
     this.physics = this.world.getSystem(PhysicsSystem);
+    if (this.flying) {
+      flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
+    }
+    // Keyboard: P stops and starts the ship. With `?motion=flight`, B feeds the
+    // burner a brick's worth of fuel, V (held) opens the vent, and , and .
+    // (held) swing the rudder to port and starboard, until the gondola's own
+    // controls exist. (These keys are clear of the emulator's controller keys.)
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'p' || event.key === 'P') {
-        this.paused = !this.paused;
+      const down = event.type === 'keydown';
+      const key = event.key.toLowerCase();
+      if (key === 'p' && down) {
+        this.togglePause();
+      } else if (key === 'b' && down && !event.repeat) {
+        this.feedFuel();
+      } else if (key === 'v') {
+        this.keys.vent = down;
+      } else if (key === ',') {
+        this.keys.port = down;
+      } else if (key === '.') {
+        this.keys.starboard = down;
       }
     };
     window.addEventListener('keydown', onKey);
-    this.cleanupFuncs.push(() => window.removeEventListener('keydown', onKey));
+    window.addEventListener('keyup', onKey);
+    this.cleanupFuncs.push(() => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+    });
+
+    // The host's ship state, and the guest's request to stop or start it.
+    netLink.handlers.set(PacketType.Ship, (view) => {
+      if (decodeShip(view, this.incoming) && netLink.clockSynced) {
+        this.follower.accept(this.incoming, netLink.toLocal(this.incoming.timeMs));
+      }
+    });
+    netLink.events.set('ship-pause', (event) => {
+      if (netLink.isHost) {
+        this.paused = event.paused === true;
+      }
+    });
+    this.cleanupFuncs.push(() => {
+      netLink.handlers.delete(PacketType.Ship);
+      netLink.events.delete('ship-pause');
+    });
     (window as { __ship?: unknown }).__ship = {
       state: ship,
       setProfile: (name: string) => {
         this.profile = MOTION_PROFILES[name] ?? this.profile;
+        this.flying = false;
         return this.profile.name;
+      },
+      flight,
+      controls: flightControls,
+      info: flightInfo,
+      follower: this.follower,
+      /** Switch to the crew-controlled flight model from a standing start. */
+      fly: () => {
+        this.flying = true;
+        flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
+        Object.assign(flightControls, createFlightControls());
+        flightInfo.burnLeft = 0;
+      },
+      /** What P and the B button do: stop or start the ship (the guest asks the host). */
+      togglePause: () => this.togglePause(),
+      feedFuel: () => this.feedFuel(),
+      /** Test hook: hold the vent open, and set the rudder (-1 port to 1 starboard). */
+      setVent: (open: boolean) => {
+        this.keys.vent = open;
+      },
+      setRudder: (value: number) => {
+        flightControls.rudder = Math.max(-1, Math.min(1, value));
       },
       pause: (value: boolean) => {
         this.paused = value;
@@ -108,25 +216,110 @@ export class ShipSystem extends createSystem({
     };
   }
 
+  private togglePause(): void {
+    if (netLink.connected && !netLink.isHost) {
+      // The guest asks the host, who flies the ship for both.
+      netLink.sendEvent({ t: 'ship-pause', paused: !this.follower.paused } as { t: string });
+    } else {
+      this.paused = !this.paused;
+    }
+  }
+
+  private feedFuel(): void {
+    flightInfo.burnLeft = Math.min(MAX_BURN_SECONDS, flightInfo.burnLeft + BRICK_BURN_SECONDS);
+  }
+
+  /** Solo or host: move the ship by the flight model or the scripted path, and send it to the guest. */
+  private flyOwnShip(dt: number): void {
+    shipInfo.motion = this.flying ? 'flight' : this.profile.name;
+    // Spike S10: the ship also waits while the crewmate can't play.
+    shipInfo.paused = this.paused || crewPresence.paused;
+    flightInfo.flying = this.flying;
+    if (!shipInfo.paused) {
+      if (this.flying) {
+        const c = flightControls;
+        flightInfo.burnLeft = Math.max(0, flightInfo.burnLeft - dt);
+        c.burner = flightInfo.burnLeft > 0 ? 1 : 0;
+        c.vent = this.keys.vent ? 1 : 0;
+        const swing = (this.keys.starboard ? 1 : 0) - (this.keys.port ? 1 : 0);
+        c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
+        c.crankSpeed = crankInfo.speed;
+        flight.step(ship, c, dt);
+        flightInfo.heat = flight.heat;
+        flightInfo.climb = flight.climb;
+        flightInfo.airspeed = flight.airspeed;
+        flightInfo.liftRate = flight.liftRate(c.ballastDropped);
+        flightInfo.burner = c.burner > 0;
+        flightInfo.vent = c.vent > 0;
+      } else {
+        stepShip(ship, this.profile, dt);
+      }
+      if (this.fixedTilt) {
+        ship.roll = (this.fixedTilt[0] * Math.PI) / 180;
+        ship.pitch = (this.fixedTilt[1] * Math.PI) / 180;
+        updateQuaternion(ship);
+        updateFeltGravity(ship);
+      }
+    }
+    if (netLink.connected) {
+      this.sendState(dt);
+    }
+  }
+
+  private sendState(dt: number): void {
+    this.sendAccumulator += dt;
+    if (this.sendAccumulator < 1 / SHIP_SEND_HZ) {
+      return;
+    }
+    this.sendAccumulator = Math.min(this.sendAccumulator - 1 / SHIP_SEND_HZ, 1 / SHIP_SEND_HZ);
+    const o = this.outgoing;
+    o.timeMs = performance.now();
+    o.flags = (shipInfo.paused ? SHIP_FLAG_PAUSED : 0) | (flightInfo.flying && flightInfo.burner ? SHIP_FLAG_BURNER : 0) |
+      (flightInfo.flying && flightInfo.vent ? SHIP_FLAG_VENT : 0);
+    o.shipTime = ship.time;
+    o.x = ship.x;
+    o.y = ship.y;
+    o.z = ship.z;
+    o.yaw = ship.yaw;
+    o.pitch = ship.pitch;
+    o.roll = ship.roll;
+    o.vx = ship.vx;
+    o.vy = ship.vy;
+    o.vz = ship.vz;
+    o.ax = ship.ax;
+    o.ay = ship.ay;
+    o.az = ship.az;
+    o.yawRate = this.flying ? flight.yawRate : 0;
+    o.heat = this.flying ? flight.heat : 0;
+    o.airspeed = ship.speed;
+    netLink.send(this.sendBuffer, encodeShip(this.sendBuffer, o));
+  }
+
   update(delta: number): void {
     // B on the right controller stops the ship at once, and starts it again
     // (a comfort escape for playtests; P does the same on a keyboard).
     if (this.input.xr.gamepads.right?.getButtonDown(InputComponent.B_Button)) {
-      this.paused = !this.paused;
+      this.togglePause();
     }
-    shipInfo.motion = this.profile.name;
-    // Spike S10: the ship also waits while the crewmate can't play.
-    shipInfo.paused = this.paused || crewPresence.paused;
-    if (shipInfo.paused) {
-      return;
+    const dt = Math.min(delta, 0.1);
+    const guest = netLink.connected && !netLink.isHost;
+    if (guest !== this.following) {
+      this.following = guest;
+      this.follower.reset();
     }
-    // Clamp long frames (tab switches) so the flight doesn't jump.
-    stepShip(ship, this.profile, Math.min(delta, 0.1));
-    if (this.fixedTilt) {
-      ship.roll = (this.fixedTilt[0] * Math.PI) / 180;
-      ship.pitch = (this.fixedTilt[1] * Math.PI) / 180;
-      updateQuaternion(ship);
-      updateFeltGravity(ship);
+    if (guest) {
+      // The guest's ship is the host's: follow it.
+      this.follower.update(ship, performance.now(), dt);
+      const h = this.follower.latest;
+      shipInfo.paused = this.follower.paused;
+      flightInfo.flying = h.heat > 0;
+      flightInfo.heat = h.heat;
+      flightInfo.airspeed = h.airspeed;
+      flightInfo.climb = h.vy;
+      flightInfo.burner = (h.flags & SHIP_FLAG_BURNER) !== 0;
+      flightInfo.vent = (h.flags & SHIP_FLAG_VENT) !== 0;
+    } else {
+      this.flyOwnShip(dt);
     }
     if (!this.physics) {
       return;

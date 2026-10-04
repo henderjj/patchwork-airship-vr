@@ -467,6 +467,67 @@ function checkThrows(label, r, maxSlide) {
     `median slide ${(median * 100).toFixed(0)} cm (limit ${(maxSlide * 100).toFixed(0)} cm), worst ${(worst * 100).toFixed(0)} cm over ${slides.length} hand-overs`);
 }
 
+/**
+ * Phase 2: the host flies the ship and the guest's ship follows it. The host
+ * (`host`) switches to the flight model with fuel in the burner and the
+ * rudder over, and both ships are compared side by side for a few seconds.
+ */
+async function shipSyncChecks(host, guest) {
+  await host.page.evaluate(() => {
+    window.__ship.fly();
+    window.__ship.feedFuel();
+    window.__ship.feedFuel();
+    window.__ship.setRudder(1);
+  });
+  const pose = (page) => page.evaluate(() => {
+    const s = window.__ship.state;
+    return { x: s.x, y: s.y, z: s.z, yaw: s.yaw, time: s.time, heat: window.__ship.info.heat, error: window.__ship.follower.error,
+      snaps: window.__ship.follower.snaps };
+  });
+  let worstGap = 0;
+  let worstYaw = 0;
+  let worstError = 0;
+  let first = null;
+  let last = null;
+  for (let i = 0; i < 20; i++) {
+    await host.page.waitForTimeout(200);
+    const [h, g] = await Promise.all([pose(host.page), pose(guest.page)]);
+    first ??= { h, g };
+    last = { h, g };
+    if (i >= 3) {
+      worstGap = Math.max(worstGap, Math.hypot(h.x - g.x, h.y - g.y, h.z - g.z));
+      worstYaw = Math.max(worstYaw, Math.abs(h.yaw - g.yaw));
+      worstError = Math.max(worstError, g.error);
+    }
+  }
+  const turned = ((last.g.yaw - first.g.yaw) * 180) / Math.PI;
+  check('The guest\'s ship follows the host\'s flight',
+    turned < -1 && last.g.heat > 60 && worstGap < 0.2 && worstYaw < 0.01 && last.g.snaps === 0,
+    `guest turned ${turned.toFixed(1)}°, heat ${last.g.heat.toFixed(1)} °C, largest gap ${(worstGap * 100).toFixed(1)} cm and ${((worstYaw * 180) / Math.PI).toFixed(2)}°, ` +
+      `correction ${(worstError * 100).toFixed(1)} cm, ${last.g.snaps} snaps`);
+
+  // The guest's stop button stops the host's ship for both.
+  await guest.page.evaluate(() => window.__ship.togglePause());
+  const stopped = await waitFor('the host ship to stop', async () => {
+    const t0 = (await pose(host.page)).time;
+    await host.page.waitForTimeout(300);
+    return (await pose(host.page)).time === t0 ? true : null;
+  }, 5000).catch(() => false);
+  await guest.page.evaluate(() => window.__ship.togglePause());
+  const going = await waitFor('the host ship to go again', async () => {
+    const t0 = (await pose(host.page)).time;
+    await host.page.waitForTimeout(300);
+    return (await pose(host.page)).time > t0 ? true : null;
+  }, 5000).catch(() => false);
+  check('The guest can stop and restart the ship', stopped === true && going === true);
+
+  // Back to a ship standing still for the checks that follow.
+  await host.page.evaluate(() => {
+    window.__ship.fly();
+    window.__ship.setProfile('still');
+  });
+}
+
 /** Spike S10: what one player sees of the crewmate, and the ship clock. */
 const crew = (page) => page.evaluate(() => ({ status: window.__crew.status, paused: window.__crew.paused,
   signVisible: window.__crew.signVisible, message: window.__crew.message, shipTime: window.__ship.state.time }));
@@ -681,6 +742,8 @@ async function main() {
       return r.every((c) => c && c.mic !== 'not open') ? r : null;
     }, 10000).catch(() => null);
     check('Players swap platform reports', crews !== null, crews ? `Ann sees "${crews[0].browser} on ${crews[0].os}, mic ${crews[0].mic}"` : '');
+
+    await shipSyncChecks(a, b);
 
     const motion = await measureMotion(a, b, 3);
     report.local = { ...(await netStats(b.page)), motion };
