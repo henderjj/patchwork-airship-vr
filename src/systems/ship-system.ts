@@ -46,7 +46,7 @@ export const flightControls = createFlightControls();
 /** Seconds of full flame one fuel brick gives, and the most the burner holds at once. */
 export const BRICK_BURN_SECONDS = 20;
 const MAX_BURN_SECONDS = 60;
-/** Where the flight starts: a little above the scripted path's height, facing world -Z. */
+/** Where the flight starts: the scripted path's starting point, facing world -Z. */
 const FLIGHT_START = [0, 120, 0] as const;
 /** How fast the keyboard swings the rudder, full travel per second. */
 const RUDDER_KEY_RATE = 0.8;
@@ -138,6 +138,10 @@ export class ShipSystem extends createSystem({
     // (held) swing the rudder to port and starboard, until the gondola's own
     // controls exist. (These keys are clear of the emulator's controller keys.)
     const onKey = (event: KeyboardEvent) => {
+      // Not while typing a name or room code on the crew panel.
+      if ((event.target as Element | null)?.closest?.('input, textarea')) {
+        return;
+      }
       const down = event.type === 'keydown';
       const key = event.key.toLowerCase();
       if (key === 'p' && down) {
