@@ -403,12 +403,32 @@ async function main() {
   // 6. Fly the tour profile; bricks stay aboard while the world moves.
   const shipStart = evalInApp('[window.__ship.state.x, window.__ship.state.z]');
   evalInApp("window.__ship.setProfile('tour')");
-  await sleep(6000);
+  // Watch the bricks in the page for the whole flight (each CLI call is slow),
+  // noting the first moment each one is off the deck.
+  const strays = evalInApp(`new Promise((resolve) => {
+    const t0 = performance.now();
+    const seen = new Map();
+    const id = setInterval(() => {
+      const t = (performance.now() - t0) / 1000;
+      for (const o of window.__throw.objects()) {
+        const [x, y, z] = o.pos;
+        const off = Math.abs(x) > ${DECK_HALF_WIDTH + 0.05} || Math.abs(z) > ${DECK_HALF_LENGTH + 0.05} || y < -0.02 || y > 2.5;
+        if (off && !seen.has(o.id)) {
+          seen.set(o.id, 'brick ' + o.id + ' at ' + t.toFixed(1) + ' s: ' + o.pos.map((v) => v.toFixed(2)).join(', ') + ' speed ' + o.speed.toFixed(1) + (o.heldBy ? ' held by ' + o.heldBy : ''));
+        }
+      }
+      if (t > 6) {
+        clearInterval(id);
+        resolve([...seen.values()]);
+      }
+    }, 100);
+  })`);
   const shipEnd = evalInApp('[window.__ship.state.x, window.__ship.state.z]');
   const travelled = Math.hypot(shipEnd[0] - shipStart[0], shipEnd[1] - shipStart[1]);
   check('Ship flies the tour profile', travelled > 1, `${travelled.toFixed(1)} m`);
   const positions = bricks.map((b) => position(b.entityIndex));
-  check('All bricks stay aboard while flying', positions.every(aboard), positions.filter((p) => !aboard(p)).map(fmt).join(' | '));
+  check('All bricks stay aboard while flying', positions.every(aboard) && strays.length === 0,
+    [...positions.filter((p) => !aboard(p)).map(fmt), ...strays].join(' | '));
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.4, z: -3 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-flying.png'], {});
 
@@ -495,6 +515,10 @@ async function main() {
   const brick0 = evalInApp('window.__throw.objects()[0].pos');
   check('A brick dropped in the hopper feeds the burner', fed.burned === burnedBefore + 1 && fed.left > 15 && inCrate(brick0),
     `${fed.burned - burnedBefore} burned, ${fed.left.toFixed(0)} s of flame, brick back at ${fmt(brick0)}`);
+  // Read the instrument board while the brick still burns (slow CI runners
+  // take many seconds over the steps below).
+  const board = evalInApp('window.__controls.boardText()');
+  check('The instrument board shows the flight', board.length === 5 && board[3].startsWith('BURNER') && !board[3].endsWith('out'), board.join(' | '));
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.2, z: 0.05 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-burner.png'], {});
   // Lantern: hangs towards the low side of a tilted deck.
@@ -503,8 +527,6 @@ async function main() {
   const swing = evalInApp('window.__controls.lantern()');
   evalInApp('window.__ship.clearFixedTilt()');
   check('The lantern swings towards the low side of the deck', swing.z > 0.03, `swung ${((swing.z * 180) / Math.PI).toFixed(1)}° to starboard with the deck 4° starboard-down`);
-  const board = evalInApp('window.__controls.boardText()');
-  check('The instrument board shows the flight', board.length === 5 && board[3].startsWith('BURNER') && !board[3].endsWith('out'), board.join(' | '));
 
   // 6d. Phase 2 route: rest on island A, lift off, fly through a ring, land
   //     on island B for a score, ring the bell to start again, and lose a run.
@@ -552,10 +574,10 @@ async function main() {
   await move([-0.78, 1.58, -1.3]);
   await squeeze(1);
   await sleep(300);
-  const rung = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z, bell: window.__route.bell().angle })');
+  const rung = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z, bell: window.__route.bell().peak })');
   await squeeze(0);
   await move([-0.3, 1.2, -0.5]);
-  check('Ringing the bell starts again from island A', rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z && Math.abs(rung.bell) > 0.01,
+  check('Ringing the bell starts again from island A', rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z && rung.bell > 0.01,
     `${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, bell swung ${((rung.bell * 180) / Math.PI).toFixed(0)}°`);
   // Mid-run, one ring only asks; sinking into the haze loses the run; N (the keyboard's bell) restarts.
   evalInApp('window.__ship.place(0, 126, -40)');

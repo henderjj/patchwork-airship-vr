@@ -41,7 +41,8 @@ export class RouteSystem extends createSystem({}) {
   private board!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; lines: string[] };
   private lastDraw = 0;
   private lastRing = Number.NEGATIVE_INFINITY;
-  private swing = { angle: 0, rate: 0 };
+  /** The bell's swing, rad, and the widest it has swung since it was last rung. */
+  private swing = { angle: 0, rate: 0, peak: 0 };
   private handPos = new Vector3();
   private best = 0;
   private scored: unknown = null;
@@ -73,7 +74,7 @@ export class RouteSystem extends createSystem({}) {
       run: route,
       ring: () => this.ring(),
       boardText: () => [...this.board.lines],
-      bell: () => ({ angle: this.swing.angle }),
+      bell: () => ({ angle: this.swing.angle, peak: this.swing.peak }),
     };
   }
 
@@ -85,6 +86,7 @@ export class RouteSystem extends createSystem({}) {
   private ring(): void {
     const now = performance.now();
     this.swing.rate += BELL_KICK;
+    this.swing.peak = 0;
     if (route.phase === 'ready' && netLink.connected) {
       markReady();
     } else if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && now - this.lastRing < RING_AGAIN_MS)) {
@@ -119,6 +121,7 @@ export class RouteSystem extends createSystem({}) {
     const s = this.swing;
     s.rate += (-BELL_OMEGA2 * s.angle - BELL_DAMPING * s.rate) * dt;
     s.angle += s.rate * dt;
+    s.peak = Math.max(s.peak, Math.abs(s.angle));
     this.bell.rotation.x = s.angle;
 
     if (route.phase === 'finished' && route.result && route.result !== this.scored) {
