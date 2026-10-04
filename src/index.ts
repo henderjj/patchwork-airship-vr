@@ -1,6 +1,7 @@
 import { PhysicsSystem, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { PanelSystem } from './panel.js';
+import { ComfortSystem } from './systems/comfort-system.js';
 import { CrankSystem } from './systems/crank-system.js';
 import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
@@ -25,6 +26,7 @@ World.create(
   // Before the crank, rope and throwables, which read its grip state.
   world.registerSystem(GripSystem, { priority: -5 });
   world.registerSystem(SkyWorldSystem);
+  world.registerSystem(ComfortSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
   // After NetSystem, which updates the crew presence it shows.

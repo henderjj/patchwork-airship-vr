@@ -38,6 +38,9 @@ Test builds are tuned from the address bar, so a headset can try variations with
 | `bricks` | 8 | Loose physics fuel bricks |
 | `hud` | 1 | Show the perf HUD from the start |
 | `motion` | still | Ship motion: `still`, `gentle`, `tour` or `lively` |
+| `speed`, `turn`, `climb`, `tilt`, `gust` | | Override one limit of the motion profile: cruise speed (m/s), peak turn rate (°/s), peak climb (m/s), peak tilt (°), gusts (m/s). The profile shows with a `*` in the logs, e.g. `motion=tour&tilt=2` |
+| `comfort` | 0 | Ask for a comfort rating in VR every this many seconds, e.g. `comfort=60` (see [docs/spikes/s3-comfort.md](docs/spikes/s3-comfort.md)) |
+| `label` | | A tag for the session (tester, variant) written into the perf and comfort CSVs |
 | `seed` | 1 | World generation seed |
 | `room` | | Crew code to join on load, e.g. `room=KXQT` |
 | `lobby` | | Lobby URL (`wss://...`); defaults to the build's `VITE_LOBBY_URL`, else the page's own server |
@@ -56,7 +59,8 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
 - **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip. The last two lines describe this player's browser and headset runtime (`me`) and the crewmate's (`crew`); a `~` before the Hz means the rate was measured because the runtime didn't report it (see [docs/spikes/s8-pcvr.md](docs/spikes/s8-pcvr.md)).
 - **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
-- **P** pauses the ship's motion (desktop).
+- **B** (right controller) or **P** (keyboard) stops the ship at once and starts it again.
+- **Comfort question** (with `?comfort=60`): once a minute a sign asks how you feel from 0 (fine) to 20 (very sick). The right trigger raises the number, the left trigger lowers it, and **A** answers. After leaving VR, click **Comfort CSV** at the bottom left of the page to download the answers with the ship's peak motion for each minute.
 - **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
 - **Fuel bricks:** squeeze the grip near a brick to pick it up and let go to throw it. With the grip already squeezed and the hand empty, a brick flying past within 20 cm is caught. Throwing to a crewmate works the same at up to 150 ms of network delay (see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md)).
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
@@ -79,10 +83,10 @@ src/index.ts               world creation and system registration
 src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
-src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul, hand grip
+src/sim/                   engine-free simulation: ship motion, world tiling, comfort log, release velocity, crank, rope haul, hand grip
 src/net/                   lobby protocol, WebRTC session and reconnection, packets, clock sync, jitter buffers, object ownership, crew presence
 src/perf/                  frame statistics and CSV, measured refresh rate, platform report
-src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, gondola, throws, network, crew status sign, crank, rope
+src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, throws, network, crew status sign, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

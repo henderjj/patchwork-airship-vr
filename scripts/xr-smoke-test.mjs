@@ -302,6 +302,40 @@ async function main() {
   check('Letting go releases the line', evalInApp('window.__rope.holding().left') === false);
   iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: { x: -0.3, y: 1.0, z: 0.2 }, duration: 0.4 });
 
+  // 5c2. Spike S3: the comfort question. Triggers set the number, A answers,
+  //      and B stops the ship and starts it again.
+  const press = async (device, index) => {
+    iwsdk(['xr', 'set-gamepad-state'], { device, buttons: [{ index, value: 1 }] });
+    await sleep(250);
+    iwsdk(['xr', 'set-gamepad-state'], { device, buttons: [{ index, value: 0 }] });
+    await sleep(250);
+  };
+  // The emulator numbers its own buttons (trigger, squeeze, thumbstick, A/X,
+  // B/Y, thumbrest), without the gamepad's empty touchpad slot.
+  const TRIGGER = 0;
+  const A_OR_X = 3;
+  const B_OR_Y = 4;
+  evalInApp('window.__comfort.ask()');
+  await sleep(300);
+  for (let i = 0; i < 3; i++) await press('controller-right', TRIGGER);
+  await press('controller-left', TRIGGER);
+  const shown = evalInApp('window.__comfort.value');
+  await press('controller-right', A_OR_X);
+  const comfortCsv = evalInApp('window.__comfort.csv()').trim().split('\n');
+  const comfortRow = comfortCsv[comfortCsv.length - 1].split(',');
+  check('The comfort question takes a rating from the triggers and A',
+    shown === 2 && comfortRow[2] === '2' && evalInApp('window.__comfort.asking') === false,
+    `showed ${shown}, logged ${comfortCsv[comfortCsv.length - 1]}`);
+  await press('controller-right', B_OR_Y);
+  const stoppedAt = evalInApp('window.__ship.state.time');
+  await sleep(800);
+  const stoppedFor = evalInApp('window.__ship.state.time') - stoppedAt;
+  await press('controller-right', B_OR_Y);
+  const goingAt = evalInApp('window.__ship.state.time');
+  await sleep(800);
+  const goingFor = evalInApp('window.__ship.state.time') - goingAt;
+  check('B stops the ship and starts it again', stoppedFor === 0 && goingFor > 0, `${stoppedFor.toFixed(2)} s then ${goingFor.toFixed(2)} s of flight`);
+
   // 5d. Spike S9: the same with tracked hands, gripping by pinching (the
   //     emulator's hands can pinch but not make a fist; fists are unit-tested).
   iwsdk(['xr', 'set-input-mode'], { mode: 'hand' });

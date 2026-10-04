@@ -60,7 +60,7 @@
     <div class="heading">Patchwork Airship</div>
     <Divider></Divider>
     <div class="sub-heading">
-      Development build. Press H for the perf HUD (X button in VR), P to pause the ship.
+      Development build. Press H for the perf HUD (X button in VR), P (B in VR) to stop the ship.
       Settings come from the URL, see README.
     </div>
   </div>
