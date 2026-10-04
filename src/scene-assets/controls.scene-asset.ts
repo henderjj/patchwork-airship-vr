@@ -118,3 +118,36 @@ export function createBoardFrame(width: number, height: number): Mesh {
     'Instrument Board',
   );
 }
+
+/**
+ * The ship's bell on a bracket over the port bow corner. Origin at the hook;
+ * the bell hangs along -Y and is swung by rotating it.
+ */
+export function createBell(): Mesh {
+  return partsMesh(
+    [
+      { geometry: new TorusGeometry(0.02, 0.006, 4, 6), color: IRON, position: [0, -0.02, 0] },
+      // Bell: a flared cone with a lip, and the clapper's ball below.
+      { geometry: new CylinderGeometry(0.035, 0.085, 0.14, 8, 1, true), color: BRASS, position: [0, -0.11, 0] },
+      { geometry: new CylinderGeometry(0.035, 0.035, 0.02, 8), color: shade(BRASS, 0.85), position: [0, -0.04, 0] },
+      { geometry: new TorusGeometry(0.085, 0.008, 4, 10), color: shade(BRASS, 0.8), position: [0, -0.18, 0], rotation: [Math.PI / 2, 0, 0] },
+      { geometry: new IcosahedronGeometry(0.018, 0), color: IRON, position: [0, -0.2, 0] },
+      // A short pull rope from the clapper.
+      beam([0, -0.2, 0], [0, -0.34, 0], 0.007, ROPE, 4),
+    ],
+    'Bell',
+  );
+}
+
+/** The bell's bracket, origin at the hook: a post rising `postHeight` from the rail top at `toPost` (from the hook), and an arm out to the hook. */
+export function createBellBracket(toPost: readonly [number, number, number], postHeight: number): Mesh {
+  const [px, py, pz] = toPost;
+  return partsMesh(
+    [
+      beam([px, py, pz], [px, py + postHeight, pz], 0.025, WOOD_DARK, 5),
+      beam([px, py + postHeight, pz], [0, 0.03, 0], 0.018, IRON, 4),
+      beam([0, 0.03, 0], [0, -0.02, 0], 0.006, IRON, 4),
+    ],
+    'Bell Bracket',
+  );
+}

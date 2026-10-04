@@ -9,6 +9,7 @@ import {
   SphereGeometry,
 } from '@iwsdk/core';
 import { jitter, mergeParts, type Part, pick, rng, shade } from '../scene-assets/lowpoly.js';
+import { islandDepth } from '../sim/islands.js';
 
 /**
  * Procedural low-poly sky content: floating islands (two levels of detail),
@@ -40,7 +41,9 @@ function islandGeometry(seed: number, high: boolean): BufferGeometry {
   const radial = high ? 11 : 6;
   const grassTone = pick(GRASS, random);
   const rockTone = pick(ROCK, random);
-  const depth = 1.1 + random() * 0.9;
+  // The rock's depth, below the grass cap (src/sim/islands.ts replays this for collisions).
+  random();
+  const depth = islandDepth(seed) - 0.18;
 
   const parts: Part[] = [];
   const cap = new CylinderGeometry(1, 0.96, 0.18, radial, 1);

@@ -3,6 +3,7 @@ import projectOptions from 'virtual:iwsdk-project';
 import { PanelSystem } from './panel.js';
 import { ComfortSystem } from './systems/comfort-system.js';
 import { ControlsSystem } from './systems/controls-system.js';
+import { RouteSystem } from './systems/route-system.js';
 import { CrankSystem } from './systems/crank-system.js';
 import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
@@ -38,6 +39,7 @@ World.create(
   // After the crank and rope, so it knows which hands they hold; it also
   // sees the crewmate's pose for trim.
   world.registerSystem(ControlsSystem);
+  world.registerSystem(RouteSystem);
   // After the crank, rope and controls, so it knows which hands they hold.
   world.registerSystem(ThrowablesSystem);
   world.registerSystem(PanelSystem);

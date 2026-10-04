@@ -473,12 +473,16 @@ function checkThrows(label, r, maxSlide) {
  * rudder over, and both ships are compared side by side for a few seconds.
  */
 async function shipSyncChecks(host, guest) {
+  // Aloft, clear of island A (the flight starts resting on it).
   await host.page.evaluate(() => {
     window.__ship.fly();
+    window.__ship.place(0, 135, -60);
     window.__ship.feedFuel();
     window.__ship.feedFuel();
     window.__ship.setRudder(1);
   });
+  // The guest jumps to the new place once, then follows smoothly.
+  await host.page.waitForTimeout(1000);
   const pose = (page) => page.evaluate(() => {
     const s = window.__ship.state;
     return { x: s.x, y: s.y, z: s.z, yaw: s.yaw, time: s.time, heat: window.__ship.info.heat, error: window.__ship.follower.error,
@@ -502,9 +506,9 @@ async function shipSyncChecks(host, guest) {
   }
   const turned = ((last.g.yaw - first.g.yaw) * 180) / Math.PI;
   check('The guest\'s ship follows the host\'s flight',
-    turned < -1 && last.g.heat > 60 && worstGap < 0.2 && worstYaw < 0.01 && last.g.snaps === 0,
+    turned < -1 && last.g.heat > 60 && worstGap < 0.2 && worstYaw < 0.01 && last.g.snaps === first.g.snaps,
     `guest turned ${turned.toFixed(1)}°, heat ${last.g.heat.toFixed(1)} °C, largest gap ${(worstGap * 100).toFixed(1)} cm and ${((worstYaw * 180) / Math.PI).toFixed(2)}°, ` +
-      `correction ${(worstError * 100).toFixed(1)} cm, ${last.g.snaps} snaps`);
+      `correction ${(worstError * 100).toFixed(1)} cm, ${last.g.snaps - first.g.snaps} snaps`);
 
   // The guest's stop button stops the host's ship for both.
   await guest.page.evaluate(() => window.__ship.togglePause());
@@ -550,6 +554,42 @@ async function shipSyncChecks(host, guest) {
     working !== null && letGo !== null && Math.abs(letGo.rudder - 0.5) < 0.01 && fed !== null && fed.ballastKg === 20 && hostBag !== null,
     working ? `vent ${(working.ventOpen * 100).toFixed(0)}%, rudder ${working.rudder.toFixed(2)} (stays ${letGo?.rudder.toFixed(2)} let go), ` +
       `${fed ? `brick burned, ${fed.ballastKg} kg ballast dropped` : 'brick or ballast lost'}, host saw the bag ${hostBag ? 'fall' : 'stay'}` : 'vent or tiller never reached the host');
+
+  // The route: the host's run shows on the guest's board, and the guest's bell restarts it.
+  const run = (page) => page.evaluate(() => ({ phase: window.__route.run.phase, seconds: window.__route.run.seconds, result: window.__route.run.result,
+    board: window.__route.boardText(), y: window.__ship.state.y }));
+  await host.page.evaluate(() => {
+    window.__ship.fly();
+    window.__ship.place(0, 126, -40);
+  });
+  const guestFlying = await waitFor('the guest to see the run start', async () => {
+    const r = await run(guest.page);
+    return r.phase === 'flying' && r.seconds > 0.5 && r.board[0].startsWith('TIME') ? r : null;
+  }, 5000).catch(() => null);
+  await guest.page.evaluate(() => {
+    window.__route.ring();
+    window.__route.ring();
+  });
+  const restarted = await waitFor('the guest\'s bell to restart the host\'s run', async () => {
+    const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
+    return h.phase === 'ready' && g.phase === 'ready' ? h : null;
+  }, 5000).catch(() => null);
+  // Off island A (which starts the clock), then down onto island B.
+  await host.page.evaluate(() => window.__ship.place(0, 126, -40));
+  await host.page.waitForTimeout(500);
+  await host.page.evaluate(() => {
+    const b = window.__route.run.route.finish;
+    window.__ship.place(b.x + 1, b.y + 1.2, b.z - 2);
+    window.__ship.flight.heat = 40;
+  });
+  const landed = await waitFor('both to see the landing scored', async () => {
+    const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
+    return h.result && g.result && g.board[0].startsWith('LANDED') ? { h, g } : null;
+  }, 20000).catch(() => null);
+  check('The guest sees the host\'s run, rings the bell for both, and sees the same score',
+    guestFlying !== null && restarted !== null && landed !== null && landed.g.result.score === landed.h.result.score,
+    `${guestFlying ? `guest clock ${guestFlying.seconds.toFixed(1)} s` : 'guest never saw the run start'}, ` +
+      `${restarted ? 'restarted' : 'bell ignored'}, ${landed ? `scores ${landed.h.result.score} / ${landed.g.result.score}` : 'landing not seen'}`);
 
   // Back to a ship standing still for the checks that follow.
   await host.page.evaluate(() => {

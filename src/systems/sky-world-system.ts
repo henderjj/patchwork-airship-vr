@@ -14,7 +14,6 @@ import {
   Quaternion,
   Vector3,
 } from '@iwsdk/core';
-import { rng } from '../scene-assets/lowpoly.js';
 import { settings } from '../settings.js';
 import {
   createCloudGeometry,
@@ -24,15 +23,21 @@ import {
   SKY_DOME_SIDE,
   SKY_HORIZON,
 } from '../world/sky-assets.js';
+import { ISLAND_VARIANTS, islandVariantSeed } from '../sim/islands.js';
+import { rng } from '../sim/random.js';
 import { wrapNear } from '../sim/world-tile.js';
-import { ship } from './ship-system.js';
+import { createBeaconLampGeometry, createBeaconMastGeometry, createLandingIslandGeometry, createRingGeometry } from '../world/route-assets.js';
+import { ROUTE, sceneryIslands } from '../world/route-world.js';
+import { flightInfo, route, ship } from './ship-system.js';
 
-const ISLAND_VARIANTS = 4;
 const CLOUD_VARIANTS = 3;
 /** Islands nearer than this (m) use the detailed mesh. */
 const LOD_DISTANCE = 220;
 const LOD_INTERVAL_FRAMES = 15;
 const SKY_RADIUS = 1000;
+/** Island B's beacon mast height, m, and the tint of a ring flown through. */
+const BEACON_HEIGHT = 22;
+const PASSED_TINT = 0x7be07b;
 const SUN_DIRECTION = new Vector3(0.45, 0.8, 0.3).normalize();
 
 interface Placement {
@@ -58,6 +63,9 @@ export class SkyWorldSystem extends createSystem({}) {
   private clouds: Placement[] = [];
   private cloudMeshes: InstancedMesh[] = [];
   private islandMeshes: { high: InstancedMesh; low: InstancedMesh }[] = [];
+  private route!: Group;
+  private rings: Mesh[] = [];
+  private shownRings = 0;
   private frame = 0;
   private shipQuat = new Quaternion();
   private inverseQuat = new Quaternion();
@@ -106,25 +114,21 @@ export class SkyWorldSystem extends createSystem({}) {
 
     this.buildIslands();
     this.buildClouds();
+    this.buildRoute();
     this.update();
   }
 
   private buildIslands(): void {
-    const random = rng(settings.seed * 101 + 5);
     const variants: IslandVariant[] = [];
     for (let v = 0; v < ISLAND_VARIANTS; v++) {
-      variants.push(createIslandVariant(settings.seed * 10 + v));
+      variants.push(createIslandVariant(islandVariantSeed(settings.seed, v)));
     }
-    for (let i = 0; i < settings.islands; i++) {
-      const angle = random() * Math.PI * 2;
-      // Near islands first so a small count still frames the ship nicely.
-      const distance = 60 + Math.pow(random(), 0.8) * 600;
-      const radius = 8 + random() * 26;
+    for (const island of sceneryIslands) {
       this.islands.push({
-        position: new Vector3(Math.cos(angle) * distance, 25 + random() * 75, Math.sin(angle) * distance),
-        scale: new Vector3(radius, radius * (0.8 + random() * 0.6), radius),
-        rotationY: random() * Math.PI * 2,
-        variant: i % ISLAND_VARIANTS,
+        position: new Vector3(island.x, island.y, island.z),
+        scale: new Vector3(island.radius, island.height, island.radius),
+        rotationY: island.rotationY,
+        variant: island.variant,
       });
     }
     const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
@@ -138,6 +142,56 @@ export class SkyWorldSystem extends createSystem({}) {
       const low = this.instanced(variants[v].low, material, count, `Islands${v}Low`);
       this.islandMeshes.push({ high, low });
     }
+  }
+
+  /** The route's islands, rings and beacon, shown while the crew flies the ship (`?motion=flight`). */
+  private buildRoute(): void {
+    this.route = new Group();
+    this.route.name = 'Route';
+    this.worldRoot.add(this.route);
+    const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    const islands: [typeof ROUTE.start, number][] = [
+      [ROUTE.start, 0x3f8f4a],
+      [ROUTE.finish, 0xd8452f],
+    ];
+    islands.forEach(([island, flag], i) => {
+      const mesh = new Mesh(createLandingIslandGeometry(island, flag, settings.seed + i), material);
+      mesh.name = `Island ${island.name}`;
+      mesh.position.set(island.x, island.y, island.z);
+      this.route.add(mesh);
+    });
+    for (const [i, ring] of ROUTE.rings.entries()) {
+      // Each ring has its own material so it can turn green once flown through.
+      const mesh = new Mesh(createRingGeometry(ring.radius), new MeshLambertMaterial({ vertexColors: true, emissive: new Color(0x3a2a20) }));
+      mesh.name = `Ring ${i + 1}`;
+      mesh.position.set(ring.x, ring.y, ring.z);
+      mesh.rotation.y = ring.yaw;
+      this.route.add(mesh);
+      this.rings.push(mesh);
+    }
+    // Island B's beacon, on its rim on the side facing the way in.
+    const b = ROUTE.finish;
+    const mast = new Mesh(createBeaconMastGeometry(BEACON_HEIGHT), material);
+    mast.name = 'Beacon Mast';
+    mast.position.set(b.x + b.radius * 0.55, b.y, b.z + b.radius * 0.3);
+    const lamp = new Mesh(createBeaconLampGeometry(), new MeshBasicMaterial({ vertexColors: true, fog: false, toneMapped: false }));
+    lamp.name = 'Beacon Lamp';
+    lamp.position.copy(mast.position);
+    lamp.position.y += BEACON_HEIGHT + 1.4;
+    this.route.add(mast, lamp);
+    this.route.visible = false;
+  }
+
+  /** Show the route while flying, and colour the rings already flown through. */
+  private updateRoute(): void {
+    this.route.visible = flightInfo.flying;
+    if (route.ringMask === this.shownRings) {
+      return;
+    }
+    this.shownRings = route.ringMask;
+    this.rings.forEach((ring, i) => {
+      (ring.material as MeshLambertMaterial).color.setHex(route.ringMask & (1 << i) ? PASSED_TINT : 0xffffff);
+    });
   }
 
   private buildClouds(): void {
@@ -235,6 +289,7 @@ export class SkyWorldSystem extends createSystem({}) {
     this.sun.position.copy(SUN_DIRECTION).applyQuaternion(this.inverseQuat).multiplyScalar(20);
     this.sun.target.position.set(0, 0, 0);
 
+    this.updateRoute();
     if (this.frame++ % LOD_INTERVAL_FRAMES === 0) {
       this.updateIslandLod();
       this.updateClouds();

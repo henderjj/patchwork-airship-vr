@@ -145,6 +145,10 @@ export class FlightSim {
   climb = 0;
   /** Time flown, s (sets the wind's wandering). */
   time = 0;
+  /** Whether the deck rests on an island's top. */
+  grounded = false;
+  /** Descent rate when the ship last touched down, m/s. */
+  touchdownSpeed = 0;
 
   constructor(
     readonly params: FlightParams = DEFAULT_FLIGHT,
@@ -172,6 +176,8 @@ export class FlightSim {
     this.yawRate = 0;
     this.climb = 0;
     this.time = 0;
+    this.grounded = false;
+    this.touchdownSpeed = 0;
     state.time = 0;
     state.x = x;
     state.y = y;
@@ -186,8 +192,13 @@ export class FlightSim {
     updateFeltGravity(state);
   }
 
-  /** Advance by dt seconds, writing the ship's pose into `state`. Allocation free. */
-  step(state: ShipState, c: FlightControls, dt: number): void {
+  /**
+   * Advance by dt seconds, writing the ship's pose into `state`. Allocation
+   * free. `ground` is the height of an island top under the deck, if any:
+   * the ship settles on it, held there (no drifting, turning or cranking
+   * away) until it has the lift to rise.
+   */
+  step(state: ShipState, c: FlightControls, dt: number, ground = Number.NEGATIVE_INFINITY): void {
     if (dt <= 0) {
       return;
     }
@@ -208,7 +219,7 @@ export class FlightSim {
 
     // Airspeed from the crank, eased and capped.
     const wanted = Math.min(lim.maxSpeed, Math.abs(c.crankSpeed) * p.speedPerCrank);
-    const speedAccel = clamp((wanted - this.airspeed) / p.speedLag, -lim.maxAccel, lim.maxAccel);
+    let speedAccel = clamp((wanted - this.airspeed) / p.speedLag, -lim.maxAccel, lim.maxAccel);
     this.airspeed = Math.max(0, this.airspeed + speedAccel * dt);
 
     // Turn rate from the rudder and the airflow over it.
@@ -222,10 +233,27 @@ export class FlightSim {
     const fx = -Math.sin(state.yaw);
     const fz = -Math.cos(state.yaw);
     const wind = p.windSpeed + p.windVariation * Math.sin(this.time * 0.05) * Math.sin(this.time * 0.013 + 0.7);
-    const vx = fx * this.airspeed - Math.sin(p.windHeading) * wind;
-    const vz = fz * this.airspeed - Math.cos(p.windHeading) * wind;
+    let vx = fx * this.airspeed - Math.sin(p.windHeading) * wind;
+    let vz = fz * this.airspeed - Math.cos(p.windHeading) * wind;
     // Trimmed nose-down, the ship flies a little downhill (and nose-up, uphill).
-    const vy = clamp(this.climb + this.airspeed * Math.sin(c.trimPitch), -lim.maxClimb, lim.maxClimb);
+    let vy = clamp(this.climb + this.airspeed * Math.sin(c.trimPitch), -lim.maxClimb, lim.maxClimb);
+
+    // Resting on an island: the ground takes the weight and holds the ship.
+    if (state.y + vy * dt <= ground) {
+      if (!this.grounded) {
+        this.touchdownSpeed = Math.max(0, -vy);
+        this.grounded = true;
+      }
+      state.y = ground;
+      vx = vy = vz = 0;
+      this.climb = Math.max(0, this.climb);
+      this.airspeed = 0;
+      speedAccel = 0;
+      state.yaw -= this.yawRate * dt;
+      this.yawRate = 0;
+    } else {
+      this.grounded = false;
+    }
 
     const k = Math.min(1, dt * 6);
     state.ax += ((vx - state.vx) / dt - state.ax) * k;

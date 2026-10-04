@@ -416,7 +416,9 @@ async function main() {
   //     a second or two, so the fuel left is only roughly known):
   //     B feeds the burner, V (held) opens the vent, . (held) swings the rudder to starboard.
   const key = (type, k) => evalInApp(`window.dispatchEvent(new KeyboardEvent('${type}', { key: '${k}' }))`);
+  // Aloft, clear of island A (the flight starts resting on it).
   evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 135, -60)');
   const heat0 = evalInApp('window.__ship.info.heat');
   key('keydown', 'b');
   key('keyup', 'b');
@@ -503,6 +505,74 @@ async function main() {
   check('The lantern swings towards the low side of the deck', swing.z > 0.03, `swung ${((swing.z * 180) / Math.PI).toFixed(1)}° to starboard with the deck 4° starboard-down`);
   const board = evalInApp('window.__controls.boardText()');
   check('The instrument board shows the flight', board.length === 5 && board[3].startsWith('BURNER') && !board[3].endsWith('out'), board.join(' | '));
+
+  // 6d. Phase 2 route: rest on island A, lift off, fly through a ring, land
+  //     on island B for a score, ring the bell to start again, and lose a run.
+  //     The ship is moved between the route's points to keep the test short.
+  evalInApp('window.__ship.fly()');
+  const route = evalInApp('window.__route.run.route');
+  const atStart = evalInApp('({ phase: window.__route.run.phase, grounded: window.__ship.flight.grounded, y: window.__ship.state.y, board: window.__route.boardText() })');
+  // The keel sits on the grass, about half a metre below the deck.
+  const keelGap = atStart.y - route.start.y;
+  check('The flight starts resting on island A', atStart.phase === 'ready' && atStart.grounded && keelGap > 0.4 && keelGap < 0.7 && atStart.board[1] === 'Waiting on island A',
+    `${atStart.phase}, deck at ${atStart.y.toFixed(2)} m on a top at ${route.start.y} m, board: ${atStart.board.join(' | ')}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.3, 1.6, 1.2]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -20, y: -4, z: -60 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-island-a.png'], {});
+  evalInApp('window.__ship.feedFuel()');
+  evalInApp('window.__ship.feedFuel()');
+  const lifted = await waitFor('lift-off from island A', () => evalInApp("window.__route.run.phase === 'flying' ? { y: window.__ship.state.y } : null"), 30000).catch(() => null);
+  await sleep(1500);
+  const timer = evalInApp('window.__route.run.seconds');
+  check('Burning fuel lifts the ship off and starts the clock', lifted !== null && timer > 0.5, lifted ? `aloft at ${lifted.y.toFixed(1)} m, ${timer.toFixed(1)} s on the clock` : 'never lifted off');
+  const ring = route.rings[0];
+  evalInApp(`window.__ship.place(${ring.x}, ${ring.y - 5}, ${ring.z + 30}, 0)`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, -0.8]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 6, z: -30 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-ring.png'], {});
+  evalInApp(`(window.__ship.place(${ring.x}, ${ring.y - 5}, ${ring.z + 2}, 0), window.__ship.flight.airspeed = 4)`);
+  const passed = await waitFor('ring 1', () => evalInApp('window.__route.run.ringMask & 1'), 10000).catch(() => 0);
+  const flyingBoard = evalInApp('window.__route.boardText()');
+  check('Flying through a ring counts it, and the board points to the next', passed === 1 && flyingBoard[1] === 'RINGS 1 of 2' && flyingBoard[2].startsWith('NEXT Ring 2'),
+    flyingBoard.join(' | '));
+  const b = route.finish;
+  evalInApp(`(window.__ship.place(${b.x + 2}, ${b.y + 1.2}, ${b.z + 3}), window.__ship.flight.heat = 40, window.__ship.info.burnLeft = 0)`);
+  const finished = await waitFor('landing on island B', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 30000).catch(() => null);
+  const scoreBoard = evalInApp('window.__route.boardText()');
+  check('Resting on island B finishes the run with a score', finished !== null && finished.rings === 1 && finished.score > 0 && scoreBoard[0].startsWith('LANDED'),
+    scoreBoard.join(' | '));
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.45, 1.55, -0.55]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.5, z: -0.05 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-score.png'], {});
+  // The bell, by hand.
+  await move([-0.4, 1.4, -0.8]);
+  await move([-0.78, 1.58, -1.3]);
+  await squeeze(1);
+  await sleep(300);
+  const rung = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z, bell: window.__route.bell().angle })');
+  await squeeze(0);
+  await move([-0.3, 1.2, -0.5]);
+  check('Ringing the bell starts again from island A', rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z && Math.abs(rung.bell) > 0.01,
+    `${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, bell swung ${((rung.bell * 180) / Math.PI).toFixed(0)}°`);
+  // Mid-run, one ring only asks; sinking into the haze loses the run; N (the keyboard's bell) restarts.
+  evalInApp('window.__ship.place(0, 126, -40)');
+  await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
+  // In one call, since each CLI call takes long enough for the second-ring window to pass.
+  const asked = evalInApp(`(window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n' })),
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'n' })),
+    new Promise((resolve) => setTimeout(() => resolve({ phase: window.__route.run.phase, board: window.__route.boardText() }), 400)))`);
+  evalInApp('window.__ship.place(0, 35, -60)');
+  const lost = await waitFor('lost run', () => evalInApp("window.__route.run.phase === 'lost' ? window.__route.boardText() : null"), 5000).catch(() => null);
+  key('keydown', 'n');
+  key('keyup', 'n');
+  const again = evalInApp('window.__route.run.phase');
+  check('Mid-run the bell asks first, a sunk run is lost, and the bell restarts it',
+    asked.phase === 'flying' && asked.board[5] === 'Ring again to restart' && lost?.[1] === 'Sank into the haze' && again === 'ready',
+    `one ring: ${asked.phase} "${asked.board[5]}", then ${lost ? lost.slice(0, 2).join(' / ') : 'not lost'}, then ${again}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
   evalInApp("window.__ship.setProfile('tour')");
 
   // 7. Perf log.
