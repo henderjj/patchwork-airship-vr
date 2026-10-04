@@ -19,6 +19,8 @@ export const PacketType = {
   Object: 6,
   /** Host's authoritative ship state (Phase 2 flight). */
   Ship: 7,
+  /** The guest's hands on the vent cord and tiller (Phase 2 controls). */
+  Controls: 8,
 } as const;
 
 /** One tracked pose: position (m) and rotation quaternion. */
@@ -262,8 +264,8 @@ export function decodeObject(view: DataView, out: ObjectStatePacket): boolean {
   return true;
 }
 
-/** Host's ship state: type(1) flags u8(1) time(4) then 16 × f32. */
-export const SHIP_PACKET_BYTES = 6 + 16 * 4;
+/** Host's ship state: type(1) flags u8(1) time(4) then 20 × f32. */
+export const SHIP_PACKET_BYTES = 6 + 20 * 4;
 
 /** Ship packet flag bits. */
 export const SHIP_FLAG_PAUSED = 1;
@@ -294,16 +296,27 @@ export interface ShipStatePacket {
   heat: number;
   /** Airspeed, m/s. */
   airspeed: number;
+  /** Rudder, -1 (port) to 1 (starboard), and vent opening, 0 to 1. */
+  rudder: number;
+  vent: number;
+  /** Seconds of burn left in the burner. */
+  burnLeft: number;
+  /** Which ballast bags have been dropped, one bit each. */
+  ballast: number;
 }
 
 export function createShipStatePacket(): ShipStatePacket {
   return {
     timeMs: 0, flags: 0, shipTime: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
     vx: 0, vy: 0, vz: 0, ax: 0, ay: 0, az: 0, yawRate: 0, heat: 0, airspeed: 0,
+    rudder: 0, vent: 0, burnLeft: 0, ballast: 0,
   };
 }
 
-const SHIP_FIELDS = ['shipTime', 'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vy', 'vz', 'ax', 'ay', 'az', 'yawRate', 'heat', 'airspeed'] as const;
+const SHIP_FIELDS = [
+  'shipTime', 'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vy', 'vz', 'ax', 'ay', 'az', 'yawRate', 'heat', 'airspeed',
+  'rudder', 'vent', 'burnLeft', 'ballast',
+] as const;
 
 export function encodeShip(buffer: ArrayBuffer, state: ShipStatePacket): number {
   const view = new DataView(buffer);
@@ -325,5 +338,42 @@ export function decodeShip(view: DataView, out: ShipStatePacket): boolean {
   for (let i = 0; i < SHIP_FIELDS.length; i++) {
     out[SHIP_FIELDS[i]] = view.getFloat32(6 + i * 4);
   }
+  return true;
+}
+
+/** The guest's hands on the controls: type(1) time(4) flags u8(1) vent u8(1) tiller i16(2). */
+export const CONTROLS_PACKET_BYTES = 9;
+
+/** Controls packet flag bits: the guest holds the vent cord, the tiller. */
+export const CONTROLS_FLAG_VENT = 1;
+export const CONTROLS_FLAG_TILLER = 2;
+
+export interface ControlsPacket {
+  timeMs: number;
+  flags: number;
+  /** How far the guest has pulled the vent cord, 0 to 1. */
+  vent: number;
+  /** Where the guest holds the tiller, -1 (rudder to port) to 1 (starboard). */
+  rudder: number;
+}
+
+export function encodeControls(buffer: ArrayBuffer, state: ControlsPacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.Controls);
+  view.setUint32(1, Math.floor(state.timeMs) >>> 0);
+  view.setUint8(5, state.flags & 0xff);
+  view.setUint8(6, Math.round(Math.max(0, Math.min(1, state.vent)) * 255));
+  view.setInt16(7, Math.round(Math.max(-1, Math.min(1, state.rudder)) * 32767));
+  return CONTROLS_PACKET_BYTES;
+}
+
+export function decodeControls(view: DataView, out: ControlsPacket): boolean {
+  if (view.byteLength < CONTROLS_PACKET_BYTES || view.getUint8(0) !== PacketType.Controls) {
+    return false;
+  }
+  out.timeMs = view.getUint32(1);
+  out.flags = view.getUint8(5);
+  out.vent = view.getUint8(6) / 255;
+  out.rudder = view.getInt16(7) / 32767;
   return true;
 }

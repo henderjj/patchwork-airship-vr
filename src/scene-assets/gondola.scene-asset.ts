@@ -6,6 +6,9 @@ import {
   MeshLambertMaterial,
 } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly.js';
+import { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
+
+export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH };
 
 /**
  * The gondola: a 2 × 3 m wood-and-canvas deck that is the players' fixed frame
@@ -17,16 +20,11 @@ import { beam, jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly
  * and the rigging. Interactive parts (crank, tiller, fuel bricks) are separate.
  */
 
-export const DECK_WIDTH = 2.0;
-export const DECK_LENGTH = 3.0;
 export const BULWARK_HEIGHT = 0.5;
 export const RAIL_HEIGHT = 1.0;
 export const ENVELOPE_CENTER = [0, 7.2, 0] as const;
 export const ENVELOPE_RADII = [3.0, 2.8, 5.2] as const;
 
-/** Burner and fuel hopper, mid-ship on the starboard side. */
-export const BURNER_POSITION = [0.55, 0, 0.05] as const;
-export const BURNER_SIZE = [0.42, 0.6, 0.42] as const;
 /** Fuel crate at the stern, port side; bricks start inside it. */
 export const FUEL_CRATE_POSITION = [-0.55, 0, 1.1] as const;
 export const FUEL_CRATE_SIZE = [0.6, 0.32, 0.45] as const;

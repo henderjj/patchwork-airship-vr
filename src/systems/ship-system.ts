@@ -18,6 +18,7 @@ import {
   updateQuaternion,
 } from '../sim/ship-motion.js';
 import { createFlightControls, FlightSim } from '../sim/flight.js';
+import { ballastDropped } from '../sim/gondola-controls.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import {
@@ -65,7 +66,45 @@ export const flightInfo = {
   liftRate: 0,
   burner: false,
   vent: false,
+  /** Rudder and vent opening as flown (the host's, on the guest). */
+  rudder: 0,
+  ventOpen: 0,
+  /** Which ballast bags have been dropped, one bit each. */
+  ballastMask: 0,
+  /** Fuel bricks burned since the flight started. */
+  bricksBurned: 0,
 };
+
+/** The gondola's controls as the crew works them (written by the controls system on the host or solo). */
+export const stations = { vent: 0 };
+
+function addFuel(): void {
+  flightInfo.burnLeft = Math.min(MAX_BURN_SECONDS, flightInfo.burnLeft + BRICK_BURN_SECONDS);
+  flightInfo.bricksBurned++;
+}
+
+function setBallast(mask: number): void {
+  flightInfo.ballastMask = mask;
+  flightControls.ballastDropped = ballastDropped(mask);
+}
+
+/** A fuel brick went into the hopper: burn it (the guest tells the host, who flies the ship). */
+export function feedBurner(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'feed' });
+  } else {
+    addFuel();
+  }
+}
+
+/** Ballast bag `index` went overboard. */
+export function dropBallast(index: number): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'ballast', index } as { t: string });
+  } else {
+    setBallast(flightInfo.ballastMask | (1 << index));
+  }
+}
 
 /**
  * The profile named by `?motion=`, with any of its limits replaced from the
@@ -174,9 +213,23 @@ export class ShipSystem extends createSystem({
         this.paused = event.paused === true;
       }
     });
+    // The guest's brick in the hopper and bag over the side.
+    netLink.events.set('feed', () => {
+      if (netLink.isHost) {
+        addFuel();
+      }
+    });
+    netLink.events.set('ballast', (event) => {
+      const index = event.index;
+      if (netLink.isHost && typeof index === 'number' && index >= 0 && index < 8) {
+        setBallast(flightInfo.ballastMask | (1 << index));
+      }
+    });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      netLink.events.delete('ship-pause');
+      for (const name of ['ship-pause', 'feed', 'ballast']) {
+        netLink.events.delete(name);
+      }
     });
     (window as { __ship?: unknown }).__ship = {
       state: ship,
@@ -195,6 +248,8 @@ export class ShipSystem extends createSystem({
         flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
         Object.assign(flightControls, createFlightControls());
         flightInfo.burnLeft = 0;
+        flightInfo.bricksBurned = 0;
+        setBallast(0);
       },
       /** What P and the B button do: stop or start the ship (the guest asks the host). */
       togglePause: () => this.togglePause(),
@@ -230,7 +285,7 @@ export class ShipSystem extends createSystem({
   }
 
   private feedFuel(): void {
-    flightInfo.burnLeft = Math.min(MAX_BURN_SECONDS, flightInfo.burnLeft + BRICK_BURN_SECONDS);
+    feedBurner();
   }
 
   /** Solo or host: move the ship by the flight model or the scripted path, and send it to the guest. */
@@ -244,7 +299,7 @@ export class ShipSystem extends createSystem({
         const c = flightControls;
         flightInfo.burnLeft = Math.max(0, flightInfo.burnLeft - dt);
         c.burner = flightInfo.burnLeft > 0 ? 1 : 0;
-        c.vent = this.keys.vent ? 1 : 0;
+        c.vent = Math.max(this.keys.vent ? 1 : 0, stations.vent);
         const swing = (this.keys.starboard ? 1 : 0) - (this.keys.port ? 1 : 0);
         c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
         c.crankSpeed = crankInfo.speed;
@@ -255,6 +310,8 @@ export class ShipSystem extends createSystem({
         flightInfo.liftRate = flight.liftRate(c.ballastDropped);
         flightInfo.burner = c.burner > 0;
         flightInfo.vent = c.vent > 0;
+        flightInfo.rudder = c.rudder;
+        flightInfo.ventOpen = c.vent;
       } else {
         stepShip(ship, this.profile, dt);
       }
@@ -296,6 +353,10 @@ export class ShipSystem extends createSystem({
     o.yawRate = this.flying ? flight.yawRate : 0;
     o.heat = this.flying ? flight.heat : 0;
     o.airspeed = ship.speed;
+    o.rudder = flightInfo.rudder;
+    o.vent = flightInfo.ventOpen;
+    o.burnLeft = flightInfo.burnLeft;
+    o.ballast = flightInfo.ballastMask;
     netLink.send(this.sendBuffer, encodeShip(this.sendBuffer, o));
   }
 
@@ -322,6 +383,10 @@ export class ShipSystem extends createSystem({
       flightInfo.climb = h.vy;
       flightInfo.burner = (h.flags & SHIP_FLAG_BURNER) !== 0;
       flightInfo.vent = (h.flags & SHIP_FLAG_VENT) !== 0;
+      flightInfo.rudder = h.rudder;
+      flightInfo.ventOpen = h.vent;
+      flightInfo.burnLeft = h.burnLeft;
+      flightInfo.ballastMask = h.ballast;
     } else {
       this.flyOwnShip(dt);
     }

@@ -31,7 +31,9 @@ import {
   FLAG_RIGHT_TRACKED,
   netLink,
 } from './net-system.js';
-import { grip } from './grip-system.js';
+import { grip, handUse } from './grip-system.js';
+import { inHopper } from '../sim/gondola-controls.js';
+import { feedBurner } from './ship-system.js';
 
 /**
  * Spike S7: picking up, throwing and catching loose objects (the fuel
@@ -319,7 +321,7 @@ export class ThrowablesSystem extends createSystem({}) {
         continue;
       }
       const sideBusy = busy & (side === 'left' ? FLAG_LEFT_CRANK | FLAG_LEFT_ROPE : FLAG_RIGHT_CRANK | FLAG_RIGHT_ROPE);
-      if (hand.present && hand.pressed && !sideBusy) {
+      if (hand.present && hand.pressed && !sideBusy && !handUse[side]) {
         this.tryGrab(side, hand, now);
       }
     }
@@ -328,6 +330,10 @@ export class ThrowablesSystem extends createSystem({}) {
       const p = o.entity.object3D!.position;
       if (!o.remote && !o.heldBy && p.y < OVERBOARD_Y) {
         // Fell overboard: back to the crate.
+        this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
+      } else if (!o.remote && !o.heldBy && inHopper(p.x, p.y, p.z)) {
+        // Phase 2: into the burner. A fresh brick takes its place in the crate.
+        feedBurner();
         this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
       }
       o.prev.copy(o.entity.object3D!.position);

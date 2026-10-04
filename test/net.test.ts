@@ -152,6 +152,7 @@ describe('ship packets', () => {
     const state = {
       ...createShipStatePacket(), timeMs: 765432.9, flags: 5, shipTime: 312.5, x: -1834.25, y: 121.5, z: 2950.75,
       yaw: -2.75, pitch: 0.03, roll: -0.06, vx: 4.5, vy: -0.75, vz: -2.25, ax: 0.1, ay: -0.02, az: 0.3, yawRate: 0.05, heat: 63.5, airspeed: 6.25,
+      rudder: -0.5, vent: 0.25, burnLeft: 37.5, ballast: 5,
     };
     const buffer = new ArrayBuffer(SHIP_PACKET_BYTES);
     expect(encodeShip(buffer, state)).toBe(SHIP_PACKET_BYTES);
@@ -159,9 +160,23 @@ describe('ship packets', () => {
     expect(decodeShip(new DataView(buffer), out)).toBe(true);
     expect(out.timeMs).toBe(765432);
     expect(out.flags).toBe(5);
-    for (const key of ['shipTime', 'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vy', 'vz', 'ax', 'ay', 'az', 'yawRate', 'heat', 'airspeed'] as const) {
+    for (const key of ['shipTime', 'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vy', 'vz', 'ax', 'ay', 'az', 'yawRate', 'heat', 'airspeed', 'rudder', 'vent', 'burnLeft', 'ballast'] as const) {
       // f32 keeps millimetres at 3 km.
       expect(Math.abs(out[key] - state[key])).toBeLessThan(1e-3);
     }
+  });
+});
+
+describe('controls packets', () => {
+  it('round-trip the guest\'s hands on the vent cord and tiller', async () => {
+    const { encodeControls, decodeControls, CONTROLS_PACKET_BYTES } = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(CONTROLS_PACKET_BYTES);
+    expect(encodeControls(buffer, { timeMs: 4242.5, flags: 3, vent: 0.6, rudder: -0.75 })).toBe(CONTROLS_PACKET_BYTES);
+    const out = { timeMs: 0, flags: 0, vent: 0, rudder: 0 };
+    expect(decodeControls(new DataView(buffer), out)).toBe(true);
+    expect(out.timeMs).toBe(4242);
+    expect(out.flags).toBe(3);
+    expect(out.vent).toBeCloseTo(0.6, 2);
+    expect(out.rudder).toBeCloseTo(-0.75, 4);
   });
 });

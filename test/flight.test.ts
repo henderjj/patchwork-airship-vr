@@ -147,4 +147,19 @@ describe('flight model', () => {
     expect(drift).toBeGreaterThan(0.2);
     expect(drift).toBeLessThan(1);
   });
+
+  it('flies downhill when trimmed nose-down, and only once it is moving', () => {
+    const sim = new FlightSim(CALM);
+    const ship = createShipState(100);
+    sim.reset(ship, 0, 100, 0, 0);
+    const c = createFlightControls();
+    c.trimPitch = -0.03;
+    // The burner at exactly the setting that holds the balancing heat.
+    c.burner = (DEFAULT_FLIGHT.cooling * DEFAULT_FLIGHT.balanceHeat) / DEFAULT_FLIGHT.burnerHeating;
+    fly(sim, ship, 10, c);
+    expect(Math.abs(ship.vy)).toBeLessThan(0.01);
+    c.crankSpeed = 9.6;
+    fly(sim, ship, 40, c);
+    expect(ship.vy).toBeLessThan(-0.15);
+  });
 });
