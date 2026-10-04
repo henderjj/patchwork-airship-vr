@@ -84,6 +84,11 @@ async function openPlayer(browser, query) {
   // frame-by-frame motion checks.
   const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 320, height: 200 } });
   const page = await context.newPage();
+  if (process.env.THROTTLE) {
+    // Slow the page's CPU, to see how the timing checks fare on a slow CI runner.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.THROTTLE) });
+  }
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
@@ -316,7 +321,7 @@ async function throwAndCatch(host, guest, seconds) {
     const FLIGHT = 0.5, SWING_MS = 250, WINDUP_MS = 300;
     const endAt = performance.now() + durationMs;
     const s = { phase: 'ready', since: performance.now(), hand: jitter(mine, 0.1), squeeze: false, from: null, start: null, v: null,
-      throws: 0, catches: 0, kept: 0, lost: 0, misses: 0, pickups: 0, remoteHeldSince: 0, maxHeldError: 0, heldChecks: 0, done: false };
+      throws: 0, catches: 0, kept: 0, lost: 0, misses: 0, pickups: 0, remoteHeldSince: 0, maxHeldError: 0, heldChecks: 0, released: false, done: false };
     window.__throwScript = s;
     T.stats.maxHandoverOffset = 0;
     T.stats.handoverOffsets.length = 0;
@@ -333,6 +338,11 @@ async function throwAndCatch(host, guest, seconds) {
         const k = t / 1000; // keeps moving through the release, as a real arm does
         p = s.start.map((v, i) => v + s.v[i] * k);
         squeeze = t < SWING_MS;
+        // The hand lets go here, in the frame the game reads it. Only then may
+        // the script move on: if its own frame callback ran first and put the
+        // hand back at rest, the game would see the hand stop dead at the
+        // release and throw at two-thirds speed.
+        if (!squeeze) s.released = true;
       }
       return { x: p[0], y: p[1], z: p[2], squeeze };
     });
@@ -391,7 +401,8 @@ async function throwAndCatch(host, guest, seconds) {
       } else if (s.phase === 'windup') {
         if (t > WINDUP_MS) set('swing');
       } else if (s.phase === 'swing') {
-        if (t > SWING_MS) {
+        if (s.released) {
+          s.released = false;
           s.throws++;
           s.squeeze = false;
           s.hand = jitter(mine, 0.1);
@@ -427,7 +438,7 @@ async function throwAndCatch(host, guest, seconds) {
   await waitFor('the throwing to finish', async () =>
     (await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__throwScript.done)))).every(Boolean), (seconds + 15) * 1000);
   const read = (p) => p.page.evaluate(() => {
-    const { done, phase, since, hand, squeeze, from, start, v, pendingCatch, remoteHeldSince, ...rest } = window.__throwScript;
+    const { done, phase, since, hand, squeeze, from, start, v, pendingCatch, remoteHeldSince, released, ...rest } = window.__throwScript;
     return { ...rest, handoverOffset: window.__throw.stats.maxHandoverOffset, handoverOffsets: window.__throw.stats.handoverOffsets.slice(), refused: window.__throw.stats.refused };
   });
   return { host: await read(host), guest: await read(guest) };
@@ -632,11 +643,28 @@ async function main() {
     check('Head and hand poses arrive intact', posErr < 0.002 && rotDot > 0.9999 && got?.flags === 3,
       `position error ${(posErr * 1000).toFixed(2)} mm, rotation error ${((Math.acos(Math.min(1, rotDot)) * 2 * 180) / Math.PI).toFixed(3)}°`);
     const visible = await b.page.evaluate(() =>
-      ['Crew 2 Head', 'Crew 2 Torso', 'Crew 2 Left Hand', 'Crew 2 Right Hand'].every(
+      ['Crew 2 Head', 'Crew 2 Torso', 'Crew 2 Legs', 'Crew 2 Left Hand', 'Crew 2 Right Hand'].every(
         (name) => window.__debug.world.scene.getObjectByName(name)?.visible,
       ),
     );
     check('Crewmate avatar is drawn', visible);
+    if (process.env.SHOT_DIR) {
+      // A picture of the crewmate facing this player, for checking the avatar by eye.
+      const facing = { qx: 0, qy: 1, qz: 0, qw: 0 };
+      await a.page.evaluate((pose) => window.__net.setTestPose(pose), {
+        head: { px: 0, py: 1.62, pz: -1.3, ...facing },
+        left: { px: -0.22, py: 1.05, pz: -1.0, ...facing },
+        right: { px: 0.22, py: 1.05, pz: -1.0, ...facing },
+        flags: 3,
+      });
+      const size = b.page.viewportSize();
+      await b.page.setViewportSize({ width: 960, height: 600 });
+      await b.page.evaluate(() => document.querySelectorAll('body > div:not(#scene-container)').forEach((e) => { e.style.display = 'none'; }));
+      await b.page.waitForTimeout(1500);
+      await b.page.screenshot({ path: `${process.env.SHOT_DIR}/crewmate.png` });
+      // Back to the small page: software rendering at full size slows the timing checks that follow.
+      await b.page.setViewportSize(size);
+    }
 
     // Voice: the fake microphone beeps about once a second.
     const voicePeak = await peakVoiceLevel(b.page, 2500);
