@@ -456,6 +456,86 @@ function checkThrows(label, r, maxSlide) {
     `median slide ${(median * 100).toFixed(0)} cm (limit ${(maxSlide * 100).toFixed(0)} cm), worst ${(worst * 100).toFixed(0)} cm over ${slides.length} hand-overs`);
 }
 
+/** Spike S10: what one player sees of the crewmate, and the ship clock. */
+const crew = (page) => page.evaluate(() => ({ status: window.__crew.status, paused: window.__crew.paused,
+  signVisible: window.__crew.signVisible, message: window.__crew.message, shipTime: window.__ship.state.time }));
+
+/** Make `page` look hidden (headset off or tab switched), or visible again, through the real visibilitychange path. */
+function setPageHidden(page, hidden) {
+  return page.evaluate((h) => {
+    Object.defineProperty(document, 'visibilityState', { value: h ? 'hidden' : 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+}
+
+/** Wait for `page`'s crew status to become `status`; returns what it saw then. */
+function waitForCrew(page, status, timeoutMs = 10000) {
+  return waitFor(`crew status ${status}`, async () => {
+    const c = await crew(page);
+    return c.status === status ? c : null;
+  }, timeoutMs).catch(() => null);
+}
+
+/** Ship time advanced over `ms` on `page`, s. */
+async function shipAdvance(page, ms) {
+  const t0 = (await crew(page)).shipTime;
+  await page.waitForTimeout(ms);
+  return (await crew(page)).shipTime - t0;
+}
+
+/**
+ * Spike S10: the game pauses when the crewmate can't play and carries on
+ * when they're back. `host` and `guest` are connected players.
+ */
+async function lifecycleChecks(host, guest) {
+  // The guest takes off the headset: the host's game waits.
+  await setPageHidden(guest.page, true);
+  const away = await waitForCrew(host.page, 'away');
+  const pausedFor = away ? await shipAdvance(host.page, 800) : -1;
+  if (process.env.SHOT_DIR) {
+    await host.page.setViewportSize({ width: 960, height: 600 });
+    await host.page.evaluate(() => document.querySelectorAll("body > div:not(#scene-container)").forEach((e) => { e.style.display = "none"; }));
+    await host.page.waitForTimeout(500);
+    await host.page.screenshot({ path: `${process.env.SHOT_DIR}/crew-away.png` });
+  }
+  check('A crewmate who steps away pauses the game, with a sign saying so',
+    away !== null && away.paused && away.signVisible && pausedFor === 0,
+    away ? `"${away.message}", ship moved ${pausedFor.toFixed(2)} s in 0.8 s` : 'host never saw the crewmate away');
+  await setPageHidden(guest.page, false);
+  const back = await waitForCrew(host.page, 'together');
+  const resumed = back ? await shipAdvance(host.page, 800) : 0;
+  check('The game carries on when the crewmate is back', back !== null && !back.signVisible && resumed > 0.3,
+    `ship moved ${resumed.toFixed(2)} s in 0.8 s`);
+
+  // Nothing arrives from the guest for 3 s (a frozen page or a dying network).
+  await host.page.evaluate(() => window.__net.session.blackout(3000));
+  const silent = await waitForCrew(host.page, 'silent', 5000);
+  const recovered = await waitForCrew(host.page, 'together', 8000);
+  check('A crewmate who goes quiet pauses the game until packets flow again', silent !== null && silent.paused && recovered !== null,
+    silent ? `"${silent.message}"` : 'never reported silent');
+
+  // The guest's connection fails: both get back into the room on their own.
+  // Reconnecting can take under a second, so look at each side's status history.
+  const started = Date.now();
+  const mark = (page) => page.evaluate(() => window.__crew.history.length);
+  const [hostMark, guestMark] = [await mark(host.page), await mark(guest.page)];
+  const since = (page, from) => page.evaluate((n) => window.__crew.history.slice(n), from);
+  await guest.page.evaluate(() => window.__net.session.breakConnection());
+  let reconnected = true;
+  await waitFor('both reconnected', async () => (await state(host.page)) === 'connected' && (await state(guest.page)) === 'connected', 30000)
+    .catch(() => { reconnected = false; });
+  const seconds = (Date.now() - started) / 1000;
+  const rejoins = await guest.page.evaluate(() => window.__net.session.rejoins);
+  const after = reconnected ? await waitForCrew(host.page, 'together') : null;
+  await waitForCrew(guest.page, 'together');
+  const hostSaw = await since(host.page, hostMark);
+  const guestSaw = await since(guest.page, guestMark);
+  const pausedOn = (seen) => seen.some((st) => st === 'reconnecting' || st === 'waiting');
+  check('A failed connection reconnects by itself and the game carries on',
+    reconnected && rejoins >= 1 && pausedOn(hostSaw) && pausedOn(guestSaw) && after !== null,
+    `guest saw ${guestSaw.join(' > ')}, host saw ${hostSaw.join(' > ')}, back in ${seconds.toFixed(1)} s after ${rejoins} rejoin(s)`);
+}
+
 async function netStats(page) {
   return page.evaluate(() => {
     const n = window.__net;
@@ -507,6 +587,11 @@ async function main() {
     const b = await openPlayer(browser, `room=${room}&name=Bo${quickLag}`);
     await waitFor('both connected', async () => (await state(a.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('Two players connect over WebRTC', true);
+    if (process.env.ONLY_LIFECYCLE) {
+      // Quick loop for spike S10: just pausing and reconnecting.
+      await lifecycleChecks(a, b);
+      return;
+    }
     if (process.env.ONLY_THROW) {
       // Quick loop for tuning spike S7: just the throwing.
       const r = await throwAndCatch(a, b, 10);
@@ -583,6 +668,8 @@ async function main() {
     await waitFor('Bo to be told the crewmate left', async () => (await state(b.page)) === 'waiting');
     const boHost = await b.page.evaluate(() => window.__net.session.isHost);
     check('The remaining player becomes host', boHost);
+    const left = await waitForCrew(b.page, 'waiting');
+    check('The game waits for a crewmate who left', left !== null && left.paused && left.signVisible, left ? `"${left.message}"` : '');
     const a2 = await openPlayer(browser, `room=${room}&name=Ann`);
     await waitFor('reconnected', async () => (await state(a2.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('A player can rejoin', true);
@@ -617,6 +704,7 @@ async function main() {
     const throwsLocal = await throwAndCatch(b, a2, 14);
     report.throwsLocal = throwsLocal;
     checkThrows('local network', throwsLocal, 0.12);
+    await lifecycleChecks(b, a2);
     await a2.context.close();
     await b.context.close();
 

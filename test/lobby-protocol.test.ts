@@ -45,6 +45,14 @@ describe('lobby room', () => {
     expect(signals).toEqual([['b', { t: 'signal', from: 'a', data }]]);
   });
 
+  it('accepts a keepalive ping without answering', async () => {
+    const { room, sent } = harness();
+    await room.onMessage('a', hello('Ann'));
+    const before = sent.length;
+    await room.onMessage('a', JSON.stringify({ t: 'ping' }));
+    expect(sent.length).toBe(before);
+  });
+
   it('passes the host role on when the host leaves', async () => {
     const { room, sent } = harness();
     await room.onMessage('a', hello('Ann'));
@@ -52,6 +60,21 @@ describe('lobby room', () => {
     room.onClose('a');
     expect(sent.at(-1)).toEqual(['b', { t: 'left', id: 'a', newHost: 'b' }]);
     expect(room.members.get('b')!.host).toBe(true);
+  });
+
+  it('lets a player whose connection died rejoin a full room', async () => {
+    const { room, sent, closed } = harness();
+    await room.onMessage('a', JSON.stringify({ t: 'hello', name: 'Ann', color: 1, player: 'ann-page' }));
+    await room.onMessage('b', JSON.stringify({ t: 'hello', name: 'Bo', color: 2, player: 'bo-page' }));
+    // Ann's network dropped; her old connection hasn't closed on the server yet.
+    await room.onMessage('a2', JSON.stringify({ t: 'hello', name: 'Ann', color: 1, player: 'ann-page' }));
+    expect(closed).toEqual(['a']);
+    expect(sent).toContainEqual(['b', { t: 'left', id: 'a', newHost: 'b' }]);
+    expect(sent.some(([id, m]) => id === 'b' && m.t === 'joined' && m.member.id === 'a2')).toBe(true);
+    expect([...room.members.keys()]).toEqual(['b', 'a2']);
+    // A different player still finds the room full.
+    await room.onMessage('c', JSON.stringify({ t: 'hello', name: 'Cy', color: 3, player: 'cy-page' }));
+    expect(sent.at(-1)).toEqual(['c', { t: 'full' }]);
   });
 
   it('makes and checks room codes', () => {

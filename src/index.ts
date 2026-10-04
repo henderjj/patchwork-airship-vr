@@ -3,6 +3,7 @@ import projectOptions from 'virtual:iwsdk-project';
 import { PanelSystem } from './panel.js';
 import { ComfortSystem } from './systems/comfort-system.js';
 import { CrankSystem } from './systems/crank-system.js';
+import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
 import { GripSystem } from './systems/grip-system.js';
@@ -28,6 +29,8 @@ World.create(
   world.registerSystem(ComfortSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
+  // After NetSystem, which updates the crew presence it shows.
+  world.registerSystem(CrewStatusSystem);
   // After NetSystem, so it sees the crewmate's pose drawn this frame.
   world.registerSystem(CrankSystem);
   world.registerSystem(RopeSystem);
