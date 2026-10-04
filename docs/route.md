@@ -33,6 +33,10 @@ These weights are a first guess, in `scoreRun()` in `src/sim/route.ts`.
 
 The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference, and the fuel used; at the end it shows the score or why the run was lost.
 
+## Cost
+
+Measured in the emulated headset: showing the route adds about 8 draw calls and 2,600 triangles per eye (the two islands, two rings, the beacon, the bell and the route board), taking the scene to about 39 draw calls and 28,000 triangles per eye, well inside the budget of about 100 draw calls and 300,000 triangles. The route's pieces are hidden when the ship flies a scripted comfort profile.
+
 ## Two players
 
 The host runs the route and sends its state (phase, rings, clock start, result) as a reliable event whenever it changes, and once a second while a guest is connected, so someone who joins mid-run catches up. The guest's bell asks the host to restart. Both browsers must use the same `?seed=` and `?islands=` (the defaults do), since the scenery islands are now things the ship can hit.
