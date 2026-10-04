@@ -196,9 +196,10 @@ export class FlightSim {
    * Advance by dt seconds, writing the ship's pose into `state`. Allocation
    * free. `ground` is the height of an island top under the deck, if any:
    * the ship settles on it, held there (no drifting, turning or cranking
-   * away) until it has the lift to rise.
+   * away) until it has the lift to rise. A `moored` ship resting there stays
+   * down whatever its lift.
    */
-  step(state: ShipState, c: FlightControls, dt: number, ground = Number.NEGATIVE_INFINITY): void {
+  step(state: ShipState, c: FlightControls, dt: number, ground = Number.NEGATIVE_INFINITY, moored = false): void {
     if (dt <= 0) {
       return;
     }
@@ -239,14 +240,15 @@ export class FlightSim {
     let vy = clamp(this.climb + this.airspeed * Math.sin(c.trimPitch), -lim.maxClimb, lim.maxClimb);
 
     // Resting on an island: the ground takes the weight and holds the ship.
-    if (state.y + vy * dt <= ground) {
+    if (state.y + vy * dt <= ground || (moored && state.y <= ground + 0.01)) {
       if (!this.grounded) {
         this.touchdownSpeed = Math.max(0, -vy);
         this.grounded = true;
       }
       state.y = ground;
       vx = vy = vz = 0;
-      this.climb = Math.max(0, this.climb);
+      // Moored, the lines take the lift too: the climb builds from rest once cast off.
+      this.climb = moored ? 0 : Math.max(0, this.climb);
       this.airspeed = 0;
       speedAccel = 0;
       state.yaw -= this.yawRate * dt;

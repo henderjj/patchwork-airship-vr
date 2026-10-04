@@ -1,21 +1,43 @@
 import { makeRoomCode, normaliseRoomCode } from './lobby-protocol.js';
 import type { SessionState } from './net-session.js';
 
+export interface LobbyUiOptions {
+  onJoin: (room: string) => void;
+  onLeave: () => void;
+  onMute: () => void;
+  /** The player asked to allow the microphone. */
+  onAllowMic: () => void;
+  /** The player picked coat colour `index`. */
+  onColor: (index: number) => void;
+  /** Coat colours to offer, with names, and the one picked. */
+  colors: readonly number[];
+  colorNames: readonly string[];
+  color: number;
+}
+
 /**
  * Small 2D crew panel on the flat page (top right): create a crew, which
  * makes a four-letter code and puts it in the address bar, or type a
  * crewmate's code to join. Set up the crew before entering VR; the page
  * reloads nothing, so the link with `?room=CODE` can be shared as is.
+ *
+ * Also here, before VR: the coat colour your crewmate sees you in, and the
+ * microphone, which is asked for up front because a permission prompt
+ * inside VR is easy to miss.
  */
 export class LobbyUi {
   private root = document.createElement('div');
   private status = document.createElement('div');
   private input = document.createElement('input');
   private mic = document.createElement('div');
+  private micText = document.createElement('span');
+  private allowMic: HTMLButtonElement;
+  private swatches: HTMLButtonElement[] = [];
   private onJoin: (room: string) => void;
   private onLeave: () => void;
 
-  constructor(onJoin: (room: string) => void, onLeave: () => void, onMute: () => void) {
+  constructor(options: LobbyUiOptions) {
+    const { onJoin, onLeave, onMute } = options;
     this.onJoin = onJoin;
     this.onLeave = onLeave;
     this.root.id = 'crew-panel';
@@ -50,11 +72,47 @@ export class LobbyUi {
     mute.id = 'crew-mute';
     row.append(create, this.input, join, leave, mute);
     this.status.id = 'crew-status';
+
+    // Coat colour.
+    const colors = document.createElement('div');
+    colors.style.cssText = 'display:flex;gap:4px;align-items:center;flex-wrap:wrap';
+    const label = document.createElement('span');
+    label.textContent = 'Coat';
+    label.style.cssText = 'color:#94a3b8;margin-right:2px';
+    colors.append(label);
+    options.colors.forEach((hex, i) => {
+      const swatch = document.createElement('button');
+      swatch.id = `crew-color-${i}`;
+      swatch.title = options.colorNames[i] ?? '';
+      swatch.setAttribute('aria-label', `${options.colorNames[i] ?? 'Colour'} coat`);
+      swatch.style.cssText = `width:20px;height:20px;border-radius:50%;cursor:pointer;padding:0;background:#${hex.toString(16).padStart(6, '0')}`;
+      swatch.addEventListener('click', () => {
+        this.setColor(i);
+        options.onColor(i);
+      });
+      this.swatches.push(swatch);
+      colors.append(swatch);
+    });
+    this.setColor(options.color);
+
+    // Microphone, asked for up front.
     this.mic.id = 'crew-mic';
-    this.mic.style.cssText = 'color:#94a3b8';
-    this.root.append(row, this.status, this.mic);
+    this.mic.style.cssText = 'color:#94a3b8;display:flex;gap:6px;align-items:center';
+    this.allowMic = button('Allow microphone', options.onAllowMic);
+    this.allowMic.id = 'crew-allow-mic';
+    this.mic.append(this.micText, this.allowMic);
+    this.root.append(row, this.status, colors, this.mic);
     document.body.appendChild(this.root);
     this.setStatus('Playing solo.');
+    this.setMic({ muted: false, error: '', on: false, permitted: false });
+  }
+
+  /** Show coat colour `index` as picked. */
+  setColor(index: number): void {
+    this.swatches.forEach((swatch, i) => {
+      swatch.style.border = i === index ? '2px solid #f8fafc' : '2px solid transparent';
+      swatch.style.outline = i === index ? '1px solid #0f172a' : 'none';
+    });
   }
 
   join(code: string): void {
@@ -83,12 +141,18 @@ export class LobbyUi {
     this.setStatus(detail && state !== 'error' ? `${messages[state]} (${detail})` : messages[state]);
   }
 
-  setMic(muted: boolean, error: string): void {
-    this.mic.textContent = error
-      ? `Microphone unavailable (${error}); you can still hear your crewmate.`
-      : muted
-        ? 'Microphone muted (Mic button, or Y in VR).'
-        : 'Microphone on (Mic button, or Y in VR, mutes).';
+  /** Show the microphone's state: allowed or not yet, on (in a crew) or muted, or why it can't be used. */
+  setMic(mic: { muted: boolean; error: string; on: boolean; permitted: boolean }): void {
+    this.micText.textContent = mic.error
+      ? `Microphone unavailable (${mic.error}); you can still hear your crewmate.`
+      : mic.on
+        ? mic.muted
+          ? 'Microphone muted (Mic button, or Y in VR).'
+          : 'Microphone on (Mic button, or Y in VR, mutes).'
+        : mic.permitted
+          ? 'Microphone allowed; it turns on in a crew.'
+          : 'Voice chat needs the microphone:';
+    this.allowMic.style.display = mic.on || mic.permitted || mic.error ? 'none' : '';
   }
 
   private setStatus(text: string): void {

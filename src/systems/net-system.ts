@@ -1,4 +1,4 @@
-import { createSystem, Euler, InputComponent, Mesh, Object3D, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
+import { type BufferGeometry, createSystem, Euler, InputComponent, Mesh, Object3D, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
 import { LobbyUi } from '../net/lobby-ui.js';
 import { NetSession } from '../net/net-session.js';
 import { createAvatarPose, decodePose, encodePose, type AvatarPose, type PoseHeader, type PoseSample, POSE_PACKET_BYTES, seqNewer } from '../net/pose-codec.js';
@@ -8,7 +8,10 @@ import {
   createAvatarHand,
   createAvatarHead,
   createAvatarLegs,
+  avatarHandGeometry,
+  avatarTorsoGeometry,
   createAvatarTorso,
+  CREW_COLOR_NAMES,
   CREW_COLORS,
   HIP_BELOW_EYES,
   LEG_LENGTH,
@@ -34,6 +37,23 @@ import { perf } from './perf-hud-system.js';
 
 const SEND_HZ = 45;
 const STATS_LOG_MS = 5000;
+/** Where this player's coat colour is kept in the browser. */
+const COLOR_KEY = 'patchwork-airship.colour';
+
+/** The coat colour picked before, or a random one (kept for next time). */
+function loadCrewColor(): number {
+  try {
+    const saved = Number(localStorage.getItem(COLOR_KEY) ?? Number.NaN);
+    if (Number.isInteger(saved) && saved >= 0 && saved < CREW_COLORS.length) {
+      return saved;
+    }
+    const picked = Math.floor(Math.random() * CREW_COLORS.length);
+    localStorage.setItem(COLOR_KEY, String(picked));
+    return picked;
+  } catch {
+    return Math.floor(Math.random() * CREW_COLORS.length);
+  }
+}
 
 /**
  * How far behind the newest packet to draw the crewmate: long enough that the
@@ -126,6 +146,9 @@ interface NetDebug {
   setTestPose(pose: AvatarPose | ((nowMs: number) => AvatarPose) | null): void;
   /** The crewmate's pose as currently drawn, or null before any packets. */
   remotePose(): AvatarPose | null;
+  /** This player's coat colour, and the crewmate's as last told. */
+  color: number;
+  remoteColor: number;
   join(room: string): void;
   leave(): void;
   voice: Voice;
@@ -177,6 +200,9 @@ export class NetSystem extends createSystem({}) {
   private up = new Vector3();
   private mouth = new Vector3();
   private statsTimer = 0;
+  private color = loadCrewColor();
+  /** The crewmate's coat colour, as last told. */
+  private remoteColor = 1;
 
   init(): void {
     this.voice = new Voice(settings.voice, settings.voiceLoop, (track) => {
@@ -189,6 +215,7 @@ export class NetSystem extends createSystem({}) {
         console.info(`[Net] ${state}${detail ? `: ${detail}` : ''}`);
         clearInterval(this.statsTimer);
         if (state === 'connected') {
+          this.session.sendEvent({ t: 'look', color: this.color });
           // Which route the connection took, and how long it took to set up.
           setTimeout(() => {
             void this.session.updateReport().then(() =>
@@ -239,13 +266,28 @@ export class NetSystem extends createSystem({}) {
       get lateFrames() { return self.buffer.late; },
       setTestPose: (pose) => { this.testPose = pose; },
       remotePose: () => (this.haveRemote ? this.remote : null),
+      get color() { return self.color; },
+      get remoteColor() { return self.remoteColor; },
       join: (room) => this.join(room),
       leave: () => this.leave(),
       voice: this.voice,
     } as NetDebug;
     (window as unknown as { __net: NetDebug }).__net = this.debug;
 
-    this.ui = new LobbyUi((room) => this.join(room), () => this.leave(), () => this.toggleMute());
+    this.ui = new LobbyUi({
+      onJoin: (room) => this.join(room),
+      onLeave: () => this.leave(),
+      onMute: () => this.toggleMute(),
+      onAllowMic: () => {
+        this.voice.resume();
+        void this.voice.askPermission().then(() => this.showMic());
+      },
+      onColor: (index) => this.setColor(index),
+      colors: CREW_COLORS,
+      colorNames: CREW_COLOR_NAMES,
+      color: this.color,
+    });
+    void this.voice.checkPermission().then(() => this.showMic());
     // Browsers only start audio after a user gesture: any click, or entering VR.
     const resume = () => this.voice.resume();
     window.addEventListener('pointerdown', resume);
@@ -264,7 +306,15 @@ export class NetSystem extends createSystem({}) {
       }),
       () => document.removeEventListener('visibilitychange', onPageVisibility),
       () => netLink.events.delete('presence'),
+      () => netLink.events.delete('look'),
     );
+    // The crewmate's coat colour.
+    netLink.events.set('look', (event) => {
+      const index = Number(event.color);
+      if (Number.isInteger(index) && index >= 0 && index < CREW_COLORS.length && index !== this.remoteColor) {
+        this.recolorRemote(index);
+      }
+    });
     // Spike S10: tell the crewmate when this player stops seeing the game
     // (headset off, Meta button, tab hidden). These events still fire while
     // the page's frames are paused.
@@ -297,17 +347,46 @@ export class NetSystem extends createSystem({}) {
 
   private join(room: string): void {
     this.room = room;
-    const color = Math.floor(Math.random() * CREW_COLORS.length);
     const name = settings.name || `Crew ${Math.floor(Math.random() * 900 + 100)}`;
-    this.session.join(lobbyBaseUrl(), room, name, color);
+    this.session.join(lobbyBaseUrl(), room, name, this.color);
     this.voice.resume();
-    void this.voice.startMic().then(() => this.ui?.setMic(this.voice.muted, this.voice.micError));
+    void this.voice.startMic().then(() => this.showMic());
   }
 
   private toggleMute(): void {
     this.voice.setMuted(!this.voice.muted);
-    this.ui?.setMic(this.voice.muted, this.voice.micError);
+    this.showMic();
     console.info(`[Voice] ${this.voice.muted ? 'muted' : 'unmuted'}`);
+  }
+
+  private showMic(): void {
+    const v = this.voice;
+    this.ui?.setMic({ muted: v.muted, error: v.micError, on: v.micTrack !== null, permitted: v.permitted || !v.enabled });
+  }
+
+  /** This player's coat colour, kept in the browser and shown to the crewmate. */
+  private setColor(index: number): void {
+    this.color = index;
+    try {
+      localStorage.setItem(COLOR_KEY, String(index));
+    } catch {
+      // Private browsing: the colour lasts for this visit only.
+    }
+    if (this.session.state === 'connected') {
+      this.session.sendEvent({ t: 'look', color: index });
+    }
+  }
+
+  /** Dress the crewmate in coat colour `index`. */
+  private recolorRemote(index: number): void {
+    this.remoteColor = index;
+    const swap = (mesh: Mesh, geometry: BufferGeometry) => {
+      mesh.geometry.dispose();
+      mesh.geometry = geometry;
+    };
+    swap(this.torso, avatarTorsoGeometry(index));
+    swap(this.leftHand, avatarHandGeometry(index));
+    swap(this.rightHand, avatarHandGeometry(index));
   }
 
   private async logStats(): Promise<void> {
@@ -327,8 +406,8 @@ export class NetSystem extends createSystem({}) {
   }
 
   private createRemoteAvatar(): void {
-    // Coat colour is fixed per role for now: the host's crewmate wears the second colour.
-    const index = 1;
+    // Until the crewmate says which coat colour they picked.
+    const index = this.remoteColor;
     this.head = createAvatarHead(index);
     this.torso = createAvatarTorso(index);
     this.legs = createAvatarLegs(index);

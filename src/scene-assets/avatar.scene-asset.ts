@@ -1,4 +1,5 @@
 import {
+  type BufferGeometry,
   BoxGeometry,
   ConeGeometry,
   CylinderGeometry,
@@ -23,6 +24,8 @@ import { mergeParts, type Part, shade } from './lowpoly.js';
  */
 
 export const CREW_COLORS = [0x2f6db3, 0xc0563a, 0x3f8f5a, 0x8a4fb0, 0xd19a2a, 0x2a9a9a, 0x9a3a5a, 0x5a5a5a];
+/** Names for the coat colours, for the crew panel. */
+export const CREW_COLOR_NAMES = ['Blue', 'Brick', 'Green', 'Plum', 'Mustard', 'Teal', 'Wine', 'Slate'];
 const SKIN = 0xe0b48f;
 const LEATHER = 0x6a4a30;
 const GLASS = 0x9fd3e8;
@@ -144,6 +147,15 @@ export function createAvatarTorso(index: number): Mesh {
 
 export function createAvatarLegs(index: number): Mesh {
   return partsMesh(legParts(), `Crew ${index + 1} Legs`);
+}
+
+/** The coat-coloured parts' geometry in crew colour `index`, to recolour a crewmate. */
+export function avatarTorsoGeometry(index: number): BufferGeometry {
+  return mergeParts(torsoParts(CREW_COLORS[index % CREW_COLORS.length]));
+}
+
+export function avatarHandGeometry(index: number): BufferGeometry {
+  return mergeParts(handParts(CREW_COLORS[index % CREW_COLORS.length]));
 }
 
 export function createAvatarHand(index: number, side: 'left' | 'right'): Mesh {

@@ -6,7 +6,8 @@ import { restingDeck } from '../sim/islands.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
 import { grip, handUse } from './grip-system.js';
-import { flightInfo, restartRoute, route, ship } from './ship-system.js';
+import { netLink } from './net-system.js';
+import { crewReady, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
 const BOARD_SIZE = [0.42, 0.26] as const;
@@ -28,7 +29,9 @@ const SIDES = ['left', 'right'] as const;
  * shows the run (waiting on island A, the timer and the way to the next ring
  * or island B, then the score), and the ship's bell, which starts the route
  * again from island A. Mid-run it takes two rings, so a knock doesn't throw
- * a good run away. The host runs the route itself (ShipSystem).
+ * a good run away. With a crewmate, ringing it on island A says you're
+ * ready, and the ship stays moored until both have. The host runs the route
+ * itself (ShipSystem).
  */
 export class RouteSystem extends createSystem({}) {
   private bell!: Mesh;
@@ -38,7 +41,8 @@ export class RouteSystem extends createSystem({}) {
   private board!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; lines: string[] };
   private lastDraw = 0;
   private lastRing = Number.NEGATIVE_INFINITY;
-  private swing = { angle: 0, rate: 0 };
+  /** The bell's swing, rad, and the widest it has swung since it was last rung. */
+  private swing = { angle: 0, rate: 0, peak: 0 };
   private handPos = new Vector3();
   private best = 0;
   private scored: unknown = null;
@@ -70,15 +74,22 @@ export class RouteSystem extends createSystem({}) {
       run: route,
       ring: () => this.ring(),
       boardText: () => [...this.board.lines],
-      bell: () => ({ angle: this.swing.angle }),
+      bell: () => ({ angle: this.swing.angle, peak: this.swing.peak }),
     };
   }
 
-  /** The bell was rung: start again if the run is over, or on a second ring mid-run. */
+  /**
+   * The bell was rung: on island A with a crewmate, this player is ready to
+   * cast off; otherwise start again if the run is over, or on a second ring
+   * mid-run.
+   */
   private ring(): void {
     const now = performance.now();
     this.swing.rate += BELL_KICK;
-    if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && now - this.lastRing < RING_AGAIN_MS)) {
+    this.swing.peak = 0;
+    if (route.phase === 'ready' && netLink.connected) {
+      markReady();
+    } else if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && now - this.lastRing < RING_AGAIN_MS)) {
       restartRoute();
       this.lastRing = Number.NEGATIVE_INFINITY;
     } else {
@@ -110,6 +121,7 @@ export class RouteSystem extends createSystem({}) {
     const s = this.swing;
     s.rate += (-BELL_OMEGA2 * s.angle - BELL_DAMPING * s.rate) * dt;
     s.angle += s.rate * dt;
+    s.peak = Math.max(s.peak, Math.abs(s.angle));
     this.bell.rotation.x = s.angle;
 
     if (route.phase === 'finished' && route.result && route.result !== this.scored) {
@@ -156,8 +168,16 @@ export class RouteSystem extends createSystem({}) {
     const best = this.best > 0 ? `Best score ${this.best}` : '';
     const ringAgain = now - this.lastRing < RING_AGAIN_MS;
     switch (route.phase) {
-      case 'ready':
+      case 'ready': {
+        if (netLink.connected) {
+          const [mine, theirs] = netLink.isHost ? [crewReady.host, crewReady.guest] : [crewReady.guest, crewReady.host];
+          const mark = (ready: boolean) => (ready ? 'READY' : '...');
+          return moored()
+            ? ['CALM SKIES', 'Moored on island A', 'Ring the bell when ready', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, `Then fly ${ROUTE.rings.length} rings to island B.`, best]
+            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, 'and land on island B.', best];
+        }
         return ['CALM SKIES', 'Waiting on island A', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, 'and land on island B.', best];
+      }
       case 'flying': {
         const next = this.nextTarget();
         return [

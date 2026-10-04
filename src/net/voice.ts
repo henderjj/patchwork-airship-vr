@@ -39,6 +39,8 @@ export class Voice {
   micTrack: MediaStreamTrack | null = null;
   micError = '';
   muted = false;
+  /** The browser has allowed the microphone (asked up front, or remembered from before). */
+  permitted = false;
 
   private ctx: AudioContext | null = null;
   private panner: PannerNode | null = null;
@@ -61,6 +63,39 @@ export class Voice {
     return this.mode !== 'off';
   }
 
+  /**
+   * Ask for microphone permission before the player joins a crew or enters
+   * VR (a permission prompt inside VR is easy to miss), without keeping the
+   * microphone open: it opens when they join a crew.
+   */
+  async askPermission(): Promise<void> {
+    if (!this.enabled || this.micTrack || !navigator.mediaDevices?.getUserMedia) {
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      this.permitted = true;
+      this.micError = '';
+    } catch (error) {
+      this.micError = error instanceof Error ? error.name : String(error);
+      console.warn(`[Voice] microphone not allowed: ${this.micError}`);
+    }
+  }
+
+  /** Whether the browser already allows the microphone, without asking. */
+  async checkPermission(): Promise<boolean> {
+    try {
+      const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+      this.permitted ||= status?.state === 'granted';
+    } catch {
+      // Not every browser can query the microphone permission.
+    }
+    return this.permitted;
+  }
+
   /** Ask for the microphone. Call from a click or another user gesture where possible. */
   async startMic(): Promise<void> {
     if (!this.enabled || this.micTrack || !navigator.mediaDevices?.getUserMedia) {
@@ -69,6 +104,8 @@ export class Voice {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
       this.micTrack = stream.getAudioTracks()[0] ?? null;
+      this.permitted = true;
+      this.micError = '';
       if (this.micTrack) {
         this.micTrack.enabled = !this.muted;
         const s = this.micTrack.getSettings();

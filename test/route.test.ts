@@ -84,6 +84,28 @@ describe('landing', () => {
     expect(sim.grounded).toBe(false);
     expect(ship.y).toBeGreaterThan(restingDeck(PAD));
   });
+  it('stays moored whatever its lift, then climbs from rest once cast off', () => {
+    const sim = new FlightSim(CALM);
+    const ship = createShipState(100);
+    sim.reset(ship, 0, restingDeck(PAD), 0, 0);
+    const c = createFlightControls();
+    c.burner = 1;
+    const step = (moored: boolean) => sim.step(ship, c, DT, groundBelow([PAD], ship.x, ship.z, ship.y), moored);
+    for (let i = 0; i < 90 * 20; i++) {
+      step(true);
+    }
+    expect(sim.liftRate(0)).toBeGreaterThan(0.5);
+    expect(ship.y).toBe(restingDeck(PAD));
+    expect(sim.climb).toBe(0);
+    let fastest = 0;
+    for (let i = 0; i < 90 * 2; i++) {
+      step(false);
+      fastest = Math.max(fastest, sim.climb);
+    }
+    expect(ship.y).toBeGreaterThan(restingDeck(PAD));
+    // The climb builds at the comfort limit's 0.25 m/s², not all at once.
+    expect(fastest).toBeLessThanOrEqual(0.5 + 1e-9);
+  });
 });
 
 describe('route', () => {
