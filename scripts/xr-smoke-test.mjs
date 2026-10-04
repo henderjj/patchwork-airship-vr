@@ -202,6 +202,24 @@ async function main() {
   const settled = bricks.map((b) => position(b.entityIndex));
   const allInCrate = settled.every(inCrate);
   check('Fuel bricks rest in the crate', allInCrate, allInCrate ? '' : settled.map(fmt).join(' | '));
+  // Watch the bricks in the page from here on: the first time each one is
+  // off the deck or moving fast, with the time, so a stray can be traced to a step.
+  evalInApp(`(() => {
+    const log = (window.__brickLog = []);
+    const seen = new Set();
+    setInterval(() => {
+      for (const o of window.__throw.objects()) {
+        const [x, y, z] = o.pos;
+        const off = Math.abs(x) > ${DECK_HALF_WIDTH + 0.05} || Math.abs(z) > ${DECK_HALF_LENGTH + 0.05} || y < -0.02 || y > 2.5;
+        const why = off ? 'off deck' : o.speed > 8 && !o.heldBy ? 'fast' : '';
+        if (why && !seen.has(o.id + why)) {
+          seen.add(o.id + why);
+          log.push(new Date().toISOString().slice(11, 22) + ' brick ' + o.id + ' ' + why + ' at ' + o.pos.map((v) => v.toFixed(2)).join(', ') + ' speed ' + o.speed.toFixed(1) + (o.heldBy ? ' held by ' + o.heldBy : ''));
+        }
+      }
+    }, 50);
+    return true;
+  })()`);
 
   // 4. Grab a brick from the top of the stack, lift it, drop it on the open deck.
   const topY = Math.max(...settled.map((p) => p[1]));
@@ -427,8 +445,9 @@ async function main() {
   const travelled = Math.hypot(shipEnd[0] - shipStart[0], shipEnd[1] - shipStart[1]);
   check('Ship flies the tour profile', travelled > 1, `${travelled.toFixed(1)} m`);
   const positions = bricks.map((b) => position(b.entityIndex));
+  const brickLog = evalInApp('window.__brickLog ?? []');
   check('All bricks stay aboard while flying', positions.every(aboard) && strays.length === 0,
-    [...positions.filter((p) => !aboard(p)).map(fmt), ...strays].join(' | '));
+    [...positions.filter((p) => !aboard(p)).map(fmt), ...strays, ...(strays.length ? brickLog : [])].join(' | '));
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.4, z: -3 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-flying.png'], {});
 
