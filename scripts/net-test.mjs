@@ -598,6 +598,73 @@ async function shipSyncChecks(host, guest) {
   });
 }
 
+/**
+ * Phase 2 lobby polish: coat colours reach the crewmate, the ship stays
+ * moored on island A until both players ring the bell, and a fresh page asks
+ * for the microphone without keeping it open.
+ */
+async function lobbyChecks(browser, host, guest) {
+  // Coat colours: each player's pick, told on connecting and on changing.
+  const colors = async () => Promise.all([host, guest].map((p) => p.page.evaluate(() => ({ mine: window.__net.color, theirs: window.__net.remoteColor }))));
+  const [h0, g0] = await colors();
+  const pick = (g0.mine + 3) % 8;
+  await guest.page.evaluate((i) => document.getElementById(`crew-color-${i}`).click(), pick);
+  const recolored = await waitFor('the host to see the new coat', async () => {
+    const [h] = await colors();
+    return h.theirs === pick ? h : null;
+  }, 3000).catch(() => null);
+  check('Each player sees the coat colour the other picked', h0.theirs === g0.mine && g0.theirs === h0.mine && recolored !== null,
+    `host sees ${h0.theirs} (guest wears ${g0.mine}), guest sees ${g0.theirs} (host wears ${h0.mine}), then ${recolored ? `host sees ${recolored.theirs}` : 'no change seen'}`);
+
+  // Ready check: moored until both ring the bell on island A.
+  const board = (page) => page.evaluate(() => window.__route.boardText());
+  const hostShip = () => host.page.evaluate(() => ({ y: window.__ship.state.y, phase: window.__route.run.phase, grounded: window.__ship.flight.grounded }));
+  await host.page.evaluate(() => {
+    window.__ship.fly();
+    window.__ship.feedFuel();
+    window.__ship.feedFuel();
+  });
+  const rest = (await hostShip()).y;
+  await host.page.waitForTimeout(5000);
+  const held = await hostShip();
+  const [hostWaiting, guestWaiting] = await Promise.all([board(host.page), board(guest.page)]);
+  await host.page.evaluate(() => window.__route.ring());
+  const guestSeesHost = await waitFor('the guest to see the host ready', async () => {
+    const b = await board(guest.page);
+    return b[3] === 'You ...  Crewmate READY' ? b : null;
+  }, 3000).catch(() => null);
+  await guest.page.evaluate(() => window.__route.ring());
+  const castOff = await waitFor('the ship to cast off', async () => {
+    const s = await hostShip();
+    return s.phase === 'flying' ? s : null;
+  }, 15000).catch(() => null);
+  check('The ship stays moored on island A until both players ring the bell',
+    held.y === rest && held.phase === 'ready' && hostWaiting[1] === 'Moored on island A' && guestWaiting[3] === 'You ...  Crewmate ...' &&
+      guestSeesHost !== null && castOff !== null,
+    `${held.phase} at ${held.y.toFixed(2)} m after 5 s of burner; boards "${hostWaiting[3]}" / "${guestWaiting[3]}", ` +
+      `then ${guestSeesHost ? `"${guestSeesHost[3]}"` : 'host ready not seen'}, then ${castOff ? `cast off, ${castOff.y.toFixed(2)} m` : 'still moored'}`);
+  await host.page.evaluate(() => {
+    window.__ship.fly();
+    window.__ship.setProfile('still');
+  });
+
+  // Microphone up front, on a page that hasn't joined a crew.
+  const solo = await openPlayer(browser, 'name=Di');
+  const mic = (page) => page.evaluate(() => ({ text: document.getElementById('crew-mic').textContent, button: getComputedStyle(document.getElementById('crew-allow-mic')).display !== 'none',
+    open: window.__net.voice.micTrack !== null }));
+  const before = await mic(solo.page);
+  if (before.button) {
+    await solo.page.evaluate(() => document.getElementById('crew-allow-mic').click());
+  }
+  const after = await waitFor('the microphone to be allowed', async () => {
+    const m = await mic(solo.page);
+    return m.text.startsWith('Microphone allowed') ? m : null;
+  }, 5000).catch(() => null);
+  check('A page asks for the microphone up front without keeping it open', after !== null && !after.button && !after.open,
+    `before: "${before.text}"${before.button ? ' with the Allow button' : ''}; after: ${after ? `"${after.text}", mic ${after.open ? 'open' : 'closed'}` : 'never allowed'}`);
+  await solo.context.close();
+}
+
 /** Spike S10: what one player sees of the crewmate, and the ship clock. */
 const crew = (page) => page.evaluate(() => ({ status: window.__crew.status, paused: window.__crew.paused,
   signVisible: window.__crew.signVisible, message: window.__crew.message, shipTime: window.__ship.state.time }));
@@ -814,6 +881,7 @@ async function main() {
     check('Players swap platform reports', crews !== null, crews ? `Ann sees "${crews[0].browser} on ${crews[0].os}, mic ${crews[0].mic}"` : '');
 
     await shipSyncChecks(a, b);
+    await lobbyChecks(browser, a, b);
 
     const motion = await measureMotion(a, b, 3);
     report.local = { ...(await netStats(b.page)), motion };

@@ -15,6 +15,7 @@ About 550 m in all: roughly three minutes with one player cranking, under two wi
 
 ## Rules
 
+- **Ready check:** with a crewmate, the ship stays moored to island A, however hot the envelope, until both players have rung the bell there. The board shows who is ready, then "CAST OFF!". Solo, the ship casts off as soon as it has lift.
 - **The clock starts** when the ship lifts off island A.
 - **A ring counts** when the middle of the ship passes through it at least 4 m inside the rim, in either direction. Rings can be flown in any order.
 - **The run finishes** after the ship has rested on island B for 3 seconds.
@@ -35,13 +36,13 @@ The route board is on the bow side of the burner flue, back to back with the ins
 
 ## Two players
 
-The host runs the route and sends its state (phase, rings, clock start, result) as a reliable event whenever it changes, and once a second while a guest is connected, so someone who joins mid-run catches up. The guest's bell asks the host to restart. Both browsers must use the same `?seed=` and `?islands=` (the defaults do), since the scenery islands are now things the ship can hit.
+The host runs the route and sends its state (phase, rings, clock start, result) as a reliable event whenever it changes, and once a second while a guest is connected, so someone who joins mid-run catches up. The guest's bell asks the host to restart, or on island A says the guest is ready. Both browsers must use the same `?seed=` and `?islands=` (the defaults do), since the scenery islands are now things the ship can hit.
 
 ## Trying it
 
 On a headset, open the game with `?motion=flight`:
 
-1. Look over the side: the gondola rests on island A's pad. The route board (walk to the bow side of the burner) says "Waiting on island A".
+1. Look over the side: the gondola rests on island A's pad. The route board (walk to the bow side of the burner) says "Waiting on island A" (with a crewmate, "Moored on island A": both ring the bell at the bow to cast off).
 2. Drop a brick in the hopper. Within a few seconds the ship lifts off and the board's clock starts.
 3. Crank and steer for ring 1 straight ahead. Fly through it and watch it turn green; the board then points to ring 2.
 4. Fly through ring 2, then find island B by its beacon. Vent to come down onto it and wait 3 seconds: the board shows the score.

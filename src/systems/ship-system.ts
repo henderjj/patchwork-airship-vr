@@ -86,8 +86,29 @@ export const flightInfo = {
 /** Phase 2's route: the host's run, or on the guest, the host's run as last heard. */
 export const route = new RouteRun(ROUTE);
 
-/** The ship system's own restart, set when it starts. */
-const routeControl = { restart: () => undefined as void };
+/**
+ * Phase 2 ready check: with a crewmate, the ship stays moored to island A
+ * until both players have rung the bell there. Solo, it casts off as soon as
+ * it has lift. The host keeps this and sends it with the route.
+ */
+export const crewReady = { host: false, guest: false };
+
+/** Whether the ship is held on island A waiting for the crew to be ready. */
+export function moored(): boolean {
+  return netLink.connected && route.phase === 'ready' && !(crewReady.host && crewReady.guest);
+}
+
+/** The ship system's own restart and ready check, set when it starts. */
+const routeControl = { restart: () => undefined as void, ready: () => undefined as void };
+
+/** This player is ready to cast off (the guest tells the host). */
+export function markReady(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'crew-ready' });
+  } else {
+    routeControl.ready();
+  }
+}
 
 /** Start the route again from island A (the guest asks the host). */
 export function restartRoute(): void {
@@ -194,6 +215,10 @@ export class ShipSystem extends createSystem({
 
   init(): void {
     routeControl.restart = () => this.restart();
+    routeControl.ready = () => {
+      crewReady.host = true;
+      this.sendRoute();
+    };
     this.physics = this.world.getSystem(PhysicsSystem);
     if (this.flying) {
       this.restart();
@@ -262,9 +287,15 @@ export class ShipSystem extends createSystem({
         this.restart();
       }
     });
+    netLink.events.set('crew-ready', () => {
+      if (netLink.isHost && route.phase === 'ready') {
+        crewReady.guest = true;
+        this.sendRoute();
+      }
+    });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'crew-ready']) {
         netLink.events.delete(name);
       }
     });
@@ -322,6 +353,7 @@ export class ShipSystem extends createSystem({
     flightInfo.bricksBurned = 0;
     setBallast(0);
     route.reset();
+    crewReady.host = crewReady.guest = false;
     this.sendRoute();
   }
 
@@ -339,6 +371,7 @@ export class ShipSystem extends createSystem({
       seconds: route.seconds,
       reason: route.lostReason,
       result: route.result,
+      ready: [crewReady.host, crewReady.guest],
     } as { t: string });
   }
 
@@ -354,6 +387,9 @@ export class ShipSystem extends createSystem({
     route.seconds = Number(event.seconds) || 0;
     route.lostReason = String(event.reason ?? '');
     route.result = (event.result as RouteResult | null) ?? null;
+    const ready = Array.isArray(event.ready) ? event.ready : [];
+    crewReady.host = ready[0] === true;
+    crewReady.guest = ready[1] === true;
   }
 
   private togglePause(): void {
@@ -393,7 +429,7 @@ export class ShipSystem extends createSystem({
             groundBelow(ROUTE_ISLANDS, ship.x, ship.z, ship.y),
             groundBelow(sceneryIslands, ship.x, ship.z, ship.y, wrapNear),
           );
-          flight.step(ship, c, dt, ground);
+          flight.step(ship, c, dt, ground, moored());
         }
         const crashed = islandHit(ROUTE_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
         if (route.step(ship, flight.grounded, flight.touchdownSpeed, flightInfo.bricksBurned, dt, crashed)) {
@@ -416,6 +452,10 @@ export class ShipSystem extends createSystem({
         updateQuaternion(ship);
         updateFeltGravity(ship);
       }
+    }
+    if (netLink.connected !== this.wasConnected) {
+      // A crewmate joined or left: whoever is aboard now says they're ready again.
+      crewReady.host = crewReady.guest = false;
     }
     if (netLink.connected) {
       this.sendState(dt);
