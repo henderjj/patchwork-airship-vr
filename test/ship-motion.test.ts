@@ -99,6 +99,24 @@ describe('scripted flight', () => {
     });
   }
 
+  it('banks into turns, so the deck feels less sideways pull than the turn makes', () => {
+    // Without gusts, the only sideways pull is the turn's; a gondola hanging
+    // from its envelope leans into it, so the felt gravity across the deck
+    // must be smaller than the turn's acceleration, never larger.
+    const profile = { ...MOTION_PROFILES.lively, gust: 0 };
+    const s = createShipState();
+    let worstRatio = 0;
+    for (let i = 0; i < 90 * 200; i++) {
+      stepShip(s, profile, 1 / 90);
+      const turning = Math.hypot(s.ax, s.az);
+      if (i > 90 * 60 && turning > 0.5) {
+        worstRatio = Math.max(worstRatio, Math.abs(s.gx) / turning);
+      }
+    }
+    expect(worstRatio).toBeGreaterThan(0);
+    expect(worstRatio).toBeLessThan(1);
+  });
+
   it('switching profile mid-flight eases in without a jolt', () => {
     const s = createShipState();
     let maxAccel = 0;

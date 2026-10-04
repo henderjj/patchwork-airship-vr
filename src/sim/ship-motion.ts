@@ -157,7 +157,9 @@ export function stepShip(state: ShipState, profile: MotionProfile, dt: number): 
   // Tilt: bank into turns like a hanging gondola, nose follows climbs, gusts
   // heel the ship, then clamp to the profile limit.
   const maxTilt = state.tiltMax;
-  const bank = Math.atan2(yawRate * speed, GRAVITY);
+  // Turning to port (yaw rising) swings the gondola out to starboard, so its
+  // port side dips (negative roll) and the felt gravity stays under the feet.
+  const bank = Math.atan2(-yawRate * speed, GRAVITY);
   const heel = gustAt(t) * maxTilt * 0.4;
   state.roll = clamp(bank + heel, -maxTilt, maxTilt);
   state.pitch = climbAt(t) * maxTilt * 0.5;
