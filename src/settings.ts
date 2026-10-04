@@ -44,6 +44,8 @@ export interface Settings {
   voice: 'spatial' | 'plain' | 'off';
   /** Route spatial voice through a loopback peer connection so echo cancellation sees it. */
   voiceLoop: boolean;
+  /** The ship's sounds (burner, wind, creaks, crank, bell); `audio=0` turns them off. */
+  audio: boolean;
   /** Tracked hands grip when the fingers' average curl falls below this (1 straight, about 0.4 a fist). */
   fist: number;
   /** Tracked hands grip when the thumb and index tips are closer than this, cm; 0 turns pinch-to-grip off. */
@@ -81,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   netLoss: 0,
   voice: 'spatial',
   voiceLoop: false,
+  audio: true,
   fist: 0.6,
   pinch: 2,
   motionSpeed: Number.NaN,
@@ -137,6 +140,7 @@ export function parseSettings(search: string): Settings {
     netLoss: num(params, 'netloss', d.netLoss, 0, 1),
     voice: voiceMode(params.get('voice'), d.voice),
     voiceLoop: bool(params, 'voiceloop', d.voiceLoop),
+    audio: bool(params, 'audio', d.audio),
     fist: num(params, 'fist', d.fist, 0.2, 0.95),
     pinch: num(params, 'pinch', d.pinch, 0, 6),
     motionSpeed: num(params, 'speed', d.motionSpeed, 0, 30),

@@ -5,6 +5,7 @@ import { BURNER_POSITION } from '../sim/gondola-layout.js';
 import { restingDeck } from '../sim/islands.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
+import { sounds } from './audio-system.js';
 import { grip, handUse } from './grip-system.js';
 import { netLink } from './net-system.js';
 import { crewReady, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
@@ -85,6 +86,7 @@ export class RouteSystem extends createSystem({}) {
   private ring(): void {
     const now = performance.now();
     this.swing.rate += BELL_KICK;
+    sounds.bell();
     if (route.phase === 'ready' && netLink.connected) {
       markReady();
     } else if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && now - this.lastRing < RING_AGAIN_MS)) {

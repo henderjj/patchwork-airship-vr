@@ -573,6 +573,20 @@ async function main() {
     asked.phase === 'flying' && asked.board[5] === 'Ring again to restart' && lost?.[1] === 'Sank into the haze' && again === 'ready',
     `one ring: ${asked.phase} "${asked.board[5]}", then ${lost ? lost.slice(0, 2).join(' / ') : 'not lost'}, then ${again}`);
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
+
+  // 6e. Phase 2 audio: the ship's sounds played through the tests above
+  //     (crank ratchet, ring chime, touchdown thump, bell), and the burner
+  //     and wind loops follow the flight.
+  evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 135, -60)');
+  evalInApp('window.__ship.feedFuel()');
+  await sleep(1500);
+  const sound = evalInApp('({ running: window.__audio.running, loops: window.__audio.loops(), level: window.__audio.level(), played: { ...window.__audio.played } })');
+  check('The ship is heard: burner, wind, ratchet, chime, thump and bell',
+    sound.running && sound.loops.burner > 0.3 && sound.loops.wind > 0.03 && sound.level > 0.005 &&
+      sound.played.ratchet > 0 && sound.played.chime > 0 && sound.played.thump > 0 && sound.played.bell > 0,
+    `audio ${sound.running ? 'running' : 'not running'}, burner ${sound.loops.burner.toFixed(2)}, wind ${sound.loops.wind.toFixed(2)}, level ${sound.level.toFixed(3)}, ` +
+      Object.entries(sound.played).map(([k, n]) => `${n} ${k}`).join(', '));
   evalInApp("window.__ship.setProfile('tour')");
 
   // 7. Perf log.
