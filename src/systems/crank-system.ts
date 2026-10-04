@@ -62,6 +62,9 @@ interface CrankDebug {
   reset(): void;
 }
 
+/** The crank's current speed, rad/s, read by the flight model as the propeller's thrust. */
+export const crankInfo = { speed: 0 };
+
 export class CrankSystem extends createSystem({}) {
   readonly sim = new CrankSim();
   private mesh!: Mesh;
@@ -178,6 +181,7 @@ export class CrankSystem extends createSystem({}) {
     for (let i = 1; i <= steps; i++) {
       this.sim.step(dt / steps, now - (dt * 1000 * (steps - i)) / steps, this.inputs);
     }
+    crankInfo.speed = this.sim.omega;
 
     if (!netLink.connected || netLink.isHost) {
       if (netLink.connected) {
