@@ -84,6 +84,11 @@ async function openPlayer(browser, query) {
   // frame-by-frame motion checks.
   const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 320, height: 200 } });
   const page = await context.newPage();
+  if (process.env.THROTTLE) {
+    // Slow the page's CPU, to see how the timing checks fare on a slow CI runner.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.THROTTLE) });
+  }
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
@@ -316,7 +321,7 @@ async function throwAndCatch(host, guest, seconds) {
     const FLIGHT = 0.5, SWING_MS = 250, WINDUP_MS = 300;
     const endAt = performance.now() + durationMs;
     const s = { phase: 'ready', since: performance.now(), hand: jitter(mine, 0.1), squeeze: false, from: null, start: null, v: null,
-      throws: 0, catches: 0, kept: 0, lost: 0, misses: 0, pickups: 0, remoteHeldSince: 0, maxHeldError: 0, heldChecks: 0, done: false };
+      throws: 0, catches: 0, kept: 0, lost: 0, misses: 0, pickups: 0, remoteHeldSince: 0, maxHeldError: 0, heldChecks: 0, released: false, done: false };
     window.__throwScript = s;
     T.stats.maxHandoverOffset = 0;
     T.stats.handoverOffsets.length = 0;
@@ -333,6 +338,11 @@ async function throwAndCatch(host, guest, seconds) {
         const k = t / 1000; // keeps moving through the release, as a real arm does
         p = s.start.map((v, i) => v + s.v[i] * k);
         squeeze = t < SWING_MS;
+        // The hand lets go here, in the frame the game reads it. Only then may
+        // the script move on: if its own frame callback ran first and put the
+        // hand back at rest, the game would see the hand stop dead at the
+        // release and throw at two-thirds speed.
+        if (!squeeze) s.released = true;
       }
       return { x: p[0], y: p[1], z: p[2], squeeze };
     });
@@ -391,7 +401,8 @@ async function throwAndCatch(host, guest, seconds) {
       } else if (s.phase === 'windup') {
         if (t > WINDUP_MS) set('swing');
       } else if (s.phase === 'swing') {
-        if (t > SWING_MS) {
+        if (s.released) {
+          s.released = false;
           s.throws++;
           s.squeeze = false;
           s.hand = jitter(mine, 0.1);
@@ -427,7 +438,7 @@ async function throwAndCatch(host, guest, seconds) {
   await waitFor('the throwing to finish', async () =>
     (await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__throwScript.done)))).every(Boolean), (seconds + 15) * 1000);
   const read = (p) => p.page.evaluate(() => {
-    const { done, phase, since, hand, squeeze, from, start, v, pendingCatch, remoteHeldSince, ...rest } = window.__throwScript;
+    const { done, phase, since, hand, squeeze, from, start, v, pendingCatch, remoteHeldSince, released, ...rest } = window.__throwScript;
     return { ...rest, handoverOffset: window.__throw.stats.maxHandoverOffset, handoverOffsets: window.__throw.stats.handoverOffsets.slice(), refused: window.__throw.stats.refused };
   });
   return { host: await read(host), guest: await read(guest) };
