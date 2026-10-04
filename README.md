@@ -61,6 +61,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Fuel bricks:** squeeze the grip near a brick to pick it up and let go to throw it. With the grip already squeezed and the hand empty, a brick flying past within 20 cm is caught. Throwing to a crewmate works the same at up to 150 ms of network delay (see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md)).
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
 - **Tracked hands:** put the controllers down and grip with a fist or a pinch wherever these controls say to squeeze the grip. The wrist HUD then shows a `hands` line for tuning (see [docs/spikes/s9-hand-tracking.md](docs/spikes/s9-hand-tracking.md)).
+- **When the crewmate can't play** (headset off, Meta button, headset asleep, network down, tab closed), the ship stops and a sign in front of you says why; it carries on when they're back. A dropped connection reconnects by itself (see [docs/spikes/s10-session-lifecycle.md](docs/spikes/s10-session-lifecycle.md)).
 - **Mooring line:** squeeze the grip near the line along the port rail and haul it towards the stern hand over hand. Strokes started together by both players are heaves (see [docs/spikes/s6-rope.md](docs/spikes/s6-rope.md)).
 
 ## Testing on a headset
@@ -79,9 +80,9 @@ src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
 src/sim/                   engine-free simulation: ship motion, release velocity, crank, rope haul, hand grip
-src/net/                   lobby protocol, WebRTC session, packets, clock sync, jitter buffers, object ownership
+src/net/                   lobby protocol, WebRTC session and reconnection, packets, clock sync, jitter buffers, object ownership, crew presence
 src/perf/                  frame statistics and CSV, measured refresh rate, platform report
-src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, gondola, throws, network, crank, rope
+src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, gondola, throws, network, crew status sign, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

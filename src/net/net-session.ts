@@ -57,6 +57,13 @@ export interface NetSessionEvents {
 
 const PING_INTERVAL_MS = 500;
 const CONNECT_TIMEOUT_MS = 15000;
+/** How long an interrupted connection may try to recover by itself before starting again through the lobby. */
+const RECOVER_MS = 6000;
+/** Retry interval and limit for getting back into the room after the connection was lost. */
+const REJOIN_RETRY_MS = 2000;
+const REJOIN_GIVE_UP_MS = 60000;
+/** A message to the lobby this often, so no proxy closes the connection as idle during play. */
+const LOBBY_KEEPALIVE_MS = 30000;
 
 export class NetSession {
   state: SessionState = 'idle';
@@ -79,6 +86,7 @@ export class NetSession {
   private audio: RTCRtpTransceiver | null = null;
   private micTrack: MediaStreamTrack | null = null;
   private pingTimer = 0;
+  private keepaliveTimer = 0;
   private connectTimer = 0;
   private joinStarted = 0;
   private pingBuffer = new ArrayBuffer(9);
@@ -87,6 +95,25 @@ export class NetSession {
   private readonly simulated: SimulatedConditions | null;
   /** When the last simulated-lag reliable event is delivered, so later ones stay in order. */
   private reliableDue = 0;
+  /** The room this player is in, kept so a lost connection can rejoin it. */
+  private joined: { lobbyUrl: string; room: string; name: string; color: number } | null = null;
+  private recoverTimer = 0;
+  private rejoinTimer = 0;
+  /** When the current attempt to get back into the room started, or 0. */
+  private rejoinSince = 0;
+  /** The connection dropped and is being made again (by ICE itself, or through the lobby). */
+  get reconnecting(): boolean {
+    return this.rejoinSince > 0 || this.recovering;
+  }
+
+  private recovering = false;
+  /** Times this player has rejoined after losing the connection. */
+  rejoins = 0;
+  /** Identifies this page to the lobby across rejoins. */
+  private readonly playerKey = Math.random().toString(36).slice(2, 12);
+  /** Test hook: until this time every packet and event from the crewmate is held back, as on a dead link. */
+  private blackoutUntil = 0;
+  private heldEvents: unknown[] = [];
 
   constructor(events: NetSessionEvents, simulated?: SimulatedConditions) {
     this.events = events;
@@ -101,18 +128,84 @@ export class NetSession {
   /** Join `room` on the lobby at `lobbyUrl` (ws:// or wss:// base). */
   join(lobbyUrl: string, room: string, name: string, color: number): void {
     this.close();
+    this.joined = { lobbyUrl, room, name, color };
+    this.rejoinSince = 0;
+    this.openLobby();
+  }
+
+  private openLobby(): void {
+    const joined = this.joined!;
     this.joinStarted = performance.now();
-    this.setState('lobby');
-    const socket = new WebSocket(`${lobbyUrl.replace(/\/$/, '')}/parties/lobby/${room}`);
+    if (!this.rejoinSince) {
+      this.setState('lobby');
+    }
+    const socket = new WebSocket(`${joined.lobbyUrl.replace(/\/$/, '')}/parties/lobby/${joined.room}`);
     this.socket = socket;
-    socket.onopen = () => socket.send(JSON.stringify({ t: 'hello', name, color }));
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ t: 'hello', name: joined.name, color: joined.color, player: this.playerKey }));
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = window.setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send('{"t":"ping"}');
+        }
+      }, LOBBY_KEEPALIVE_MS);
+    };
     socket.onmessage = (event) => void this.onLobbyMessage(JSON.parse(String(event.data)) as ServerMessage);
-    socket.onerror = () => this.setState('error', 'could not reach the lobby');
-    socket.onclose = () => {
-      if (this.state === 'lobby' || this.state === 'waiting') {
-        this.setState('error', 'lobby connection closed');
+    socket.onerror = () => {
+      if (!this.rejoinSince) {
+        this.setState('error', 'could not reach the lobby');
       }
     };
+    socket.onclose = () => {
+      if (this.socket !== socket) {
+        return; // replaced or closed on purpose
+      }
+      if (this.state === 'lobby' && !this.rejoinSince) {
+        this.setState('error', 'lobby connection closed');
+      } else if (this.state === 'waiting' || this.state === 'connecting' || this.state === 'connected' || this.rejoinSince) {
+        // The network dropped: get back into the room.
+        this.rejoin('lobby connection lost');
+      }
+    };
+  }
+
+  /**
+   * The connection to the crewmate or the lobby was lost: start again
+   * through the lobby, retrying until the network is back. The crewmate's
+   * game sees this player leave and join again, as when a player rejoins.
+   */
+  private rejoin(reason: string): void {
+    if (!this.joined || this.state === 'closed' || this.state === 'idle' || this.state === 'full') {
+      return;
+    }
+    const now = performance.now();
+    const first = !this.rejoinSince;
+    if (first) {
+      this.rejoinSince = now;
+      this.rejoins++;
+    } else if (now - this.rejoinSince > REJOIN_GIVE_UP_MS) {
+      this.rejoinSince = 0;
+      this.teardown();
+      this.setState('error', 'lost the connection to the crew');
+      return;
+    }
+    this.teardown();
+    this.setState('connecting', `reconnecting: ${reason}`);
+    clearTimeout(this.rejoinTimer);
+    // A short random wait, so two players who both noticed don't collide in
+    // the lobby; then a slower retry while the network is still down.
+    this.rejoinTimer = window.setTimeout(() => this.openLobby(), (first ? 200 : REJOIN_RETRY_MS) + Math.random() * 500);
+  }
+
+  /** Test hook: hold back everything from the crewmate for `ms`, as if the network dropped. */
+  blackout(ms: number): void {
+    this.blackoutUntil = performance.now() + ms;
+  }
+
+  /** Test hook: break the peer connection without leaving the lobby, as when it fails. */
+  breakConnection(): void {
+    this.pc?.close();
+    this.rejoin('connection broken (test)');
   }
 
   /** Use `track` as this player's voice (null sends silence). */
@@ -136,19 +229,32 @@ export class NetSession {
   }
 
   close(): void {
-    clearInterval(this.pingTimer);
-    clearTimeout(this.connectTimer);
-    this.unreliable?.close();
-    this.reliable?.close();
-    this.pc?.close();
-    this.socket?.close();
-    this.unreliable = this.reliable = null;
-    this.pc = null;
-    this.socket = null;
+    this.joined = null;
+    this.rejoinSince = 0;
+    this.recovering = false;
+    this.teardown();
     this.peer = null;
     if (this.state !== 'idle') {
       this.setState('closed');
     }
+  }
+
+  private teardown(): void {
+    clearInterval(this.pingTimer);
+    clearInterval(this.keepaliveTimer);
+    clearTimeout(this.connectTimer);
+    clearTimeout(this.recoverTimer);
+    clearTimeout(this.rejoinTimer);
+    this.unreliable?.close();
+    this.reliable?.close();
+    this.pc?.close();
+    const socket = this.socket;
+    this.socket = null;
+    socket?.close();
+    this.unreliable = this.reliable = null;
+    this.pc = null;
+    this.audio = null;
+    this.heldEvents = [];
   }
 
   private setState(state: SessionState, detail?: string): void {
@@ -181,6 +287,9 @@ export class NetSession {
         }
         this.peer = null;
         this.resetPeerConnection();
+        // Back in the room with no crewmate: this player is waiting, not reconnecting.
+        this.rejoinSince = 0;
+        this.recovering = false;
         this.setState('waiting', 'crewmate left');
         break;
       case 'signal':
@@ -213,10 +322,20 @@ export class NetSession {
       }
     };
     pc.onconnectionstatechange = () => {
+      if (pc !== this.pc) {
+        return;
+      }
       if (pc.connectionState === 'failed') {
-        this.setState('error', 'peer connection failed');
+        this.rejoin('peer connection failed');
       } else if (pc.connectionState === 'disconnected' && this.state === 'connected') {
+        // Often a short Wi-Fi drop that ICE recovers from by itself; if not, start again.
+        this.recovering = true;
         this.setState('connecting', 'connection interrupted');
+        clearTimeout(this.recoverTimer);
+        this.recoverTimer = window.setTimeout(() => this.rejoin('connection did not recover'), RECOVER_MS);
+      } else if (pc.connectionState === 'connected' && this.state === 'connecting') {
+        clearTimeout(this.recoverTimer);
+        this.checkOpen();
       }
     };
     pc.ontrack = (event) => {
@@ -233,7 +352,11 @@ export class NetSession {
     }
     this.connectTimer = window.setTimeout(() => {
       if (this.state === 'connecting') {
-        this.setState('error', 'timed out connecting to crewmate');
+        if (this.rejoinSince) {
+          this.rejoin('timed out reconnecting');
+        } else {
+          this.setState('error', 'timed out connecting to crewmate');
+        }
       }
     }, CONNECT_TIMEOUT_MS);
   }
@@ -241,6 +364,7 @@ export class NetSession {
   private resetPeerConnection(): void {
     clearInterval(this.pingTimer);
     clearTimeout(this.connectTimer);
+    clearTimeout(this.recoverTimer);
     this.unreliable?.close();
     this.reliable?.close();
     this.pc?.close();
@@ -305,6 +429,9 @@ export class NetSession {
     if (channel.label === 'u') {
       this.unreliable = channel;
       channel.onmessage = (event) => {
+        if (performance.now() < this.blackoutUntil) {
+          return;
+        }
         const sim = this.simulated;
         if (!sim) {
           this.onUnreliable(event.data as ArrayBuffer);
@@ -321,6 +448,11 @@ export class NetSession {
         } catch {
           return; // ignore malformed events
         }
+        if (performance.now() < this.blackoutUntil || this.heldEvents.length > 0) {
+          // A dead link delivers nothing, then everything in order once it's back.
+          this.holdEvent(parsed);
+          return;
+        }
         const sim = this.simulated;
         if (!sim) {
           this.events.onEvent?.(parsed);
@@ -332,12 +464,40 @@ export class NetSession {
       };
     }
     channel.onopen = () => this.checkOpen();
+    channel.onclose = () => {
+      // The crewmate's side went away without the lobby saying so.
+      if ((channel === this.reliable || channel === this.unreliable) && this.state === 'connected') {
+        this.rejoin('data channel closed');
+      }
+    };
+  }
+
+  private holdEvent(event: unknown): void {
+    this.heldEvents.push(event);
+    if (this.heldEvents.length === 1) {
+      const release = () => {
+        if (performance.now() < this.blackoutUntil) {
+          window.setTimeout(release, this.blackoutUntil - performance.now());
+          return;
+        }
+        const events = this.heldEvents;
+        this.heldEvents = [];
+        for (const e of events) {
+          this.events.onEvent?.(e);
+        }
+      };
+      window.setTimeout(release, Math.max(0, this.blackoutUntil - performance.now()));
+    }
   }
 
   private checkOpen(): void {
-    if (this.unreliable?.readyState === 'open' && this.reliable?.readyState === 'open') {
+    if (this.unreliable?.readyState === 'open' && this.reliable?.readyState === 'open' && this.state !== 'connected') {
       clearTimeout(this.connectTimer);
+      clearTimeout(this.recoverTimer);
       this.connectMs = performance.now() - this.joinStarted;
+      this.rejoinSince = 0;
+      this.recovering = false;
+      clearInterval(this.pingTimer);
       this.setState('connected');
       const ping = () => this.sendUnreliable(this.pingBuffer, encodePing(this.pingBuffer, performance.now()));
       ping();
