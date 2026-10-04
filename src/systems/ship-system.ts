@@ -19,6 +19,10 @@ import {
 } from '../sim/ship-motion.js';
 import { createFlightControls, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
+import { groundBelow, islandHit, restingDeck } from '../sim/islands.js';
+import { type RoutePhase, type RouteResult, RouteRun } from '../sim/route.js';
+import { wrapNear } from '../sim/world-tile.js';
+import { ROUTE, ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import {
@@ -47,8 +51,12 @@ export const flightControls = createFlightControls();
 /** Seconds of full flame one fuel brick gives, and the most the burner holds at once. */
 export const BRICK_BURN_SECONDS = 20;
 const MAX_BURN_SECONDS = 60;
-/** Where the flight starts: the scripted path's starting point, facing world -Z. */
-const FLIGHT_START = [0, 120, 0] as const;
+/** Where the flight starts: resting on the route's island A, facing world -Z. */
+const FLIGHT_START = [ROUTE.start.x, restingDeck(ROUTE.start), ROUTE.start.z] as const;
+/** Waiting on island A, the ground crew keeps the envelope this close below floating heat, °C. */
+const READY_HEAT_BELOW = 2;
+/** While a guest is connected, the host repeats the route's state this often, ms (so a late joiner catches up). */
+const ROUTE_RESEND_MS = 1000;
 /** How fast the keyboard swings the rudder, full travel per second. */
 const RUDDER_KEY_RATE = 0.8;
 /** Ship states the host sends the guest per second. */
@@ -74,6 +82,21 @@ export const flightInfo = {
   /** Fuel bricks burned since the flight started. */
   bricksBurned: 0,
 };
+
+/** Phase 2's route: the host's run, or on the guest, the host's run as last heard. */
+export const route = new RouteRun(ROUTE);
+
+/** The ship system's own restart, set when it starts. */
+const routeControl = { restart: () => undefined as void };
+
+/** Start the route again from island A (the guest asks the host). */
+export function restartRoute(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'route-restart' });
+  } else {
+    routeControl.restart();
+  }
+}
 
 /** The gondola's controls as the crew works them (written by the controls system on the host or solo). */
 export const stations = { vent: 0 };
@@ -166,11 +189,14 @@ export class ShipSystem extends createSystem({
   private outgoing = createShipStatePacket();
   private sendBuffer = new ArrayBuffer(SHIP_PACKET_BYTES);
   private sendAccumulator = 0;
+  private routeSentAt = Number.NEGATIVE_INFINITY;
+  private wasConnected = false;
 
   init(): void {
+    routeControl.restart = () => this.restart();
     this.physics = this.world.getSystem(PhysicsSystem);
     if (this.flying) {
-      flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
+      this.restart();
     }
     // Keyboard: P stops and starts the ship. With `?motion=flight`, B feeds the
     // burner a brick's worth of fuel, V (held) opens the vent, and , and .
@@ -225,9 +251,20 @@ export class ShipSystem extends createSystem({
         setBallast(flightInfo.ballastMask | (1 << index));
       }
     });
+    // The route: the host's run for the guest, and the guest's bell to start again.
+    netLink.events.set('route', (event) => {
+      if (!netLink.isHost) {
+        this.applyRoute(event);
+      }
+    });
+    netLink.events.set('route-restart', () => {
+      if (netLink.isHost) {
+        this.restart();
+      }
+    });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart']) {
         netLink.events.delete(name);
       }
     });
@@ -242,14 +279,14 @@ export class ShipSystem extends createSystem({
       controls: flightControls,
       info: flightInfo,
       follower: this.follower,
-      /** Switch to the crew-controlled flight model from a standing start. */
-      fly: () => {
-        this.flying = true;
-        flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
-        Object.assign(flightControls, createFlightControls());
-        flightInfo.burnLeft = 0;
-        flightInfo.bricksBurned = 0;
-        setBallast(0);
+      /** Switch to the crew-controlled flight model, resting on island A. */
+      fly: () => this.restart(),
+      route,
+      /** Test hook: move the ship (deck) to a point and heading, keeping its heat and speed. */
+      place: (x: number, y: number, z: number, yaw = ship.yaw) => {
+        Object.assign(ship, { x, y, z, yaw });
+        route.jumped();
+        updateQuaternion(ship);
       },
       /** What P and the B button do: stop or start the ship (the guest asks the host). */
       togglePause: () => this.togglePause(),
@@ -273,6 +310,50 @@ export class ShipSystem extends createSystem({
         this.fixedTilt = null;
       },
     };
+  }
+
+  /** Host or solo: back to island A with a fresh crate, ballast and route. */
+  private restart(): void {
+    this.flying = true;
+    flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
+    flight.heat -= READY_HEAT_BELOW;
+    Object.assign(flightControls, createFlightControls());
+    flightInfo.burnLeft = 0;
+    flightInfo.bricksBurned = 0;
+    setBallast(0);
+    route.reset();
+    this.sendRoute();
+  }
+
+  /** Host: tell the guest how the run stands. */
+  private sendRoute(): void {
+    this.routeSentAt = performance.now();
+    if (!netLink.connected || !netLink.isHost) {
+      return;
+    }
+    netLink.sendEvent({
+      t: 'route',
+      phase: route.phase,
+      rings: route.ringMask,
+      start: route.startTime,
+      seconds: route.seconds,
+      reason: route.lostReason,
+      result: route.result,
+    } as { t: string });
+  }
+
+  /** Guest: take the host's run. */
+  private applyRoute(event: Record<string, unknown>): void {
+    const phases: RoutePhase[] = ['ready', 'flying', 'finished', 'lost'];
+    if (!phases.includes(event.phase as RoutePhase)) {
+      return;
+    }
+    route.phase = event.phase as RoutePhase;
+    route.ringMask = Number(event.rings) | 0;
+    route.startTime = Number(event.start) || 0;
+    route.seconds = Number(event.seconds) || 0;
+    route.lostReason = String(event.reason ?? '');
+    route.result = (event.result as RouteResult | null) ?? null;
   }
 
   private togglePause(): void {
@@ -303,7 +384,21 @@ export class ShipSystem extends createSystem({
         const swing = (this.keys.starboard ? 1 : 0) - (this.keys.port ? 1 : 0);
         c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
         c.crankSpeed = crankInfo.speed;
-        flight.step(ship, c, dt);
+        if (route.phase === 'ready') {
+          flight.heat = Math.max(flight.heat, flight.balanceHeat(c.ballastDropped) - READY_HEAT_BELOW);
+        }
+        // Run into an island and the ship stops there until the crew starts again.
+        if (route.phase !== 'lost') {
+          const ground = Math.max(
+            groundBelow(ROUTE_ISLANDS, ship.x, ship.z, ship.y),
+            groundBelow(sceneryIslands, ship.x, ship.z, ship.y, wrapNear),
+          );
+          flight.step(ship, c, dt, ground);
+        }
+        const crashed = islandHit(ROUTE_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
+        if (route.step(ship, flight.grounded, flight.touchdownSpeed, flightInfo.bricksBurned, dt, crashed)) {
+          this.sendRoute();
+        }
         flightInfo.heat = flight.heat;
         flightInfo.climb = flight.climb;
         flightInfo.airspeed = flight.airspeed;
@@ -324,7 +419,12 @@ export class ShipSystem extends createSystem({
     }
     if (netLink.connected) {
       this.sendState(dt);
+      const now = performance.now();
+      if (this.flying && (!this.wasConnected || now - this.routeSentAt > ROUTE_RESEND_MS)) {
+        this.sendRoute();
+      }
     }
+    this.wasConnected = netLink.connected;
   }
 
   private sendState(dt: number): void {
@@ -387,6 +487,9 @@ export class ShipSystem extends createSystem({
       flightInfo.ventOpen = h.vent;
       flightInfo.burnLeft = h.burnLeft;
       flightInfo.ballastMask = h.ballast;
+      if (route.phase === 'flying') {
+        route.seconds = Math.max(0, ship.time - route.startTime);
+      }
     } else {
       this.flyOwnShip(dt);
     }

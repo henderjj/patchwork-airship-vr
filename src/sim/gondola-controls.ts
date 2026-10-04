@@ -127,3 +127,12 @@ export function trimFromCrew(xs: readonly number[], zs: readonly number[], count
   out.pitch = TRIM_PER_METRE * sz;
   out.roll = TRIM_PER_METRE * sx;
 }
+
+/**
+ * The ship's bell (Phase 2 route): hung from a bracket over the port bow
+ * corner post. Ring it (grip within reach) to start the route again.
+ */
+export const BELL_HOOK = [-0.78, 1.7, -1.3] as const;
+/** The bell's middle, below its hook. */
+export const BELL_CENTER = [BELL_HOOK[0], BELL_HOOK[1] - 0.12, BELL_HOOK[2]] as const;
+export const BELL_REACH = 0.16;

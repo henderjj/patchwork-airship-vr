@@ -6,6 +6,8 @@
 
 export const DECK_WIDTH = 2.0;
 export const DECK_LENGTH = 3.0;
+/** How far the hull's keel is below the deck: a ship resting on the ground has its deck this high. */
+export const KEEL_DEPTH = 0.56;
 
 /** Burner and fuel hopper, mid-ship on the starboard side. */
 export const BURNER_POSITION = [0.55, 0, 0.05] as const;
