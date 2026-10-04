@@ -27,6 +27,13 @@ export const grip: Record<Side, GripState> = {
   right: { pressed: false, down: false, hand: false },
 };
 
+/**
+ * What each hand is holding at one of the gondola's controls (tiller, vent
+ * cord, a sandbag), or null. Loose objects aren't picked up by a hand that
+ * holds a control.
+ */
+export const handUse: Record<Side, string | null> = { left: null, right: null };
+
 /** Per-hand gesture state (curl, pinch), for the perf HUD and tests. */
 export const handGrips: Record<Side, HandGrip> = { left: new HandGrip(), right: new HandGrip() };
 

@@ -521,6 +521,36 @@ async function shipSyncChecks(host, guest) {
   }, 5000).catch(() => false);
   check('The guest can stop and restart the ship', stopped === true && going === true);
 
+  // The guest works the controls: the host's ship responds.
+  const hostInfo = () => host.page.evaluate(() => ({ ...window.__ship.info, rudder: window.__ship.controls.rudder, ballastKg: window.__ship.controls.ballastDropped }));
+  await guest.page.evaluate(() => window.__controls.test({ vent: 1, rudder: 0.5 }));
+  const working = await waitFor('the guest\'s vent and tiller to reach the host', async () => {
+    const i = await hostInfo();
+    return i.ventOpen > 0.95 && Math.abs(i.rudder - 0.5) < 0.01 ? i : null;
+  }, 3000).catch(() => null);
+  await guest.page.evaluate(() => window.__controls.test({ vent: null, rudder: null }));
+  const letGo = await waitFor('the guest to let go', async () => {
+    const i = await hostInfo();
+    return i.ventOpen === 0 ? i : null;
+  }, 3000).catch(() => null);
+  const burnedBefore = (await hostInfo()).bricksBurned;
+  await guest.page.evaluate(() => {
+    window.__ship.feedFuel();
+    window.__controls.dropBag(1);
+  });
+  const fed = await waitFor('the guest\'s brick and sandbag to reach the host', async () => {
+    const i = await hostInfo();
+    return i.bricksBurned === burnedBefore + 1 && i.ballastMask === 2 ? i : null;
+  }, 3000).catch(() => null);
+  const hostBag = await waitFor('the host to see the bag fall', async () => {
+    const bags = await host.page.evaluate(() => window.__controls.bags());
+    return bags[1].gone ? bags : null;
+  }, 4000).catch(() => null);
+  check('The guest\'s hands on the vent, tiller, burner and ballast work the host\'s ship',
+    working !== null && letGo !== null && Math.abs(letGo.rudder - 0.5) < 0.01 && fed !== null && fed.ballastKg === 20 && hostBag !== null,
+    working ? `vent ${(working.ventOpen * 100).toFixed(0)}%, rudder ${working.rudder.toFixed(2)} (stays ${letGo?.rudder.toFixed(2)} let go), ` +
+      `${fed ? `brick burned, ${fed.ballastKg} kg ballast dropped` : 'brick or ballast lost'}, host saw the bag ${hostBag ? 'fall' : 'stay'}` : 'vent or tiller never reached the host');
+
   // Back to a ship standing still for the checks that follow.
   await host.page.evaluate(() => {
     window.__ship.fly();

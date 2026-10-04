@@ -12,6 +12,8 @@
  * - Steering: the rudder sets a turn rate that needs airflow over it, so it
  *   bites properly only once the ship is moving.
  * - Wind: a gentle, slowly varying breeze drifts the ship.
+ * - Trim: where the crew stands leans the gondola a little, and a ship
+ *   trimmed nose-down flies slightly downhill.
  *
  * Turn rate, climb rate, acceleration and tilt are capped by the comfort
  * limits, so nothing the crew does can make the motion harsher than spike S3
@@ -222,7 +224,8 @@ export class FlightSim {
     const wind = p.windSpeed + p.windVariation * Math.sin(this.time * 0.05) * Math.sin(this.time * 0.013 + 0.7);
     const vx = fx * this.airspeed - Math.sin(p.windHeading) * wind;
     const vz = fz * this.airspeed - Math.cos(p.windHeading) * wind;
-    const vy = this.climb;
+    // Trimmed nose-down, the ship flies a little downhill (and nose-up, uphill).
+    const vy = clamp(this.climb + this.airspeed * Math.sin(c.trimPitch), -lim.maxClimb, lim.maxClimb);
 
     const k = Math.min(1, dt * 6);
     state.ax += ((vx - state.vx) / dt - state.ax) * k;

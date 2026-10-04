@@ -437,6 +437,72 @@ async function main() {
     `heat ${burning.heat.toFixed(1)} → ${venting.heat.toFixed(1)} °C`);
   const flownBricks = bricks.map((b) => position(b.entityIndex));
   check('All bricks stay aboard under the flight model', flownBricks.every(aboard), flownBricks.filter((p) => !aboard(p)).map(fmt).join(' | '));
+  // 6c. Phase 2 gondola controls, by hand.
+  evalInApp('window.__ship.fly()');
+  const move = async (p, duration = 0.4) => {
+    iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(p), duration });
+    await sleep(duration * 1000 + 300);
+  };
+  const squeeze = async (value) => {
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value }] });
+    await sleep(300);
+  };
+  const controlHeld = () => evalInApp("window.__controls.local().held.right");
+  // Tiller: the handle starts straight ahead of the rudder post.
+  await move([0, 0.9, 0.75]);
+  await squeeze(1);
+  const tillerHeld = controlHeld();
+  await move([0.28, 0.9, 0.8], 0.6);
+  const steered = evalInApp('window.__ship.controls.rudder');
+  await squeeze(0);
+  await sleep(300);
+  const leftAt = evalInApp('window.__ship.controls.rudder');
+  check('The tiller is taken by hand and steers', tillerHeld === 'tiller' && steered < -0.5 && Math.abs(leftAt - steered) < 0.05,
+    `held by ${tillerHeld}, pushed to starboard gives rudder ${steered.toFixed(2)} (port), stays at ${leftAt.toFixed(2)} when let go`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.3, y: 0.9, z: 0.6 } });
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-tiller.png'], {});
+  // Vent cord: pull the toggle down.
+  await move([0.1, 1.5, 0]);
+  await move([-0.3, 1.56, -0.3]);
+  await squeeze(1);
+  const ventHeld = controlHeld();
+  await move([-0.3, 1.3, -0.3], 0.5);
+  const pulled = evalInApp('window.__ship.info.ventOpen');
+  await squeeze(0);
+  await sleep(300);
+  const released = evalInApp('window.__ship.info.ventOpen');
+  check('Pulling the vent cord opens the vent, and it closes when let go', ventHeld === 'vent' && pulled > 0.6 && released === 0,
+    `held by ${ventHeld}, open ${(pulled * 100).toFixed(0)}% pulled, ${(released * 100).toFixed(0)}% let go`);
+  // Ballast: lift the first bag off its hook outside the starboard rail and let go.
+  await move([0.6, 1.1, 0.5]);
+  await move([1.16, 0.8, 0.55]);
+  await squeeze(1);
+  const bagHeld = controlHeld();
+  await move([1.25, 1.0, 0.55], 0.3);
+  await squeeze(0);
+  await sleep(500);
+  const ballast = evalInApp('({ mask: window.__ship.info.ballastMask, kg: window.__ship.controls.ballastDropped })');
+  check('A sandbag let go over the side is dropped', bagHeld === 'bag0' && ballast.mask === 1 && ballast.kg === 20,
+    `held by ${bagHeld}, dropped mask ${ballast.mask}, ${ballast.kg} kg gone`);
+  await move([0.3, 1.0, 0.2]);
+  // Burner: a brick let go over the hopper is burned and a fresh one appears in the crate.
+  const burnedBefore = evalInApp('window.__ship.info.bricksBurned');
+  evalInApp('window.__throw.place(0, 0.55, 0.85, 0.05)');
+  await sleep(1500);
+  const fed = evalInApp('({ burned: window.__ship.info.bricksBurned, left: window.__ship.info.burnLeft })');
+  const brick0 = evalInApp('window.__throw.objects()[0].pos');
+  check('A brick dropped in the hopper feeds the burner', fed.burned === burnedBefore + 1 && fed.left > 15 && inCrate(brick0),
+    `${fed.burned - burnedBefore} burned, ${fed.left.toFixed(0)} s of flame, brick back at ${fmt(brick0)}`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.2, z: 0.05 } });
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-burner.png'], {});
+  // Lantern: hangs towards the low side of a tilted deck.
+  evalInApp('window.__ship.setFixedTilt(4, 0)');
+  await sleep(3000);
+  const swing = evalInApp('window.__controls.lantern()');
+  evalInApp('window.__ship.clearFixedTilt()');
+  check('The lantern swings towards the low side of the deck', swing.z > 0.03, `swung ${((swing.z * 180) / Math.PI).toFixed(1)}° to starboard with the deck 4° starboard-down`);
+  const board = evalInApp('window.__controls.boardText()');
+  check('The instrument board shows the flight', board.length === 5 && board[3].startsWith('BURNER') && !board[3].endsWith('out'), board.join(' | '));
   evalInApp("window.__ship.setProfile('tour')");
 
   // 7. Perf log.
