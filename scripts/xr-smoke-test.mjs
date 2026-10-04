@@ -202,6 +202,24 @@ async function main() {
   const settled = bricks.map((b) => position(b.entityIndex));
   const allInCrate = settled.every(inCrate);
   check('Fuel bricks rest in the crate', allInCrate, allInCrate ? '' : settled.map(fmt).join(' | '));
+  // Watch the bricks in the page from here on: the first time each one is
+  // off the deck or moving fast, with the time, so a stray can be traced to a step.
+  evalInApp(`(() => {
+    const log = (window.__brickLog = []);
+    const seen = new Set();
+    setInterval(() => {
+      for (const o of window.__throw.objects()) {
+        const [x, y, z] = o.pos;
+        const off = Math.abs(x) > ${DECK_HALF_WIDTH + 0.05} || Math.abs(z) > ${DECK_HALF_LENGTH + 0.05} || y < -0.02 || y > 2.5;
+        const why = off ? 'off deck' : o.speed > 8 && !o.heldBy ? 'fast' : '';
+        if (why && !seen.has(o.id + why)) {
+          seen.add(o.id + why);
+          log.push(new Date().toISOString().slice(11, 22) + ' brick ' + o.id + ' ' + why + ' at ' + o.pos.map((v) => v.toFixed(2)).join(', ') + ' speed ' + o.speed.toFixed(1) + (o.heldBy ? ' held by ' + o.heldBy : ''));
+        }
+      }
+    }, 50);
+    return true;
+  })()`);
 
   // 4. Grab a brick from the top of the stack, lift it, drop it on the open deck.
   const topY = Math.max(...settled.map((p) => p[1]));
@@ -427,8 +445,9 @@ async function main() {
   const travelled = Math.hypot(shipEnd[0] - shipStart[0], shipEnd[1] - shipStart[1]);
   check('Ship flies the tour profile', travelled > 1, `${travelled.toFixed(1)} m`);
   const positions = bricks.map((b) => position(b.entityIndex));
+  const brickLog = evalInApp('window.__brickLog ?? []');
   check('All bricks stay aboard while flying', positions.every(aboard) && strays.length === 0,
-    [...positions.filter((p) => !aboard(p)).map(fmt), ...strays].join(' | '));
+    [...positions.filter((p) => !aboard(p)).map(fmt), ...strays, ...(strays.length ? brickLog : [])].join(' | '));
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.4, z: -3 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-flying.png'], {});
 
@@ -595,6 +614,20 @@ async function main() {
     asked.phase === 'flying' && asked.board[5] === 'Ring again to restart' && lost?.[1] === 'Sank into the haze' && again === 'ready',
     `one ring: ${asked.phase} "${asked.board[5]}", then ${lost ? lost.slice(0, 2).join(' / ') : 'not lost'}, then ${again}`);
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
+
+  // 6e. Phase 2 audio: the ship's sounds played through the tests above
+  //     (crank ratchet, ring chime, touchdown thump, bell), and the burner
+  //     and wind loops follow the flight.
+  evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 135, -60)');
+  evalInApp('window.__ship.feedFuel()');
+  await sleep(1500);
+  const sound = evalInApp('({ running: window.__audio.running, loops: window.__audio.loops(), level: window.__audio.level(), played: { ...window.__audio.played } })');
+  check('The ship is heard: burner, wind, ratchet, chime, thump and bell',
+    sound.running && sound.loops.burner > 0.3 && sound.loops.wind > 0.03 && sound.level > 0.005 &&
+      sound.played.ratchet > 0 && sound.played.chime > 0 && sound.played.thump > 0 && sound.played.bell > 0,
+    `audio ${sound.running ? 'running' : 'not running'}, burner ${sound.loops.burner.toFixed(2)}, wind ${sound.loops.wind.toFixed(2)}, level ${sound.level.toFixed(3)}, ` +
+      Object.entries(sound.played).map(([k, n]) => `${n} ${k}`).join(', '));
   evalInApp("window.__ship.setProfile('tour')");
 
   // 7. Perf log.

@@ -62,8 +62,8 @@ interface CrankDebug {
   reset(): void;
 }
 
-/** The crank's current speed, rad/s, read by the flight model as the propeller's thrust. */
-export const crankInfo = { speed: 0 };
+/** The crank's current speed, rad/s, read by the flight model as the propeller's thrust, and its angle (radians, not wrapped) for the ratchet's sound. */
+export const crankInfo = { speed: 0, angle: 0 };
 
 export class CrankSystem extends createSystem({}) {
   readonly sim = new CrankSim();
@@ -182,6 +182,7 @@ export class CrankSystem extends createSystem({}) {
       this.sim.step(dt / steps, now - (dt * 1000 * (steps - i)) / steps, this.inputs);
     }
     crankInfo.speed = this.sim.omega;
+    crankInfo.angle = this.sim.angle;
 
     if (!netLink.connected || netLink.isHost) {
       if (netLink.connected) {

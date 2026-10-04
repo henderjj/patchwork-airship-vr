@@ -39,6 +39,7 @@ Test builds are tuned from the address bar, so a headset can try variations with
 | `hud` | 1 | Show the perf HUD from the start |
 | `motion` | still | Ship motion: `still`, `gentle`, `tour` or `lively` (scripted paths for comfort tests), or `flight` (the crew flies the ship; see [docs/flight-model.md](docs/flight-model.md)) |
 | `speed`, `turn`, `climb`, `tilt`, `gust` | | Override one limit of the motion profile: cruise speed (m/s), peak turn rate (°/s), peak climb (m/s), peak tilt (°), gusts (m/s). The profile shows with a `*` in the logs, e.g. `motion=tour&tilt=2` |
+| `audio` | 1 | The ship's sounds (burner, wind, timber creaks, crank ratchet, bell); `audio=0` turns them off. The crewmate's voice is separate (`voice`) |
 | `comfort` | 0 | Ask for a comfort rating in VR every this many seconds, e.g. `comfort=60` (see [docs/spikes/s3-comfort.md](docs/spikes/s3-comfort.md)) |
 | `label` | | A tag for the session (tester, variant) written into the perf and comfort CSVs |
 | `seed` | 1 | World generation seed |
