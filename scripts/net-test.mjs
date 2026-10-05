@@ -79,11 +79,14 @@ async function waitFor(label, fn, timeoutMs = 20000) {
 
 const state = (page) => page.evaluate(() => window.__net?.session.state ?? 'loading');
 
-async function openPlayer(browser, query) {
+async function openPlayer(browser, query, initScript) {
   // A small window keeps software rendering of four pages fast enough for the
   // frame-by-frame motion checks.
   const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 320, height: 200 } });
   const page = await context.newPage();
+  if (initScript) {
+    await page.addInitScript(initScript);
+  }
   if (process.env.THROTTLE) {
     // Slow the page's CPU, to see how the timing checks fare on a slow CI runner.
     const cdp = await context.newCDPSession(page);
@@ -648,8 +651,20 @@ async function lobbyChecks(browser, host, guest) {
     window.__ship.setProfile('still');
   });
 
-  // Microphone up front, on a page that hasn't joined a crew.
-  const solo = await openPlayer(browser, 'name=Di');
+  // Microphone up front, on a page that hasn't joined a crew. This page also
+  // pretends to have a VR headset, for the Enter VR button.
+  const solo = await openPlayer(browser, 'name=Di', () => {
+    const xr = navigator.xr ?? {};
+    window.__vrRequests = 0;
+    xr.isSessionSupported = async (mode) => mode === 'immersive-vr';
+    xr.requestSession = async () => {
+      window.__vrRequests++;
+      throw new DOMException('No headset in this test', 'NotSupportedError');
+    };
+    if (!navigator.xr) {
+      Object.defineProperty(navigator, 'xr', { value: Object.assign(xr, { addEventListener() {}, removeEventListener() {} }) });
+    }
+  });
   const mic = (page) => page.evaluate(() => ({ text: document.getElementById('crew-mic').textContent, button: getComputedStyle(document.getElementById('crew-allow-mic')).display !== 'none',
     open: window.__net.voice.micTrack !== null }));
   const before = await mic(solo.page);
@@ -662,6 +677,21 @@ async function lobbyChecks(browser, host, guest) {
   }, 5000).catch(() => null);
   check('A page asks for the microphone up front without keeping it open', after !== null && !after.button && !after.open,
     `before: "${before.text}"${before.button ? ' with the Allow button' : ''}; after: ${after ? `"${after.text}", mic ${after.open ? 'open' : 'closed'}` : 'never allowed'}`);
+
+  // The page's own Enter VR button stays once a crew is joined (the browser's
+  // offer can be withdrawn then), and asks for a VR session.
+  const enterVr = () => solo.page.evaluate(() => {
+    const b = document.getElementById('crew-enter-vr');
+    return b !== null && getComputedStyle(b).display !== 'none';
+  });
+  const shownSolo = await waitFor('the Enter VR button', enterVr, 5000).catch(() => false);
+  await solo.page.evaluate(() => window.__net.join('SOLO'));
+  await waitFor('Di waiting in the lobby', async () => (await state(solo.page)) === 'waiting', 10000).catch(() => null);
+  const shownInCrew = await enterVr();
+  await solo.page.evaluate(() => document.getElementById('crew-enter-vr').click());
+  const requests = await waitFor('a VR session request', () => solo.page.evaluate(() => window.__vrRequests), 3000).catch(() => 0);
+  check('The page has its own Enter VR button, kept after joining a crew', shownSolo && shownInCrew && requests > 0,
+    `shown ${shownSolo ? 'solo' : 'not solo'}, ${shownInCrew ? 'and' : 'but not'} in a crew; ${requests} session request(s) on click`);
   await solo.context.close();
 }
 

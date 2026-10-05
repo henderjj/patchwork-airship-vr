@@ -9,6 +9,8 @@ export interface LobbyUiOptions {
   onAllowMic: () => void;
   /** The player picked coat colour `index`. */
   onColor: (index: number) => void;
+  /** The player asked to enter VR. */
+  onEnterVr: () => void;
   /** Coat colours to offer, with names, and the one picked. */
   colors: readonly number[];
   colorNames: readonly string[];
@@ -21,9 +23,11 @@ export interface LobbyUiOptions {
  * crewmate's code to join. Set up the crew before entering VR; the page
  * reloads nothing, so the link with `?room=CODE` can be shared as is.
  *
- * Also here, before VR: the coat colour your crewmate sees you in, and the
+ * Also here, before VR: the coat colour your crewmate sees you in, the
  * microphone, which is asked for up front because a permission prompt
- * inside VR is easy to miss.
+ * inside VR is easy to miss, and an Enter VR button. The browser's own Enter
+ * VR offer (Quest Browser) can be withdrawn once a crew connects and the
+ * microphone opens, so the page always has a button of its own.
  */
 export class LobbyUi {
   private root = document.createElement('div');
@@ -32,6 +36,7 @@ export class LobbyUi {
   private mic = document.createElement('div');
   private micText = document.createElement('span');
   private allowMic: HTMLButtonElement;
+  private enterVr: HTMLButtonElement;
   private swatches: HTMLButtonElement[] = [];
   private onJoin: (room: string) => void;
   private onLeave: () => void;
@@ -41,6 +46,11 @@ export class LobbyUi {
     this.onJoin = onJoin;
     this.onLeave = onLeave;
     this.root.id = 'crew-panel';
+    this.enterVr = button('Enter VR', options.onEnterVr);
+    this.enterVr.id = 'crew-enter-vr';
+    this.enterVr.style.fontWeight = '600';
+    this.enterVr.style.padding = '6px 10px';
+    this.enterVr.style.display = 'none';
     this.root.style.cssText =
       'position:fixed;top:8px;right:8px;z-index:10;padding:8px 10px;border-radius:8px;background:rgba(20,24,32,.82);' +
       'color:#e5e7eb;font:13px system-ui,sans-serif;display:flex;flex-direction:column;gap:6px;max-width:260px';
@@ -101,10 +111,15 @@ export class LobbyUi {
     this.allowMic = button('Allow microphone', options.onAllowMic);
     this.allowMic.id = 'crew-allow-mic';
     this.mic.append(this.micText, this.allowMic);
-    this.root.append(row, this.status, colors, this.mic);
+    this.root.append(this.enterVr, row, this.status, colors, this.mic);
     document.body.appendChild(this.root);
     this.setStatus('Playing solo.');
     this.setMic({ muted: false, error: '', on: false, permitted: false });
+  }
+
+  /** Offer the Enter VR button, on a browser and device that can run VR. */
+  showEnterVr(supported: boolean): void {
+    this.enterVr.style.display = supported ? '' : 'none';
   }
 
   /** Show coat colour `index` as picked. */
