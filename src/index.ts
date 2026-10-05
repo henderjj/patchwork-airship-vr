@@ -16,6 +16,7 @@ import { PerfHudSystem } from './systems/perf-hud-system.js';
 import { PlatformSystem } from './systems/platform-system.js';
 import { RopeSystem } from './systems/rope-system.js';
 import { ShipSystem } from './systems/ship-system.js';
+import { SignsSystem } from './systems/signs-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
 import { ThrowablesSystem } from './systems/throwables-system.js';
 
@@ -43,6 +44,7 @@ World.create(
   // sees the crewmate's pose for trim.
   world.registerSystem(ControlsSystem);
   world.registerSystem(RouteSystem);
+  world.registerSystem(SignsSystem);
   // After the ship, crank and route have moved on this frame.
   world.registerSystem(AudioSystem);
   // After the crank, rope and controls, so it knows which hands they hold.

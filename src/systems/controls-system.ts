@@ -12,6 +12,7 @@ import {
   createBellLanyard,
   createBellToggle,
   createBoardFrame,
+  createFireGlow,
   createFlame,
   createLantern,
   createSandbag,
@@ -19,6 +20,7 @@ import {
   createVentCord,
   createVentToggle,
 } from '../scene-assets/controls.scene-asset.js';
+import { FIRE_DOOR } from '../scene-assets/gondola.scene-asset.js';
 import { BURNER_POSITION, BURNER_SIZE } from '../sim/gondola-layout.js';
 import {
   BALLAST_BAGS,
@@ -108,6 +110,7 @@ export class ControlsSystem extends createSystem({}) {
   private toggle!: Mesh;
   private cord!: Mesh;
   private flames: Mesh[] = [];
+  private fireGlow!: Mesh<PlaneGeometry, MeshBasicMaterial>;
   private lantern!: Mesh;
   private bags: Bag[] = [];
   private board!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; lines: string[] };
@@ -156,6 +159,10 @@ export class ControlsSystem extends createSystem({}) {
     mouth.position.set(BURNER_POSITION[0], 4.55, BURNER_POSITION[2]);
     mouth.scale.setScalar(2.2);
     this.flames.push(hopper, mouth);
+    // The fire behind the door grate: glowing while lit, embers when out.
+    this.fireGlow = createFireGlow(FIRE_DOOR[1], FIRE_DOOR[2]) as Mesh<PlaneGeometry, MeshBasicMaterial>;
+    this.fireGlow.position.set(BURNER_POSITION[0] - BURNER_SIZE[0] / 2 - 0.002, FIRE_DOOR[0], BURNER_POSITION[2]);
+    this.world.createTransformEntity(this.fireGlow);
     this.lantern = createLantern();
     this.lantern.position.set(-0.45, 2.15, 0.55);
     // The ship's bell's lanyard (the bell itself belongs to the route, RouteSystem).
@@ -432,10 +439,16 @@ export class ControlsSystem extends createSystem({}) {
       const flame = this.flames[i];
       flame.visible = lit;
       if (lit) {
-        const base = i === 0 ? 1 : 2.2;
+        const base = i === 0 ? 1.3 : 2.2;
         const f = 0.85 + 0.15 * Math.sin(now * 0.031 + i * 2) * Math.sin(now * 0.017 + i);
         flame.scale.set(base * (1.05 - 0.1 * f), base * f * 1.15, base * (1.05 - 0.1 * f));
       }
+    }
+    if (lit) {
+      const f = 0.8 + 0.2 * Math.sin(now * 0.023) * Math.sin(now * 0.041);
+      this.fireGlow.material.color.setRGB(1, 0.42 * f, 0.08 * f);
+    } else {
+      this.fireGlow.material.color.setRGB(0.25, 0.06, 0.03);
     }
 
     // Lantern: a damped pendulum pulled towards the felt gravity's direction in ship space.
