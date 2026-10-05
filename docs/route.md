@@ -1,6 +1,6 @@
 # The route: "Calm skies" (Phase 2)
 
-With `?motion=flight` the ship starts resting on island A, and the crew flies a short route: lift off, fly through two marker rings, and land on island B. The run is timed, and the board on deck shows a score at the end. The layout and rules are in `src/sim/route.ts` and `src/sim/islands.ts`; like the flight model, they have no rendering code.
+The ship starts resting on island A, and the crew flies a short route: lift off, fly through two marker rings, and land on island B. The run is timed, and the board on deck shows a score at the end. The layout and rules are in `src/sim/route.ts` and `src/sim/islands.ts`; like the flight model, they have no rendering code.
 
 ## The course
 
@@ -20,7 +20,7 @@ About 550 m in all: roughly three minutes with one player cranking, under two wi
 - **A ring counts** when the middle of the ship passes through it at least 4 m inside the rim, in either direction. Rings can be flown in any order.
 - **The run finishes** after the ship has rested on island B for 3 seconds.
 - **The run is lost** if the ship runs into an island's rock (resting on any island's top is fine), sinks below 40 m into the haze, or strays more than 450 m from the route. The ship stops where it is.
-- **Restart** by ringing the ship's bell, on a bracket over the port bow corner (squeeze the grip on it). Mid-run it takes two rings within 3 seconds, so a knock doesn't throw a good run away. On a keyboard, **N** rings the bell.
+- **Restart** by ringing the ship's bell, on a bracket over the port bow corner: take the wooden toggle at the end of its lanyard and pull it to one side (it strikes once per pull, and swings back to hang straight when let go). Mid-run it takes two rings within 3 seconds, so a knock doesn't throw a good run away. On a keyboard, **N** rings the bell.
 
 The ship can now rest on any island: its keel settles on the grass, and while it rests it can't drift, turn or be cranked along; it needs lift to rise again. A heavily vented ship takes a minute or two of burning to recover.
 
@@ -44,7 +44,7 @@ The host runs the route and sends its state (phase, rings, clock start, result) 
 
 ## Trying it
 
-On a headset, open the game with `?motion=flight`:
+On a headset, open the game:
 
 1. Look over the side: the gondola rests on island A's pad. The route board (walk to the bow side of the burner) says "Waiting on island A" (with a crewmate, "Moored on island A": both ring the bell at the bow to cast off).
 2. Drop a brick in the hopper. Within a few seconds the ship lifts off and the board's clock starts.

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   BALLAST_BAG_KG,
+  BELL_LANYARD_END,
+  BellPull,
   BALLAST_BAGS,
   ballastDropped,
   HOPPER,
@@ -66,5 +68,21 @@ describe('gondola controls', () => {
     expect(out.roll).toBeCloseTo(0, 6);
     trimFromCrew([0.8], [0], 1, out);
     expect(out.roll).toBeGreaterThan(0);
+  });
+
+  it('strikes the bell once for each pull of the lanyard to one side', () => {
+    const pull = new BellPull();
+    const [x, , z] = BELL_LANYARD_END;
+    expect(pull.step(x, z)).toBe(false);
+    expect(pull.step(x + 0.04, z)).toBe(false);
+    expect(pull.step(x + 0.09, z)).toBe(true);
+    // Held out to the side: no more strikes until it swings back.
+    expect(pull.step(x + 0.12, z)).toBe(false);
+    expect(pull.step(x + 0.05, z)).toBe(false);
+    expect(pull.step(x + 0.01, z)).toBe(false);
+    // To the other side, and fore and aft too.
+    expect(pull.step(x - 0.09, z)).toBe(true);
+    expect(pull.step(x, z)).toBe(false);
+    expect(pull.step(x, z + 0.08)).toBe(true);
   });
 });

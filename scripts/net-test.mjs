@@ -33,7 +33,7 @@ const LOBBY_PORT = 8787;
 const PREVIEW_PORT = 4173;
 // The IWSDK Vite plugin serves HTTPS with a local development certificate.
 const BASE = `https://localhost:${PREVIEW_PORT}/`;
-const QUIET = 'islands=4&clouds=4&bricks=1&avatars=0&hud=0';
+const QUIET = 'islands=4&clouds=4&bricks=1&avatars=0&hud=0&motion=still';
 
 const results = [];
 function check(name, pass, detail) {

@@ -132,10 +132,24 @@ export function createBell(): Mesh {
       { geometry: new CylinderGeometry(0.035, 0.035, 0.02, 8), color: shade(BRASS, 0.85), position: [0, -0.04, 0] },
       { geometry: new TorusGeometry(0.085, 0.008, 4, 10), color: shade(BRASS, 0.8), position: [0, -0.18, 0], rotation: [Math.PI / 2, 0, 0] },
       { geometry: new IcosahedronGeometry(0.018, 0), color: IRON, position: [0, -0.2, 0] },
-      // A short pull rope from the clapper.
-      beam([0, -0.2, 0], [0, -0.34, 0], 0.007, ROPE, 4),
     ],
     'Bell',
+  );
+}
+
+/** The bell's lanyard: a 1 m length of rope hanging down from its origin (the clapper); scale Y to its length and turn it to the hand. */
+export function createBellLanyard(): Mesh {
+  return partsMesh([{ geometry: new CylinderGeometry(0.008, 0.008, 1, 4), color: ROPE, position: [0, -0.5, 0] }], 'Bell Lanyard');
+}
+
+/** The wooden toggle at the lanyard's end, the part a hand takes. */
+export function createBellToggle(): Mesh {
+  return partsMesh(
+    [
+      { geometry: new CylinderGeometry(0.02, 0.02, 0.1, 6), color: WOOD, rotation: [0, 0, Math.PI / 2] },
+      { geometry: new TorusGeometry(0.018, 0.005, 4, 6), color: ROPE, position: [0, 0.025, 0] },
+    ],
+    'Bell Toggle',
   );
 }
 

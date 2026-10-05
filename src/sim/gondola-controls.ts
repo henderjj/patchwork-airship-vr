@@ -130,9 +130,47 @@ export function trimFromCrew(xs: readonly number[], zs: readonly number[], count
 
 /**
  * The ship's bell (Phase 2 route): hung from a bracket over the port bow
- * corner post. Ring it (grip within reach) to start the route again.
+ * corner post. It is rung by its lanyard: take the lanyard's end and pull it
+ * to one side, so the clapper strikes the bell.
  */
 export const BELL_HOOK = [-0.78, 1.7, -1.3] as const;
 /** The bell's middle, below its hook. */
 export const BELL_CENTER = [BELL_HOOK[0], BELL_HOOK[1] - 0.12, BELL_HOOK[2]] as const;
-export const BELL_REACH = 0.16;
+/** Where the lanyard is tied to the clapper, below the bell's lip. */
+export const BELL_CLAPPER = [BELL_HOOK[0], BELL_HOOK[1] - 0.2, BELL_HOOK[2]] as const;
+/** The lanyard's end (a wooden toggle) hanging at rest, at chest height. */
+export const BELL_LANYARD_END = [BELL_CLAPPER[0], BELL_CLAPPER[1] - 0.32, BELL_CLAPPER[2]] as const;
+/** A hand this close to the lanyard's end can take it, m. */
+export const BELL_LANYARD_REACH = 0.12;
+/** Pulled this far to one side, the clapper strikes, m. */
+export const BELL_STRIKE_PULL = 0.07;
+/** It must come back this close to hanging straight before it can strike again, m. */
+export const BELL_REARM_PULL = 0.03;
+/** Pulled this far from where it hangs, the lanyard slips out of the hand, m. */
+export const BELL_LANYARD_SLIP = 0.45;
+
+/**
+ * The bell's lanyard in a hand: each pull to one side (any side) strikes
+ * once, so a quick to-and-fro rings it twice, like a ship's bell.
+ */
+export class BellPull {
+  private armed = true;
+
+  /** The lanyard was let go or taken again: the next pull strikes. */
+  reset(): void {
+    this.armed = true;
+  }
+
+  /** The hand holding the lanyard's end is at (x, z); returns true if the clapper strikes now. */
+  step(x: number, z: number): boolean {
+    const pull = Math.hypot(x - BELL_LANYARD_END[0], z - BELL_LANYARD_END[2]);
+    if (this.armed && pull > BELL_STRIKE_PULL) {
+      this.armed = false;
+      return true;
+    }
+    if (!this.armed && pull < BELL_REARM_PULL) {
+      this.armed = true;
+    }
+    return false;
+  }
+}
