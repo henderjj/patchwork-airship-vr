@@ -8,7 +8,7 @@ Every sound is made in the browser with Web Audio rather than recorded, so the d
 | Wind | Louder and brighter with airspeed and climb; a faint breeze at rest | Looped noise through a low-pass whose cutoff rises from 250 Hz to about 1.6 kHz with speed |
 | Timber creaks | Now and then at rest (about one every 15 s), up to about one a second while the gondola tilts, turns or changes speed at its limits, never closer than 0.6 s | A sliding sawtooth with a fast wobble through a narrow band-pass, at a random rail post or the load ring |
 | Crank ratchet | One click per eighth of a turn, matching the haptic clicks | A 25 ms burst of high-passed noise at the crank |
-| Ship's bell | Rung by hand (or N) | Four out-of-tune sine partials, each dying away at its own rate, like struck brass |
+| Ship's bell | Its lanyard pulled to one side (or N) | Four out-of-tune sine partials, each dying away at its own rate, like struck brass |
 | Ring chime | A ring flown through | Two rising notes |
 | Touchdown | The ship settling onto an island | A falling low thump, harder with a faster descent |
 
@@ -18,7 +18,7 @@ Browsers only start audio after a click or key on the page, or on entering VR, s
 
 ## Trying it
 
-On a headset, with `?motion=flight`:
+On a headset:
 
 1. Drop a brick in the hopper: the burner roars, and goes quiet when its time runs out.
 2. Turn the crank: the ratchet clicks at the bow, faster as you crank faster. Turn your head: the clicks stay at the crank.

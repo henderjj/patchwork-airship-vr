@@ -5,7 +5,9 @@
  * Drives the IWSDK managed browser (an emulated Meta Quest 3, through IWER,
  * IWSDK's browser-based XR emulator) with the @iwsdk/cli surface:
  *
- *  1. reloads the app and enters an immersive session;
+ *  1. reloads the app, enters an immersive session and checks this player's
+ *     own hands are drawn (the game starts in flight; the spike checks hold
+ *     the ship still);
  *  2. checks the 90 Hz request ran;
  *  3. checks the fuel bricks settled in the crate;
  *  4. grabs a brick with the right controller's squeeze, lifts and drops it,
@@ -172,6 +174,12 @@ async function main() {
   iwsdk(['xr', 'set-device-state'], {});
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
   check('XR session active', iwsdk(['xr', 'status'], {}).result.sessionActive);
+  await sleep(500);
+  const ownHands = evalInApp('({ shown: window.__ownHands.shown(), right: window.__ownHands.position("right") })');
+  check('This player sees their own hands', ownHands.shown.length === 2, `shown: ${ownHands.shown.join(', ') || 'none'}, right at ${fmt(ownHands.right)}`);
+  // The game starts in flight on island A; the spike checks below want the
+  // ship held still (6b switches to the flight model again).
+  evalInApp("window.__ship.setProfile('still')");
 
   // 2. The frame-rate system ran when the session started.
   const rateLog = await waitFor(
@@ -588,16 +596,20 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.5, z: -0.05 } });
   await sleep(800);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-score.png'], {});
-  // The bell, by hand.
-  await move([-0.4, 1.4, -0.8]);
-  await move([-0.78, 1.58, -1.3]);
+  // The bell, by pulling its lanyard to one side.
+  await move([-0.4, 1.2, -0.8]);
+  await move([-0.78, 1.18, -1.3]);
   await squeeze(1);
+  const lanyardHeld = controlHeld();
+  const beforePull = evalInApp('window.__route.run.phase');
+  await move([-0.64, 1.18, -1.28], 0.3);
   await sleep(300);
   const rung = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z, bell: window.__route.bell().peak })');
   await squeeze(0);
   await move([-0.3, 1.2, -0.5]);
-  check('Ringing the bell starts again from island A', rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z && rung.bell > 0.01,
-    `${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, bell swung ${((rung.bell * 180) / Math.PI).toFixed(0)}°`);
+  check('Pulling the bell lanyard to one side rings it and starts again from island A',
+    lanyardHeld === 'bell' && beforePull === 'finished' && rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z && rung.bell > 0.01,
+    `held by ${lanyardHeld}, ${beforePull} then ${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, bell swung ${((rung.bell * 180) / Math.PI).toFixed(0)}°`);
   // Mid-run, one ring only asks; sinking into the haze loses the run; N (the keyboard's bell) restarts.
   evalInApp('window.__ship.place(0, 126, -40)');
   await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);

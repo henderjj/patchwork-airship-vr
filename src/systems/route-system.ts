@@ -1,12 +1,11 @@
-import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from '@iwsdk/core';
+import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from '@iwsdk/core';
 import { createBell, createBellBracket, createBoardFrame } from '../scene-assets/controls.scene-asset.js';
-import { BELL_CENTER, BELL_HOOK, BELL_REACH } from '../sim/gondola-controls.js';
+import { BELL_HOOK } from '../sim/gondola-controls.js';
 import { BURNER_POSITION } from '../sim/gondola-layout.js';
 import { restingDeck } from '../sim/islands.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
 import { sounds } from './audio-system.js';
-import { grip, handUse } from './grip-system.js';
 import { netLink } from './net-system.js';
 import { crewReady, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
 
@@ -23,14 +22,16 @@ const BELL_KICK = 6;
 /** Where the best score is kept in this browser. */
 const BEST_KEY = 'patchwork-airship.best';
 
-const SIDES = ['left', 'right'] as const;
+/** The ship's bell, for the lanyard (ControlsSystem) to ring. */
+export const bell = { ring: (): void => undefined };
 
 /**
  * Phase 2's route on deck: a board on the bow side of the burner flue that
  * shows the run (waiting on island A, the timer and the way to the next ring
  * or island B, then the score), and the ship's bell, which starts the route
- * again from island A. Mid-run it takes two rings, so a knock doesn't throw
- * a good run away. With a crewmate, ringing it on island A says you're
+ * again from island A. It rings when its lanyard (ControlsSystem) is pulled
+ * to one side. Mid-run it takes two rings, so a knock doesn't throw a good
+ * run away. With a crewmate, ringing it on island A says you're
  * ready, and the ship stays moored until both have. The host runs the route
  * itself (ShipSystem).
  */
@@ -44,7 +45,6 @@ export class RouteSystem extends createSystem({}) {
   private lastRing = Number.NEGATIVE_INFINITY;
   /** The bell's swing, rad, and the widest it has swung since it was last rung. */
   private swing = { angle: 0, rate: 0, peak: 0 };
-  private handPos = new Vector3();
   private best = 0;
   private scored: unknown = null;
 
@@ -56,6 +56,10 @@ export class RouteSystem extends createSystem({}) {
       this.world.createTransformEntity(mesh);
     }
     this.createBoard();
+    bell.ring = () => this.ring();
+    this.cleanupFuncs.push(() => {
+      bell.ring = () => undefined;
+    });
     try {
       this.best = Number(localStorage.getItem(BEST_KEY)) || 0;
     } catch {
@@ -108,17 +112,6 @@ export class RouteSystem extends createSystem({}) {
     }
     if (!shown) {
       return;
-    }
-    for (const side of SIDES) {
-      if (!grip[side].down || handUse[side]) {
-        continue;
-      }
-      this.player.gripSpaces[side].getWorldPosition(this.handPos);
-      const p = this.handPos;
-      if (Math.hypot(p.x - BELL_CENTER[0], p.y - BELL_CENTER[1], p.z - BELL_CENTER[2]) < BELL_REACH) {
-        this.ring();
-        this.pulse(side);
-      }
     }
     const s = this.swing;
     s.rate += (-BELL_OMEGA2 * s.angle - BELL_DAMPING * s.rate) * dt;
@@ -257,13 +250,6 @@ export class RouteSystem extends createSystem({}) {
       ctx.fillText(line, 20, 16 + i * 49);
     });
     texture.needsUpdate = true;
-  }
-
-  private pulse(side: (typeof SIDES)[number]): void {
-    const actuator = this.input.xr.gamepads[side]?.gamepad.hapticActuators?.[0] as
-      | { pulse?: (value: number, duration: number) => Promise<boolean> }
-      | undefined;
-    void actuator?.pulse?.(0.6, 60)?.catch(() => undefined);
   }
 }
 

@@ -1,4 +1,4 @@
-import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from '@iwsdk/core';
+import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3 } from '@iwsdk/core';
 import {
   CONTROLS_FLAG_TILLER,
   CONTROLS_FLAG_VENT,
@@ -9,6 +9,8 @@ import {
   PacketType,
 } from '../net/pose-codec.js';
 import {
+  createBellLanyard,
+  createBellToggle,
   createBoardFrame,
   createFlame,
   createLantern,
@@ -21,6 +23,11 @@ import { BURNER_POSITION, BURNER_SIZE } from '../sim/gondola-layout.js';
 import {
   BALLAST_BAGS,
   BALLAST_REACH,
+  BELL_CLAPPER,
+  BELL_LANYARD_END,
+  BELL_LANYARD_REACH,
+  BELL_LANYARD_SLIP,
+  BellPull,
   overboard,
   rudderFromHand,
   TILLER_PIVOT,
@@ -37,6 +44,7 @@ import {
 } from '../sim/gondola-controls.js';
 import { grip, handUse } from './grip-system.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
+import { bell } from './route-system.js';
 import { dropBallast, flightControls, flightInfo, ship, stations } from './ship-system.js';
 
 const SIDES = ['left', 'right'] as const;
@@ -53,6 +61,9 @@ const LANTERN_OMEGA2 = 9.81 / 0.32;
 const LANTERN_DAMPING = 0.8;
 /** A dropped bag falls this long before it is gone, s. */
 const BAG_FALL_SECONDS = 1.6;
+/** How quickly the bell's lanyard swings back to hanging straight when let go, per second. */
+const LANYARD_SETTLE = 6;
+const DOWN = new Vector3(0, -1, 0);
 
 interface Bag {
   mesh: Mesh;
@@ -123,6 +134,13 @@ export class ControlsSystem extends createSystem({}) {
   private crewZ = [0, 0];
   private swing = { x: 0, z: 0, vx: 0, vz: 0 };
   private tillerTmp = { x: 0, y: 0, z: 0 };
+  private lanyard!: Mesh;
+  private bellToggle!: Mesh;
+  private lanyardEnd = new Vector3(BELL_LANYARD_END[0], BELL_LANYARD_END[1], BELL_LANYARD_END[2]);
+  private lanyardRest = new Vector3(BELL_LANYARD_END[0], BELL_LANYARD_END[1], BELL_LANYARD_END[2]);
+  private lanyardDir = new Vector3();
+  private lanyardTurn = new Quaternion();
+  private bellPull = new BellPull();
 
   init(): void {
     this.tiller = createTillerBar();
@@ -140,7 +158,11 @@ export class ControlsSystem extends createSystem({}) {
     this.flames.push(hopper, mouth);
     this.lantern = createLantern();
     this.lantern.position.set(-0.45, 2.15, 0.55);
-    for (const mesh of [this.tiller, this.toggle, this.cord, hopper, mouth, this.lantern]) {
+    // The ship's bell's lanyard (the bell itself belongs to the route, RouteSystem).
+    this.lanyard = createBellLanyard();
+    this.lanyard.position.set(BELL_CLAPPER[0], BELL_CLAPPER[1], BELL_CLAPPER[2]);
+    this.bellToggle = createBellToggle();
+    for (const mesh of [this.tiller, this.toggle, this.cord, hopper, mouth, this.lantern, this.lanyard, this.bellToggle]) {
       this.world.createTransformEntity(mesh);
     }
     BALLAST_BAGS.forEach((p, i) => {
@@ -212,6 +234,15 @@ export class ControlsSystem extends createSystem({}) {
           vent = Math.max(vent, ventFromToggle(this.toggleY));
         } else if (held === 'tiller') {
           rudder = rudderFromHand(p.x, p.z);
+        } else if (held === 'bell') {
+          // Pull the lanyard to one side and the clapper strikes.
+          this.lanyardEnd.copy(p);
+          if (p.distanceTo(this.lanyardRest) > BELL_LANYARD_SLIP) {
+            this.release(side, held, p);
+          } else if (this.bellPull.step(p.x, p.z)) {
+            bell.ring();
+            this.pulse(side, 0.6, 60);
+          }
         } else {
           // A bag hangs from the hand by its neck.
           const bag = this.bags[Number(held.slice(3))].mesh.position;
@@ -257,6 +288,11 @@ export class ControlsSystem extends createSystem({}) {
       best = 'vent';
       bestD = d;
     }
+    d = p.distanceTo(this.lanyardEnd);
+    if (flightInfo.flying && d < BELL_LANYARD_REACH && d < bestD && other !== 'bell') {
+      best = 'bell';
+      bestD = d;
+    }
     let bagIndex = -1;
     for (let i = 0; i < this.bags.length; i++) {
       const bag = this.bags[i];
@@ -277,6 +313,9 @@ export class ControlsSystem extends createSystem({}) {
 
   private release(side: Side, held: string, p: Vector3): void {
     this.hold[side] = null;
+    if (held === 'bell') {
+      this.bellPull.reset();
+    }
     if (held.startsWith('bag')) {
       const index = Number(held.slice(3));
       const bag = this.bags[index];
@@ -385,6 +424,7 @@ export class ControlsSystem extends createSystem({}) {
     }
     this.toggle.position.y = this.toggleY;
     this.cord.scale.y = VENT_CORD_TOP - this.toggleY - 0.02;
+    this.updateLanyard(dt);
 
     // Flames flicker while the burner is lit.
     const lit = flightInfo.burner;
@@ -466,6 +506,24 @@ export class ControlsSystem extends createSystem({}) {
       ctx.fillText(line, 16, 14 + i * 40);
     });
     texture.needsUpdate = true;
+  }
+
+  /** The bell's lanyard: to the hand holding it, else swinging back to hang straight. Shown with the bell. */
+  private updateLanyard(dt: number): void {
+    const shown = flightInfo.flying;
+    this.lanyard.visible = shown;
+    this.bellToggle.visible = shown;
+    if (this.hold.left !== 'bell' && this.hold.right !== 'bell') {
+      this.lanyardEnd.lerp(this.lanyardRest, Math.min(1, LANYARD_SETTLE * dt));
+    }
+    if (!shown) {
+      return;
+    }
+    const dir = this.lanyardDir.copy(this.lanyardEnd).sub(this.lanyard.position);
+    const length = dir.length();
+    this.lanyard.quaternion.copy(this.lanyardTurn.setFromUnitVectors(DOWN, dir.divideScalar(Math.max(length, 1e-4))));
+    this.lanyard.scale.y = Math.max(0.01, length - 0.03);
+    this.bellToggle.position.copy(this.lanyardEnd);
   }
 
   private pulse(side: Side, intensity: number, ms: number): void {

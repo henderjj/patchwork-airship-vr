@@ -1,6 +1,6 @@
 # Flight model (Phase 2)
 
-The crew flies the ship with `?motion=flight`, starting on island A of the route in [route.md](route.md). The scripted motion profiles (`still`, `gentle`, `tour`, `lively`) stay for comfort playtests. The model is in `src/sim/flight.ts`; it has no rendering or IWSDK code, so the host's simulation could move to a server.
+The crew flies the ship (the default; `?motion=` picks a scripted profile instead), starting on island A of the route in [route.md](route.md). The scripted motion profiles (`still`, `gentle`, `tour`, `lively`) stay for comfort playtests. The model is in `src/sim/flight.ts`; it has no rendering or IWSDK code, so the host's simulation could move to a server.
 
 ## How the ship flies
 
@@ -44,7 +44,7 @@ Measured in the cloud test (`npm run test:net`, two browsers on one machine): th
 
 ## Trying it
 
-On a headset, open the game with `?motion=flight`:
+On a headset, open the game:
 
 1. Throw or drop two fuel bricks from the crate into the burner's hopper. The flames light and the board's BURNER line counts down. The ship starts resting on island A with a warm envelope, so it lifts off within a few seconds.
 2. Turn the crank and watch the islands start to slide past. With a crewmate cranking in step the ship reaches full speed.
@@ -53,4 +53,4 @@ On a headset, open the game with `?motion=flight`:
 5. Lift a sandbag off its hook and let it go over the side: the climb picks up at once.
 6. Walk to the bow, then the stern, and watch the lantern lean.
 
-For two players, the host's page needs `?motion=flight`; the guest's ship follows whatever the host flies. On a desktop browser the keyboard stands in for the controls: **B** feeds the burner one brick, **V** held opens the vent, **,** and **.** held swing the rudder, and **N** rings the bell. The route itself has its own steps in [route.md](route.md).
+For two players, the guest's ship follows whatever the host flies. On a desktop browser the keyboard stands in for the controls: **B** feeds the burner one brick, **V** held opens the vent, **,** and **.** held swing the rudder, and **N** rings the bell. The route itself has its own steps in [route.md](route.md).

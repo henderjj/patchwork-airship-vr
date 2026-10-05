@@ -11,6 +11,7 @@ import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
 import { GripSystem } from './systems/grip-system.js';
 import { NetSystem } from './systems/net-system.js';
+import { OwnHandsSystem } from './systems/own-hands-system.js';
 import { PerfHudSystem } from './systems/perf-hud-system.js';
 import { PlatformSystem } from './systems/platform-system.js';
 import { RopeSystem } from './systems/rope-system.js';
@@ -32,6 +33,7 @@ World.create(
   world.registerSystem(ComfortSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
+  world.registerSystem(OwnHandsSystem);
   // After NetSystem, which updates the crew presence it shows.
   world.registerSystem(CrewStatusSystem);
   // After NetSystem, so it sees the crewmate's pose drawn this frame.

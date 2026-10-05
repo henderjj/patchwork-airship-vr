@@ -55,6 +55,9 @@ function loadCrewColor(): number {
   }
 }
 
+/** This player's coat colour, for their own hands (OwnHandsSystem). */
+export const crewLook = { color: 0 };
+
 /**
  * How far behind the newest packet to draw the crewmate: long enough that the
  * next packet has usually arrived (one and a half packet intervals, which
@@ -205,6 +208,7 @@ export class NetSystem extends createSystem({}) {
   private remoteColor = 1;
 
   init(): void {
+    crewLook.color = this.color;
     this.voice = new Voice(settings.voice, settings.voiceLoop, (track) => {
       netLink.micLabel = track?.label ?? '';
       this.session.setMicTrack(track);
@@ -375,6 +379,7 @@ export class NetSystem extends createSystem({}) {
   /** This player's coat colour, kept in the browser and shown to the crewmate. */
   private setColor(index: number): void {
     this.color = index;
+    crewLook.color = index;
     try {
       localStorage.setItem(COLOR_KEY, String(index));
     } catch {
