@@ -283,11 +283,19 @@ export class NetSystem extends createSystem({}) {
         void this.voice.askPermission().then(() => this.showMic());
       },
       onColor: (index) => this.setColor(index),
+      onEnterVr: () => {
+        this.voice.resume();
+        this.world.launchXR();
+      },
       colors: CREW_COLORS,
       colorNames: CREW_COLOR_NAMES,
       color: this.color,
     });
     void this.voice.checkPermission().then(() => this.showMic());
+    void navigator.xr
+      ?.isSessionSupported('immersive-vr')
+      .then((supported) => this.ui?.showEnterVr(supported))
+      .catch(() => undefined);
     // Browsers only start audio after a user gesture: any click, or entering VR.
     const resume = () => this.voice.resume();
     window.addEventListener('pointerdown', resume);

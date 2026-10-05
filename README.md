@@ -17,7 +17,7 @@ npm run lobby      # local crew lobby on port 8787 (the dev server proxies /part
 npm run test:net   # two-player network test against the local lobby (run after build)
 ```
 
-To play two-player locally, run `npm run lobby` next to `npm run dev`, then open the game in two browsers (or a browser and a headset) and use the crew panel in the top right: **New crew** makes a four-letter code and puts it in the address bar, and the other player types it and presses **Join**. The panel also picks the coat colour your crewmate sees you in (kept for next time) and asks for the microphone with **Allow microphone**, so the permission prompt comes before VR rather than inside it; the microphone itself only turns on in a crew. The deployed lobby is a Cloudflare Worker; see [lobby/README.md](lobby/README.md).
+To play two-player locally, run `npm run lobby` next to `npm run dev`, then open the game in two browsers (or a browser and a headset) and use the crew panel in the top right: **New crew** makes a four-letter code and puts it in the address bar, and the other player types it and presses **Join**. The panel also picks the coat colour your crewmate sees you in (kept for next time) and asks for the microphone with **Allow microphone**, so the permission prompt comes before VR rather than inside it; the microphone itself only turns on in a crew. Its **Enter VR** button starts VR on a headset; use it if the browser's own Enter VR offer goes away, which Quest Browser does once a crew connects. The deployed lobby is a Cloudflare Worker; see [lobby/README.md](lobby/README.md).
 
 Every push to `main` is built, tested and deployed to GitHub Pages by `.github/workflows/ci.yml`.
 
