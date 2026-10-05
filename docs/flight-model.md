@@ -1,6 +1,6 @@
 # Flight model (Phase 2)
 
-The crew flies the ship (the default; `?motion=` picks a scripted profile instead), starting on island A of the route in [route.md](route.md). The scripted motion profiles (`still`, `gentle`, `tour`, `lively`) stay for comfort playtests. The model is in `src/sim/flight.ts`; it has no rendering or IWSDK code, so the host's simulation could move to a server.
+The crew flies the ship (the default; the Settings menu's **Ship** choice, or `?motion=`, picks a scripted profile instead), starting on island A of the route in [route.md](route.md). The scripted motion profiles (`still`, `gentle`, `tour`, `lively`) stay for comfort playtests. The model is in `src/sim/flight.ts`; it has no rendering or IWSDK code, so the host's simulation could move to a server.
 
 ## How the ship flies
 

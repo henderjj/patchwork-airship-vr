@@ -1,7 +1,8 @@
 /**
- * Runtime settings read once from the page URL, so a test build can be tuned
- * from the headset's browser address bar without a rebuild. Example:
- * `?islands=60&clouds=80&rain=1&hz=90&hud=1&motion=tour`.
+ * Runtime settings, read once when the page loads: first the ones saved from
+ * the Settings menu on the crew panel (src/settings-menu.ts), then any in the
+ * page URL on top, so a test build can still be tuned from the address bar
+ * without a rebuild. Example: `?islands=60&clouds=80&rain=1&hz=90&hud=1&motion=tour`.
  */
 export interface Settings {
   /** Requested XR frame rate; the nearest supported rate at or below is used. */
@@ -153,5 +154,23 @@ export function parseSettings(search: string): Settings {
   };
 }
 
+/** Where the Settings menu keeps its choices, as a URL query string. */
+export const SAVED_SETTINGS_KEY = 'patchwork-airship.settings';
+
+/** The saved settings with the URL's on top, as one query string. */
+export function mergeSettings(saved: string, search: string): string {
+  const params = new URLSearchParams(saved);
+  new URLSearchParams(search).forEach((value, key) => params.set(key, value));
+  return params.toString();
+}
+
+function savedSettings(): string {
+  try {
+    return localStorage.getItem(SAVED_SETTINGS_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export const settings: Settings =
-  typeof location === 'undefined' ? DEFAULT_SETTINGS : parseSettings(location.search);
+  typeof location === 'undefined' ? DEFAULT_SETTINGS : parseSettings(mergeSettings(savedSettings(), location.search));

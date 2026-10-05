@@ -692,6 +692,24 @@ async function lobbyChecks(browser, host, guest) {
   const requests = await waitFor('a VR session request', () => solo.page.evaluate(() => window.__vrRequests), 3000).catch(() => 0);
   check('The page has its own Enter VR button, kept after joining a crew', shownSolo && shownInCrew && requests > 0,
     `shown ${shownSolo ? 'solo' : 'not solo'}, ${shownInCrew ? 'and' : 'but not'} in a crew; ${requests} session request(s) on click`);
+
+  // The Settings menu on the crew panel: turning the ship's sounds off saves
+  // the choice in the browser and reloads the page with it.
+  await solo.page.evaluate(() => {
+    document.getElementById('settings-menu').open = true;
+    const audio = document.getElementById('setting-audio');
+    audio.value = '0';
+  });
+  await Promise.all([
+    solo.page.waitForNavigation({ waitUntil: 'load' }),
+    solo.page.evaluate(() => document.getElementById('settings-save').click()),
+  ]);
+  await waitFor('the game to reload', async () => (await state(solo.page).catch(() => 'loading')) !== 'loading', 60000);
+  const saved = await solo.page.evaluate(() => ({ audio: window.__settings.audio, motion: window.__settings.motion, url: location.search,
+    stored: localStorage.getItem('patchwork-airship.settings'), shown: document.getElementById('setting-audio').value }));
+  check('The Settings menu saves a choice and reloads the game with it',
+    saved.audio === false && saved.shown === '0' && saved.motion === 'still' && !saved.url.includes('audio') && saved.url.includes('name=Di'),
+    `sounds ${saved.audio ? 'on' : 'off'} (menu shows ${saved.shown}), ship ${saved.motion}, URL ${saved.url}, saved ${saved.stored}`);
   await solo.context.close();
 }
 

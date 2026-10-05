@@ -1,3 +1,4 @@
+import { createSettingsMenu } from '../settings-menu.js';
 import { makeRoomCode, normaliseRoomCode } from './lobby-protocol.js';
 import type { SessionState } from './net-session.js';
 
@@ -27,7 +28,8 @@ export interface LobbyUiOptions {
  * microphone, which is asked for up front because a permission prompt
  * inside VR is easy to miss, and an Enter VR button. The browser's own Enter
  * VR offer (Quest Browser) can be withdrawn once a crew connects and the
- * microphone opens, so the page always has a button of its own.
+ * microphone opens, so the page always has a button of its own. Last, the
+ * Settings menu (src/settings-menu.ts).
  */
 export class LobbyUi {
   private root = document.createElement('div');
@@ -53,7 +55,7 @@ export class LobbyUi {
     this.enterVr.style.display = 'none';
     this.root.style.cssText =
       'position:fixed;top:8px;right:8px;z-index:10;padding:8px 10px;border-radius:8px;background:rgba(20,24,32,.82);' +
-      'color:#e5e7eb;font:13px system-ui,sans-serif;display:flex;flex-direction:column;gap:6px;max-width:260px';
+      'color:#e5e7eb;font:13px system-ui,sans-serif;display:flex;flex-direction:column;gap:6px;max-width:260px;max-height:calc(100vh - 16px);overflow:auto';
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:6px;align-items:center';
     const create = button('New crew', () => this.join(makeRoomCode()));
@@ -111,7 +113,7 @@ export class LobbyUi {
     this.allowMic = button('Allow microphone', options.onAllowMic);
     this.allowMic.id = 'crew-allow-mic';
     this.mic.append(this.micText, this.allowMic);
-    this.root.append(this.enterVr, row, this.status, colors, this.mic);
+    this.root.append(this.enterVr, row, this.status, colors, this.mic, createSettingsMenu());
     document.body.appendChild(this.root);
     this.setStatus('Playing solo.');
     this.setMic({ muted: false, error: '', on: false, permitted: false });
