@@ -162,6 +162,17 @@ async function main() {
   const startedAt = Date.now();
 
   iwsdk(['browser', 'reload'], {});
+  if (process.env.THROTTLE) {
+    // Slow the page's CPU, to see how the checks fare on a slow CI runner.
+    const file = 'artifacts/.throttle.mjs';
+    writeFileSync(`${ROOT}/${file}`,
+      `export default async function run({ cdp }) {\n  await cdp.send('Emulation.setCPUThrottlingRate', { rate: ${Number(process.env.THROTTLE)} });\n  return true;\n}\n`);
+    try {
+      iwsdk(['browser', 'run', file]);
+    } finally {
+      rmSync(`${ROOT}/${file}`, { force: true });
+    }
+  }
   await waitFor('XR offer after reload', () => {
     const { result } = iwsdk(['xr', 'status'], {});
     return result.sessionOffered || result.sessionActive;
