@@ -50,7 +50,9 @@ import { feedBurner } from './ship-system.js';
  * slow frame the held body carries a spurious velocity (measured in the
  * emulator at 15 fps: −6 m/s while held still, 13 m/s on release; see the S2
  * record). On release the body is put back where the player sees it and given
- * the hand's velocity instead.
+ * the hand's velocity instead. While held, the body is also moved to the hand
+ * outright each frame, so that velocity never builds up and can't knock
+ * neighbouring bricks out of a pile.
  *
  * With a crewmate, ownership follows the hand (src/net/ownership.ts): the
  * owner simulates the object and sends its pose 45 times a second while it
@@ -335,6 +337,13 @@ export class ThrowablesSystem extends createSystem({}) {
         // Phase 2: into the burner. A fresh brick takes its place in the crate.
         feedBurner();
         this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
+      } else if (o.heldBy || (o.remote && o.speed > 0.05)) {
+        // A held body (or a moving one the crewmate drives) is moved there
+        // outright as well as targeted, so it arrives at rest instead of
+        // carrying the spurious velocity described above into the next fixed
+        // steps, where it batted neighbouring bricks out of a pile at 50 m/s
+        // and more. Bodies the crewmate left at rest are skipped (no cost).
+        this.physics?.setBodyTransform(o.entity, o.entity.object3D!);
       }
       o.prev.copy(o.entity.object3D!.position);
     }
