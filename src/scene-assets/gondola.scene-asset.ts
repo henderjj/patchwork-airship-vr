@@ -28,6 +28,8 @@ export const ENVELOPE_RADII = [3.0, 2.8, 5.2] as const;
 /** Fuel crate at the stern, port side; bricks start inside it. */
 export const FUEL_CRATE_POSITION = [-0.55, 0, 1.1] as const;
 export const FUEL_CRATE_SIZE = [0.6, 0.32, 0.45] as const;
+/** The burner's fire door on its port side: centre height, width and height, m. */
+export const FIRE_DOOR = [0.3, 0.2, 0.18] as const;
 /** Crank pedestal at the bow; the crank axle runs along X. */
 export const CRANK_POSITION = [0, 0, -1.2] as const;
 export const CRANK_AXLE_HEIGHT = 1.0;
@@ -211,15 +213,29 @@ function burnerParts(): Part[] {
   const [x, , z] = BURNER_POSITION;
   const [w, h, d] = BURNER_SIZE;
   const ringY = ENVELOPE_CENTER[1] - ENVELOPE_RADII[1] * 0.82;
+  // The fire door on the side facing the middle of the deck: a brass frame
+  // and grate bars in front of the glow (ControlsSystem's fire glow).
+  const doorX = x - w / 2 - 0.006;
+  const [doorY, doorW, doorH] = FIRE_DOOR;
+  const grate: Part[] = [-0.06, 0, 0.06].map((dz) => box([0.012, doorH, 0.014], [doorX - 0.004, doorY, z + dz], shade(IRON, 0.7)));
   return [
     box([w, h, d], [x, h / 2, z], IRON),
     box([w + 0.04, 0.04, d + 0.04], [x, h, z], BRASS),
-    // Hopper mouth facing the deck.
+    // Iron feet and a brass band, so it reads as a stove rather than a box.
+    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => box([0.06, 0.04, 0.06], [x + sx * (w / 2 - 0.02), 0.02, z + sz * (d / 2 - 0.02)], shade(IRON, 0.8)))),
+    box([w + 0.02, 0.03, d + 0.02], [x, 0.07, z], BRASS),
+    box([0.016, 0.025, doorW + 0.05], [doorX, doorY + doorH / 2 + 0.012, z], BRASS),
+    box([0.016, 0.025, doorW + 0.05], [doorX, doorY - doorH / 2 - 0.012, z], BRASS),
+    box([0.016, doorH, 0.025], [doorX, doorY, z - doorW / 2 - 0.012], BRASS),
+    box([0.016, doorH, 0.025], [doorX, doorY, z + doorW / 2 + 0.012], BRASS),
+    ...grate,
+    // A brass funnel on top for the fuel bricks.
     {
-      geometry: new CylinderGeometry(0.17, 0.11, 0.18, 8, 1, true),
-      color: shade(IRON, 1.3),
-      position: [x, h + 0.09, z],
+      geometry: new CylinderGeometry(0.2, 0.11, 0.2, 8, 1, true),
+      color: BRASS,
+      position: [x, h + 0.1, z],
     },
+    { geometry: new CylinderGeometry(0.21, 0.21, 0.025, 8, 1, true), color: shade(BRASS, 0.8), position: [x, h + 0.2, z] },
     // Flue up to the envelope mouth.
     beam([x, h, z], [x, ringY + 0.4, z], 0.07, IRON),
     {

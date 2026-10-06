@@ -6,6 +6,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  PlaneGeometry,
   TorusGeometry,
 } from '@iwsdk/core';
 import { TILLER_LENGTH } from '../sim/gondola-controls.js';
@@ -89,6 +90,18 @@ export function createFlame(name: string): Mesh {
   const mesh = new Mesh(geometry, new MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   mesh.name = name;
   mesh.visible = false;
+  return mesh;
+}
+
+/**
+ * The glow of the fire behind the burner's door grate, origin at its centre,
+ * facing -X (the door is on the burner's port side). Unlit, so its colour is
+ * set each frame to show the fire burning or out.
+ */
+export function createFireGlow(width: number, height: number): Mesh {
+  const mesh = new Mesh(new PlaneGeometry(width, height), new MeshBasicMaterial({ color: 0x401008, toneMapped: false }));
+  mesh.rotation.y = -Math.PI / 2;
+  mesh.name = 'Fire Glow';
   return mesh;
 }
 

@@ -177,6 +177,8 @@ async function main() {
   await sleep(500);
   const ownHands = evalInApp('({ shown: window.__ownHands.shown(), right: window.__ownHands.position("right") })');
   check('This player sees their own hands', ownHands.shown.length === 2, `shown: ${ownHands.shown.join(', ') || 'none'}, right at ${fmt(ownHands.right)}`);
+  const signs = evalInApp('window.__signs.titles()');
+  check('Painted signs name the controls', ['BURNER', 'VENT', "SHIP'S BELL", 'BALLAST', 'TILLER'].every((t) => signs.includes(t)), signs.join(', '));
   // The game starts in flight on island A; the spike checks below want the
   // ship held still (6b switches to the flight model again).
   evalInApp("window.__ship.setProfile('still')");
