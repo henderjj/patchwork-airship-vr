@@ -23,6 +23,8 @@ interface CrewStatusDebug {
   readonly signVisible: boolean;
   /** The last few statuses, oldest first, so tests can see short ones. */
   readonly history: CrewStatus[];
+  /** How many statuses `history` has ever held, so a test can find the new ones once old ones have dropped off. */
+  readonly changes: number;
 }
 
 /**
@@ -38,6 +40,7 @@ export class CrewStatusSystem extends createSystem({}) {
   private texture!: CanvasTexture;
   private shown: CrewStatus = 'solo';
   private history: CrewStatus[] = ['solo'];
+  private changes = 1;
   private placed = false;
   private headPos = new Vector3();
   private headQuat = new Quaternion();
@@ -67,6 +70,7 @@ export class CrewStatusSystem extends createSystem({}) {
       get message() { return crewPresence.message(); },
       get signVisible() { return self.sign.visible; },
       history: this.history,
+      get changes() { return self.changes; },
     };
   }
 
@@ -75,6 +79,7 @@ export class CrewStatusSystem extends createSystem({}) {
     if (status !== this.shown) {
       this.shown = status;
       this.history.push(status);
+      this.changes++;
       if (this.history.length > 16) {
         this.history.shift();
       }

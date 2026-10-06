@@ -773,10 +773,14 @@ async function lifecycleChecks(host, guest) {
 
   // The guest's connection fails: both get back into the room on their own.
   // Reconnecting can take under a second, so look at each side's status history.
+  // It keeps only the last 16, so count from the total ever seen, not its length.
   const started = Date.now();
-  const mark = (page) => page.evaluate(() => window.__crew.history.length);
+  const mark = (page) => page.evaluate(() => window.__crew.changes);
   const [hostMark, guestMark] = [await mark(host.page), await mark(guest.page)];
-  const since = (page, from) => page.evaluate((n) => window.__crew.history.slice(n), from);
+  const since = (page, from) => page.evaluate((n) => {
+    const { history, changes } = window.__crew;
+    return history.slice(Math.max(0, history.length - (changes - n)));
+  }, from);
   await guest.page.evaluate(() => window.__net.session.breakConnection());
   let reconnected = true;
   await waitFor('both reconnected', async () => (await state(host.page)) === 'connected' && (await state(guest.page)) === 'connected', 30000)
