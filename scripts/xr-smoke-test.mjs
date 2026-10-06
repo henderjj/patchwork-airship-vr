@@ -162,6 +162,17 @@ async function main() {
   const startedAt = Date.now();
 
   iwsdk(['browser', 'reload'], {});
+  if (process.env.THROTTLE) {
+    // Slow the page's CPU, to see how the checks fare on a slow CI runner.
+    const file = 'artifacts/.throttle.mjs';
+    writeFileSync(`${ROOT}/${file}`,
+      `export default async function run({ cdp }) {\n  await cdp.send('Emulation.setCPUThrottlingRate', { rate: ${Number(process.env.THROTTLE)} });\n  return true;\n}\n`);
+    try {
+      iwsdk(['browser', 'run', file]);
+    } finally {
+      rmSync(`${ROOT}/${file}`, { force: true });
+    }
+  }
   await waitFor('XR offer after reload', () => {
     const { result } = iwsdk(['xr', 'status'], {});
     return result.sessionOffered || result.sessionActive;
@@ -263,6 +274,41 @@ async function main() {
   ).catch(() => null);
   check('Released brick is no longer grabbed', !grabbedNames().includes(grabbedName));
   check('Released brick lands on the deck', landed !== null, `pos ${fmt(landed ?? position(brick))}`);
+
+  // 4b. Pull the bottom brick out of a pile: the held brick must not bat its
+  //     neighbours away (on slow frames it used to fling them at 50+ m/s).
+  evalInApp(`(() => { for (let i = 0; i < ${BRICK_COUNT}; i++) window.__throw.place(i, (i % 2) * 0.11 - 0.05, 0.05 + Math.floor(i / 2) * 0.075, 0.3); return 1; })()`);
+  await sleep(2500);
+  const bottom = evalInApp('window.__throw.objects()[0].pos');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(bottom), duration: 0.3 });
+  await sleep(800);
+  evalInApp(`(() => {
+    window.__pile = { fastest: 0, flung: 0 };
+    const tick = () => {
+      for (const b of window.__throw.objects()) {
+        if (!b.heldBy) {
+          window.__pile.fastest = Math.max(window.__pile.fastest, b.speed);
+          if (b.pos[1] > 1.5 || Math.abs(b.pos[0]) > ${DECK_HALF_WIDTH + 0.05}) window.__pile.flung++;
+        }
+      }
+      window.__pile.frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return true;
+  })()`);
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 1 }] });
+  await sleep(500);
+  const pulledBy = evalInApp('window.__throw.objects()[0].heldBy');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([0.1, 1.2, -0.6]), duration: 0.6 });
+  await sleep(2000);
+  const pile = evalInApp('(cancelAnimationFrame(window.__pile.frame), window.__pile)');
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
+  await sleep(500);
+  check('Pulling a brick out of a pile leaves the others in place', pulledBy === 'right' && pile.fastest < 8 && pile.flung === 0,
+    `held by ${pulledBy}, fastest neighbour ${pile.fastest.toFixed(1)} m/s, ${pile.flung} samples off the deck`);
+  // Back into the crate for the rest of the test.
+  evalInApp(`(() => { for (let i = 0; i < ${BRICK_COUNT}; i++) window.__throw.place(i, ${CRATE.x} + (i % 2) * 0.2 - 0.1, 0.06 + Math.floor(i / 2) * 0.07, ${CRATE.z}); return 1; })()`);
+  await sleep(1500);
 
   // 5. Tilt the ship hard (test only): a resting brick must wake up and slide
   //    to starboard, then stop at the starboard wall.
