@@ -21,9 +21,9 @@ To play two-player locally, run `npm run lobby` next to `npm run dev`, then open
 
 Every push to `main` is built, tested and deployed to GitHub Pages by `.github/workflows/ci.yml`.
 
-## Settings in the URL
+## Settings
 
-Test builds are tuned from the address bar, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
+The everyday settings (how the ship moves, frame rate, sounds, voice, the comfort question, the perf HUD, clouds, rain, shadows and foveation) are in the **Settings** menu on the crew panel at the top right of the page: pick, then **Save and reload**. They are kept in the browser; **Defaults** clears them. Every setting can also be given in the address bar, which wins over the saved ones, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |

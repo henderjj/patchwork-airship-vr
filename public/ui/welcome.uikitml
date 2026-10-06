@@ -61,7 +61,7 @@
     <Divider></Divider>
     <div class="sub-heading">
       Development build. Press H for the perf HUD (X button in VR), P (B in VR) to stop the ship.
-      Settings come from the URL, see README.
+      Settings are on the crew panel, top right of the page.
     </div>
   </div>
   <Button id="xr-button" class="button">
