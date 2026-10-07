@@ -102,7 +102,7 @@ export function jitter(geometry: BufferGeometry, amount: number, random: () => n
   const pos = geometry.getAttribute('position');
   const offsets = new Map<string, [number, number, number]>();
   for (let i = 0; i < pos.count; i++) {
-    const key = `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`;
+    const key = cornerKey(pos.getX(i), pos.getY(i), pos.getZ(i));
     let o = offsets.get(key);
     if (!o) {
       o = [(random() - 0.5) * amount, (random() - 0.5) * amount, (random() - 0.5) * amount];
@@ -112,6 +112,15 @@ export function jitter(geometry: BufferGeometry, amount: number, random: () => n
   }
   pos.needsUpdate = true;
   return geometry;
+}
+
+/**
+ * Which corner a vertex sits on, to 0.1 mm. Rounds to integers rather than
+ * using toFixed, which writes a tiny negative such as sin(2π) as "-0.0000"
+ * and so split the closing seam of every cylinder and cone in two.
+ */
+export function cornerKey(x: number, y: number, z: number): string {
+  return `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
 }
 
 /** Shade a colour by a factor (0.8 = 20% darker). */
