@@ -18,7 +18,8 @@
  *     which proves felt gravity reaches the physics worker and wakes bodies;
  *  6. flies the scripted "tour" for a few seconds and checks the bricks stay
  *     aboard while the world moves;
- *  7. checks the perf CSV has rows and no console errors were logged;
+ *  7. checks the perf CSV has rows, IWSDK's controller models never loaded
+ *     and no console errors were logged;
  *  7b. switches to tracked hands (spike S9) and turns the crank and hauls
  *     the line with a pinch, and picks up a brick;
  *  8. checks the platform report (spike S8), then re-enters XR with the
@@ -763,6 +764,11 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.03, y: 1.4, z: -0.3 } });
   await sleep(800);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-pcvr-hud.png'], {});
+
+  // The game draws its own gloves; IWSDK's controller and hand models (from
+  // a CDN, which CI's runners can reach) must not load behind them.
+  const inputModels = evalInApp('window.__ownHands.inputModels()');
+  check("IWSDK's controller and hand models stay unloaded", inputModels.length === 0, `loaded: ${inputModels.join(', ') || 'none'}`);
 
   // Console.
   const { result: logs } = iwsdk(['browser', 'logs'], { level: 'error', count: 20, since: startedAt });

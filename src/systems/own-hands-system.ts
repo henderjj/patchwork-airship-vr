@@ -8,7 +8,9 @@ const SIDES = ['left', 'right'] as const;
  * This player's own hands in VR: the same mittens and sleeves the crewmate
  * sees, in this player's coat colour, at each controller's (or tracked
  * hand's) grip pose. They replace IWSDK's controller and hand models, which
- * are downloaded from a CDN when a session starts and may never arrive.
+ * are never loaded: on Quest 3 those are two 4,470-triangle controllers in
+ * six draw calls each, downloaded from a CDN (about 430 KB) when a session
+ * starts.
  */
 export class OwnHandsSystem extends createSystem({}) {
   private hands!: Record<(typeof SIDES)[number], Mesh>;
@@ -18,8 +20,12 @@ export class OwnHandsSystem extends createSystem({}) {
   init(): void {
     const adapters = this.input.xr.visualAdapters;
     for (const side of SIDES) {
-      adapters.controller[side].toggleVisual(false);
-      adapters.hand[side].toggleVisual(false);
+      for (const adapter of [adapters.controller[side], adapters.hand[side]]) {
+        // toggleVisual(false) doesn't stick in IWSDK 1.0.1: its input manager
+        // sets the model visible again every frame. Skip loading the model,
+        // which every use of it already allows for (it may fail to download).
+        (adapter as unknown as { connectVisual(): void }).connectVisual = () => {};
+      }
     }
     this.shownColor = crewLook.color;
     this.hands = {
@@ -32,6 +38,7 @@ export class OwnHandsSystem extends createSystem({}) {
     }
     (window as { __ownHands?: unknown }).__ownHands = {
       shown: () => SIDES.filter((side) => this.hands[side].visible),
+      inputModels: () => SIDES.filter((side) => adapters.controller[side].visual ?? adapters.hand[side].visual),
       color: () => this.shownColor,
       position: (side: (typeof SIDES)[number]) => this.hands[side].position.toArray(),
     };
@@ -42,7 +49,7 @@ export class OwnHandsSystem extends createSystem({}) {
       this.shownColor = crewLook.color;
       for (const side of SIDES) {
         this.hands[side].geometry.dispose();
-        this.hands[side].geometry = avatarHandGeometry(this.shownColor);
+        this.hands[side].geometry = avatarHandGeometry(this.shownColor, side);
       }
     }
     const immersive = this.world.visibilityState.peek() !== VisibilityState.NonImmersive;
