@@ -1,6 +1,6 @@
 import { createSystem, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
 import { ShipSounds } from '../audio/ship-sounds.js';
-import { CreakTimer, ratchetClicks, strain, type StrainLimits, touchedDown, windSound } from '../sim/audio-cues.js';
+import { CreakTimer, ratchetClicks, strain, type StrainLimits, touchedDown, windGust, windSound } from '../sim/audio-cues.js';
 import { DEFAULT_FLIGHT_LIMITS } from '../sim/flight.js';
 import { BELL_CENTER } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
@@ -12,9 +12,11 @@ import { flightInfo, route, ship } from './ship-system.js';
 const DEG = Math.PI / 180;
 const LIMITS: StrainLimits = {
   tiltRate: DEFAULT_FLIGHT_LIMITS.maxTiltRateDeg * DEG,
-  yawRate: DEFAULT_FLIGHT_LIMITS.maxYawRateDeg * DEG,
+  yawAccel: DEFAULT_FLIGHT_LIMITS.maxYawAccelDeg * DEG,
   accel: DEFAULT_FLIGHT_LIMITS.maxAccel,
 };
+/** Time constant for smoothing the turn rate before its change is taken, s. */
+const YAW_RATE_SMOOTHING = 0.25;
 /** At most this many ratchet clicks a frame (a slow frame mustn't burst). */
 const MAX_CLICKS_PER_FRAME = 2;
 
@@ -39,10 +41,11 @@ export const sounds = new ShipSounds(
 /**
  * Phase 2 audio: drives the ship's sounds (src/audio/ship-sounds.ts) from
  * the ship's state each frame. The burner roars while lit, the wind follows
- * the airspeed, the ratchet clicks as the crank turns, the timbers creak more
- * as the gondola tilts, turns and changes speed, a ring flown through chimes,
- * and touching down thumps. Everyone hears their own copy, driven by the
- * ship state they already share. `?audio=0` turns it off.
+ * the airspeed in slow gusts, the ratchet clicks as the crank turns, the
+ * timbers creak more as the gondola tilts, eases into or out of a turn and
+ * changes speed, a ring flown through chimes, and touching down thumps.
+ * Everyone hears their own copy, driven by the ship state they already
+ * share. `?audio=0` turns it off.
  */
 export class AudioSystem extends createSystem({}) {
   private headPos = new Vector3();
@@ -50,7 +53,9 @@ export class AudioSystem extends createSystem({}) {
   private forward = new Vector3();
   private up = new Vector3();
   private creaks = new CreakTimer();
-  private prev = { roll: 0, pitch: 0, yaw: 0, speed: 0, vy: 0, crank: 0, rings: 0, set: false };
+  private time = 0;
+  private yawRate = 0;
+  private prev = { roll: 0, pitch: 0, yaw: 0, yawRate: 0, speed: 0, vy: 0, crank: 0, rings: 0, set: false };
 
   init(): void {
     if (!sounds.enabled) {
@@ -86,7 +91,7 @@ export class AudioSystem extends createSystem({}) {
     const dt = Math.min(delta, 0.1);
     const p = this.prev;
     if (!p.set) {
-      Object.assign(p, { roll: ship.roll, pitch: ship.pitch, yaw: ship.yaw, speed: ship.speed, vy: ship.vy, crank: crankInfo.angle, rings: route.ringMask, set: true });
+      Object.assign(p, { roll: ship.roll, pitch: ship.pitch, yaw: ship.yaw, yawRate: 0, speed: ship.speed, vy: ship.vy, crank: crankInfo.angle, rings: route.ringMask, set: true });
       return;
     }
 
@@ -98,7 +103,8 @@ export class AudioSystem extends createSystem({}) {
     const h = this.headPos;
     sounds.setListener(h.x, h.y, h.z, this.forward.x, this.forward.y, this.forward.z, this.up.x, this.up.y, this.up.z);
 
-    const wind = windSound(ship.speed, ship.vy);
+    this.time += dt;
+    const wind = windSound(ship.speed, ship.vy, windGust(this.time));
     sounds.setLoops(flightInfo.flying && flightInfo.burner ? 1 : 0, wind.gain, wind.cutoff);
 
     const clicks = Math.min(MAX_CLICKS_PER_FRAME, ratchetClicks(p.crank, crankInfo.angle));
@@ -107,7 +113,10 @@ export class AudioSystem extends createSystem({}) {
     }
 
     if (dt > 0) {
-      const load = strain((ship.roll - p.roll) / dt, (ship.pitch - p.pitch) / dt, (ship.yaw - p.yaw) / dt, (ship.speed - p.speed) / dt, LIMITS);
+      // The turn rate, smoothed so a guest's small corrections towards the host don't read as jolts.
+      this.yawRate += ((ship.yaw - p.yaw) / dt - this.yawRate) * Math.min(1, dt / YAW_RATE_SMOOTHING);
+      const yawAccel = (this.yawRate - p.yawRate) / dt;
+      const load = strain((ship.roll - p.roll) / dt, (ship.pitch - p.pitch) / dt, yawAccel, (ship.speed - p.speed) / dt, LIMITS);
       if (this.creaks.step(dt, load)) {
         sounds.creak(CREAK_PLACES[Math.floor(Math.random() * CREAK_PLACES.length)], load);
       }
@@ -123,6 +132,7 @@ export class AudioSystem extends createSystem({}) {
     p.roll = ship.roll;
     p.pitch = ship.pitch;
     p.yaw = ship.yaw;
+    p.yawRate = this.yawRate;
     p.speed = ship.speed;
     p.vy = ship.vy;
     p.crank = crankInfo.angle;

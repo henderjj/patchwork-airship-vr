@@ -13,7 +13,7 @@ The crew flies the ship (the default; the Settings menu's **Ship** choice, or `?
 | Rudder | Sets the turn rate, up to 6°/s at full rudder once the ship is moving at 3 m/s; a quarter of that standing still | Steering needs the crank |
 | Wind | A gentle breeze of about 0.6 m/s that wanders slowly | The ship drifts if nobody cranks |
 
-The gondola leans into turns and lifts its nose a little as it speeds up, as a basket hanging under an envelope does, so the deck's tilt cancels most of the push a turn or a speed change makes.
+The gondola leans into turns and lifts its nose a little as it speeds up, as a basket hanging under an envelope does, so the deck's tilt cancels most of the push a turn or a speed change makes. The lean is the real amount for a hanging basket: at full speed (7 m/s) and the tightest turn (6°/s) it is about 4°, which is also the comfort cap, so the felt gravity stays straight down through the deck. The player only sees it as the horizon tilting, since the gondola stays put in their room; a tilting horizon you can see but not feel is one of the likelier motions to make people queasy, so the S3 comfort tests decide whether the cap rises (the scripted profiles take `?tilt=` to try other amounts). A lean bigger than the real one would also push the felt gravity inwards, making loose bricks and the lantern lean into the turn.
 
 Trim: where the crew stands leans the deck by about 0.9° per metre each person is off-centre (towards the bow tips the nose down, towards starboard tips that side down). Both players at the bow tip it about 2° nose-down, one at each end keeps it level. A ship trimmed nose-down flies slightly downhill once it moves: about 0.25 m/s of descent at full speed with both at the bow.
 
