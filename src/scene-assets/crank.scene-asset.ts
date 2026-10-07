@@ -1,7 +1,7 @@
 import { BoxGeometry, CylinderGeometry, Mesh, MeshLambertMaterial } from '@iwsdk/core';
 import { HANDLE_OFFSETS } from '../sim/crank.js';
 import { CRANK_AXLE_HEIGHT, CRANK_POSITION } from './gondola.scene-asset.js';
-import { mergeParts, type Part } from './lowpoly.js';
+import { mergeParts, type Part, shade } from './lowpoly.js';
 
 /**
  * The rotating part of the two-person propeller crank (spike S6): an axle
@@ -68,5 +68,41 @@ export function createCrank(): Mesh {
   }
   const mesh = new Mesh(mergeParts(parts), new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
   mesh.name = 'Crank';
+  return mesh;
+}
+
+/** The propeller turns this many times for each turn of the crank. */
+export const PROPELLER_GEAR = 3;
+const PROPELLER_RADIUS = 0.42;
+
+/**
+ * The propeller on the drive shaft out past the bow: three wooden blades,
+ * each a little twisted, on a brass hub. Origin at the hub; it turns about Z
+ * (`rotation.z`), driven by the crank through the gearbox on the pedestal.
+ */
+export function createPropeller(): Mesh {
+  const parts: Part[] = [
+    { geometry: new CylinderGeometry(0.06, 0.07, 0.1, 8), color: BRASS, rotation: [Math.PI / 2, 0, 0] },
+    { geometry: new CylinderGeometry(0.0, 0.06, 0.08, 8), color: shade(BRASS, 0.85), position: [0, 0, -0.09], rotation: [-Math.PI / 2, 0, 0] },
+  ];
+  for (let i = 0; i < 3; i++) {
+    const a = (i * 2 * Math.PI) / 3;
+    const mid = 0.05 + PROPELLER_RADIUS / 2;
+    // Blade: wide in the middle, pitched 25° to the shaft; a painted tip so the turning reads.
+    parts.push({
+      geometry: new BoxGeometry(0.1, PROPELLER_RADIUS - 0.08, 0.02),
+      color: WOOD,
+      position: [Math.sin(a) * mid, Math.cos(a) * mid, 0],
+      rotation: [0, 0.44, -a],
+    });
+    parts.push({
+      geometry: new BoxGeometry(0.09, 0.08, 0.022),
+      color: i === 0 ? 0xc4553f : 0xe8dcc0,
+      position: [Math.sin(a) * (PROPELLER_RADIUS - 0.04), Math.cos(a) * (PROPELLER_RADIUS - 0.04), 0],
+      rotation: [0, 0.44, -a],
+    });
+  }
+  const mesh = new Mesh(mergeParts(parts), new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  mesh.name = 'Propeller';
   return mesh;
 }

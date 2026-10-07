@@ -40,9 +40,7 @@
           0
         ]
       },
-      "components": {
-        "LocomotionEnvironment": {}
-      }
+      "components": {}
     },
     {
       "id": "gondola-rigging",

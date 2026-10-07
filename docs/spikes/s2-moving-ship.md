@@ -21,6 +21,7 @@ The plan listed this as the fallback; it turned out to be the simplest first cho
 2. **With normal friction, bricks don't slide at the few degrees of tilt the design allows.** Sliding needs tan(tilt) > friction; at friction 0.6 that is about 30°. Cargo that slides with trim therefore needs either low-friction cargo or a game-logic "slide" force, decided in Phase 3 (trim and cargo). Felt gravity is still right for anything airborne or rolling.
 3. **IWSDK's held-object physics misbehaves when the physics worker takes several steps in one rendered frame.** IWSDK drives a held body with a target transform once per rendered frame, but the worker may take up to four fixed steps per frame, and only the first sees the target. In the emulator (15 fps) a brick held still had −6 m/s of velocity, was flung at 13 m/s on release, and once ended up under the deck. On a Quest at 90 Hz this would happen after any dropped frame. Fix: `ThrowSystem` (since spike S7 part of `ThrowablesSystem`) records the held object's positions, and on release puts the body back where the player sees it and sets its velocity from the least-squares slope of the last 80 ms of hand motion (capped at 12 m/s). This also gives the network layer the release velocity it needs for spike S7. Physics now steps at 90 Hz to match the display.
 4. **Locomotion collides with every mesh tagged `LocomotionEnvironment`.** With the burner flue and ropes in the same mesh as the deck, the player rig was pushed sideways at spawn. The gondola is now two meshes: the walkable hull (deck, bulwarks, rails) and the rigging (everything else, not walkable).
+5. **IWSDK's locomotion limits the play-space origin, not the head** (found in John's solo playtest, 2026-10-07). Its collision capsule (0.5 m radius) sits at the origin of the player's tracking space, so how far the thumbstick could take you depended on where you stood in your room: 0.8 m behind the room's middle, the bow rail stopped you 0.8 m short. Since the deck never moves in tracking space, `DeckWalkSystem` (`src/sim/deck-walk.ts`) replaced it: the left thumbstick moves the head and stops it 0.25 m inside the rails, and snap turns pivot about the head. Teleport and jump went with it; the deck is too small to need them. IWSDK's locomotion worker and its per-frame collision work are gone too.
 
 ## Motion profiles
 
@@ -41,6 +42,6 @@ These feed spike S3 (comfort), which turns the comfortable profile into hard lim
 ## Still to test on a headset
 
 - Grab, toss and catch bricks while flying `?motion=tour` and `?motion=lively`: no jitter, nothing lagging the deck, throws land where expected.
-- Smooth and teleport locomotion on the deck; the walls keep the player aboard.
+- Thumbstick walking on the deck from different spots in the room; the rails stop the head the same way each time.
 - Whether the tilting horizon and passing world feel right (this is also S3).
 - The trim calculation (head position over the deck driving pitch and roll) is not built yet; it comes with the flight model.

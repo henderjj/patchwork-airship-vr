@@ -59,6 +59,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
 ## Controls
 
+- **Walking:** walk in your room, or push the left thumbstick to walk the deck the way you face; the right thumbstick snap turns 45° about your head. The thumbstick stops your head a quarter of a metre inside the rails, wherever you stand in your room (`src/sim/deck-walk.ts`).
 - **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip. The last two lines describe this player's browser and headset runtime (`me`) and the crewmate's (`crew`); a `~` before the Hz means the rate was measured because the runtime didn't report it (see [docs/spikes/s8-pcvr.md](docs/spikes/s8-pcvr.md)).
 - **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
 - **B** (right controller) or **P** (keyboard) stops the ship at once and starts it again. The guest's button stops the host's ship, which both players share.
@@ -69,7 +70,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Fuel bricks:** squeeze the grip near a brick to pick it up and let go to throw it. With the grip already squeezed and the hand empty, a brick flying past within 20 cm is caught. Throwing to a crewmate works the same at up to 150 ms of network delay (see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md)).
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
 - **Signs** on the burner, vent cord, bell, mooring line, ballast, tiller, crank and fuel crate say what each one does. The burner's fire glows behind its door grate while it burns.
-- **Your hands** are drawn as mittens in your coat colour (pick it on the crew panel), at the controllers or your tracked hands.
+- **Your hands** are drawn as gloves and sleeves in your coat colour (pick it on the crew panel), holding the controllers or at your tracked hands; the controllers themselves aren't drawn. Posed hands come later (see [docs/hands.md](docs/hands.md)).
 - **Tracked hands:** put the controllers down and grip with a fist or a pinch wherever these controls say to squeeze the grip. The wrist HUD then shows a `hands` line for tuning (see [docs/spikes/s9-hand-tracking.md](docs/spikes/s9-hand-tracking.md)).
 - **When the crewmate can't play** (headset off, Meta button, headset asleep, network down, tab closed), the ship stops and a sign in front of you says why; it carries on when they're back. A dropped connection reconnects by itself (see [docs/spikes/s10-session-lifecycle.md](docs/spikes/s10-session-lifecycle.md)).
 - **Mooring line:** squeeze the grip near the line along the port rail and haul it towards the stern hand over hand. Strokes started together by both players are heaves (see [docs/spikes/s6-rope.md](docs/spikes/s6-rope.md)).
@@ -100,10 +101,10 @@ src/index.ts               world creation and system registration
 src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
-src/sim/                   engine-free simulation: ship motion, flight model, gondola controls and trim, world tiling, comfort log, release velocity, crank, rope haul, hand grip
+src/sim/                   engine-free simulation: deck walking, ship motion, flight model, gondola controls and trim, world tiling, comfort log, release velocity, crank, rope haul, hand grip
 src/net/                   lobby protocol, WebRTC session and reconnection, packets, clock sync, jitter buffers, object ownership, crew presence, following the host's ship
 src/perf/                  frame statistics and CSV, measured refresh rate, platform report
-src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, flight controls, throws, network, own hands, control signs, crew status sign, crank, rope
+src/systems/               ECS systems: deck walking, frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, flight controls, throws, network, own hands, control signs, crew status sign, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

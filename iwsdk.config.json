@@ -36,9 +36,6 @@
       }
     },
     "features": {
-      "locomotion": {
-        "useWorker": true
-      },
       "grabbing": true,
       "physics": {
         "useWorker": true,

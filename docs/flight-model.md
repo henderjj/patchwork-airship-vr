@@ -13,7 +13,7 @@ The crew flies the ship (the default; the Settings menu's **Ship** choice, or `?
 | Rudder | Sets the turn rate, up to 6°/s at full rudder once the ship is moving at 3 m/s; a quarter of that standing still | Steering needs the crank |
 | Wind | A gentle breeze of about 0.6 m/s that wanders slowly | The ship drifts if nobody cranks |
 
-The gondola leans into turns and lifts its nose a little as it speeds up, as a basket hanging under an envelope does, so the deck's tilt cancels most of the push a turn or a speed change makes.
+The gondola leans into turns and lifts its nose a little as it speeds up, as a basket hanging under an envelope does, so the deck's tilt cancels most of the push a turn or a speed change makes. The lean is the real amount for a hanging basket: at full speed (7 m/s) and the tightest turn (6°/s) it is about 4°, which is also the comfort cap, so the felt gravity stays straight down through the deck. The player only sees it as the horizon tilting, since the gondola stays put in their room; a tilting horizon you can see but not feel is one of the likelier motions to make people queasy, so the S3 comfort tests decide whether the cap rises (the scripted profiles take `?tilt=` to try other amounts). A lean bigger than the real one would also push the felt gravity inwards, making loose bricks and the lantern lean into the turn.
 
 Trim: where the crew stands leans the deck by about 0.9° per metre each person is off-centre (towards the bow tips the nose down, towards starboard tips that side down). Both players at the bow tip it about 2° nose-down, one at each end keeps it level. A ship trimmed nose-down flies slightly downhill once it moves: about 0.25 m/s of descent at full speed with both at the bow.
 
@@ -26,7 +26,7 @@ Trim: where the crew stands leans the deck by about 0.9° per metre each person 
 | Tiller | The bar on the rudder post at the stern | Squeeze the grip on the handle and swing it. Like a boat's tiller, pushing it to starboard turns the ship to port. It stays where it is left |
 | Ballast | Four sandbags hanging outside the starboard rail, stern end | Squeeze the grip on a bag to lift it off its hook and let go outside the rail to drop it. Let go inside the rail and it goes back on its hook |
 
-The instrument board on the burner flue shows height, climb or descent, airspeed, burner time left and the sandbags left. A lantern hangs from the rigging near the stern; it hangs along the gravity the crew feels, so it shows which way the deck leans and swings when the ship turns or changes speed. Flames show in the hopper and at the envelope's mouth while the burner is lit.
+The instrument board on the burner flue shows height, climb or descent, airspeed, burner time left and the sandbags left. A lantern hangs from an iron bracket on the burner flue, above the middle of the deck; it hangs along the gravity the crew feels, so it shows which way the deck leans and swings when the ship turns or changes speed. Flames show in the hopper and at the envelope's mouth while the burner is lit.
 
 With a crewmate, the vent opens as far as either player pulls it, and whoever holds the tiller steers (the host if both do). The guest's hands reach the host 20 times a second in a 9-byte packet; bricks burned and sandbags dropped are reliable events. Everyone sees the tiller, vent and bags as the host's ship state says, except a control in their own hand.
 

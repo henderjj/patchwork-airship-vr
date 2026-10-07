@@ -12,3 +12,6 @@ export const KEEL_DEPTH = 0.56;
 /** Burner and fuel hopper, mid-ship on the starboard side. */
 export const BURNER_POSITION = [0.55, 0, 0.05] as const;
 export const BURNER_SIZE = [0.42, 0.6, 0.42] as const;
+
+/** The lantern hangs from this hook, on an iron bracket off the burner flue's port side. */
+export const LANTERN_HOOK = [0.12, 2.35, 0.05] as const;

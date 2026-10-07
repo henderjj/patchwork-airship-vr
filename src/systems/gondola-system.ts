@@ -58,7 +58,7 @@ export class GondolaSystem extends createSystem({}) {
 
   /** Stack bricks in the fuel crate, spilling onto the deck beside it. */
   private spawnBricks(count: number): void {
-    const [cx, , cz] = FUEL_CRATE_POSITION;
+    const [cx, cy, cz] = FUEL_CRATE_POSITION;
     const [bw, bh, bd] = FUEL_BRICK_SIZE;
     const perLayer = 6;
     for (let i = 0; i < count; i++) {
@@ -68,7 +68,7 @@ export class GondolaSystem extends createSystem({}) {
       const slot = i % perLayer;
       const col = slot % 3;
       const row = Math.floor(slot / 3);
-      brick.position.set(cx + (col - 1) * (bw + 0.01), 0.05 + bh / 2 + layer * (bh + 0.01), cz + (row - 0.5) * (bd + 0.02));
+      brick.position.set(cx + (col - 1) * (bw + 0.01), cy + 0.05 + bh / 2 + layer * (bh + 0.01), cz + (row - 0.5) * (bd + 0.02));
       const entity = this.world.createTransformEntity(brick);
       entity.addComponent(PhysicsBody, { state: PhysicsState.Dynamic, angularDamping: 0.2 });
       entity.addComponent(PhysicsShape, {

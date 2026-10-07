@@ -13,10 +13,13 @@ import {
   CRANK_CENTER,
   CRANK_RADIUS,
   createCrank,
+  createPropeller,
   HANDLE_REACH,
   HANDLE_X,
   handlePosition,
+  PROPELLER_GEAR,
 } from '../scene-assets/crank.scene-asset.js';
+import { PROPELLER_HUB } from '../scene-assets/gondola.scene-asset.js';
 import { createHandleInput, CrankSim, wrapAngle } from '../sim/crank.js';
 import {
   FLAG_LEFT_CRANK,
@@ -68,6 +71,7 @@ export const crankInfo = { speed: 0, angle: 0 };
 export class CrankSystem extends createSystem({}) {
   readonly sim = new CrankSim();
   private mesh!: Mesh;
+  private propeller!: Mesh;
   private inputs = [createHandleInput(), createHandleInput()];
   /** Handle held by each local hand, or -1. */
   private hold: Record<Side, number> = { left: -1, right: -1 };
@@ -94,6 +98,9 @@ export class CrankSystem extends createSystem({}) {
     this.mesh = createCrank();
     this.mesh.position.set(CRANK_CENTER[0], CRANK_CENTER[1], CRANK_CENTER[2]);
     this.world.createTransformEntity(this.mesh);
+    this.propeller = createPropeller();
+    this.propeller.position.set(PROPELLER_HUB[0], PROPELLER_HUB[1], PROPELLER_HUB[2]);
+    this.world.createTransformEntity(this.propeller);
     this.createSign();
 
     netLink.handlers.set(PacketType.Crank, (view) => {
@@ -214,6 +221,8 @@ export class CrankSystem extends createSystem({}) {
     }
 
     this.mesh.rotation.x = -this.sim.angle;
+    // Geared from the crank's angle, so both players see it turn alike.
+    this.propeller.rotation.z = this.sim.angle * PROPELLER_GEAR;
     this.feedback(now);
     if (now - this.lastSignDraw > 200) {
       this.lastSignDraw = now;

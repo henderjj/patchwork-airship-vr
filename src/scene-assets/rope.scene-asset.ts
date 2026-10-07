@@ -7,14 +7,16 @@ import {
   SRGBColorSpace,
   TorusGeometry,
 } from '@iwsdk/core';
-import { beam, mergeParts, type Part } from './lowpoly.js';
+import { beam, mergeParts, type Part, shade } from './lowpoly.js';
 
 /**
  * The mooring line for the hand-over-hand haul (spike S6, part 2). It comes
- * aboard through a brass fairlead at the bow end of the port rail and runs
+ * aboard over the port rail at the bow, through a brass fairlead, and runs
  * along the inside of the rail towards the stern, where it drops to a coil
- * on the deck. Outboard it runs away towards the dock. Players stand on the
- * port side facing the rail and haul it towards the stern (+Z).
+ * on the deck. Outboard, the line still out hangs over the side; hauling
+ * shortens it. (Throwing it to a dock post comes with docking, Phase 3.)
+ * Players stand on the port side facing the rail and haul it towards the
+ * stern (+Z).
  *
  * The inboard run is one cylinder with a striped texture; sliding the
  * texture shows the line moving without moving any geometry.
@@ -31,6 +33,10 @@ export const ROPE_RADIUS = 0.018;
 export const ROPE_REACH = 0.1;
 /** Metres of line per stripe repeat on the texture. */
 const STRIPE_METRES = 0.25;
+/** The coil's centre on the deck (x, z): under the end of the hauling run, clear of the fuel crate's locker. */
+const COIL = [ROPE_X + 0.13, ROPE_Z1 - 0.12] as const;
+/** Where the outboard line goes over the rail top and hangs down from. */
+export const ROPE_OVERSIDE = [-1.04, 1.04, ROPE_Z0] as const;
 
 const ROPE_COLOR = 0xd8c39a;
 const BRASS = 0xc9a03a;
@@ -45,8 +51,10 @@ export function nearestOnRope(x: number, y: number, z: number): { distance: numb
 export interface RopeMeshes {
   /** The inboard run; move its texture with `setRopeHauled`. */
   run: Mesh;
-  /** Fairlead, coil and the outboard line (static). */
+  /** Fairlead, the line over the rail, and the coil (static). */
   fittings: Mesh;
+  /** The line hanging over the side: 1 m long down from its origin; scale Y to its length and turn it to the felt gravity. */
+  overside: Mesh;
   texture: CanvasTexture;
 }
 
@@ -78,33 +86,40 @@ export function createRope(): RopeMeshes {
   run.position.set(ROPE_X, ROPE_Y, (ROPE_Z0 + ROPE_Z1) / 2);
   run.name = 'Mooring Line';
 
-  // Outboard: from the fairlead out over the bow towards the dock, sagging down.
-  const outboard = [
-    [ROPE_X, ROPE_Y, ROPE_Z0],
-    [ROPE_X - 0.5, ROPE_Y - 0.15, ROPE_Z0 - 0.9],
-    [ROPE_X - 1.3, ROPE_Y - 0.7, ROPE_Z0 - 2.4],
-    [ROPE_X - 2.6, ROPE_Y - 1.9, ROPE_Z0 - 4.6],
-  ] as const;
-  const parts: Part[] = [];
-  for (let i = 0; i < outboard.length - 1; i++) {
-    parts.push(beam(outboard[i], outboard[i + 1], ROPE_RADIUS, ROPE_COLOR, 6));
-  }
-  parts.push(
+  const [ox, oy, oz] = ROPE_OVERSIDE;
+  const flat: [number, number, number] = [Math.PI / 2, 0, 0];
+  const parts: Part[] = [
+    // From the fairlead up over the rail top to where the line hangs down.
+    beam([ROPE_X, ROPE_Y, ROPE_Z0], [ox + 0.06, oy + 0.01, oz], ROPE_RADIUS, ROPE_COLOR, 6),
+    beam([ox + 0.06, oy + 0.01, oz], [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
     // Fairlead ring on the rail.
-    { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] as [number, number, number] },
-    // Line dropping from the end of the run to a coil on the deck.
+    { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] },
+    // Line dropping from the end of the run to a coil on the deck, clear of the fuel crate's locker.
     {
       geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, ROPE_Y - 0.06, 6, 1, true),
       color: ROPE_COLOR,
-      position: [ROPE_X, ROPE_Y / 2 + 0.03, ROPE_Z1] as [number, number, number],
+      position: [ROPE_X, ROPE_Y / 2 + 0.03, ROPE_Z1],
     },
-    { geometry: new TorusGeometry(0.12, 0.025, 6, 14), color: ROPE_COLOR, position: [ROPE_X + 0.05, 0.03, ROPE_Z1 + 0.12] as [number, number, number], rotation: [Math.PI / 2, 0, 0] as [number, number, number] },
-    { geometry: new TorusGeometry(0.09, 0.025, 6, 14), color: ROPE_COLOR, position: [ROPE_X + 0.05, 0.07, ROPE_Z1 + 0.12] as [number, number, number], rotation: [Math.PI / 2, 0, 0] as [number, number, number] },
-  );
+    // Three loose turns of the coil, a shade darker than the run so they read as rope on the planks.
+    ...[0.13, 0.11, 0.085].map((r, i): Part => ({
+      geometry: new TorusGeometry(r, 0.02, 5, 14),
+      color: shade(ROPE_COLOR, 0.82 - i * 0.04),
+      position: [COIL[0] + i * 0.01, 0.02 + i * 0.03, COIL[1] - i * 0.008],
+      rotation: flat,
+    })),
+  ];
   const fittings = new Mesh(mergeParts(parts), new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
   fittings.name = 'Mooring Line Fittings';
-  return { run, fittings, texture };
+
+  const overside = new Mesh(
+    mergeParts([{ geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, 1, 6, 1, true), color: ROPE_COLOR, position: [0, -0.5, 0] }]),
+    new MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+  );
+  overside.position.set(ox, oy, oz);
+  overside.name = 'Mooring Line Overside';
+  return { run, fittings, overside, texture };
 }
+
 
 /** Slide the stripes so the line appears to have moved `hauled` metres inboard. */
 export function setRopeHauled(texture: CanvasTexture, hauled: number): void {

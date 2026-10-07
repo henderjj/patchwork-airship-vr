@@ -8,6 +8,7 @@ import { AudioSystem } from './systems/audio-system.js';
 import { CrankSystem } from './systems/crank-system.js';
 import { CrewBotSystem } from './systems/crew-bot-system.js';
 import { CrewStatusSystem } from './systems/crew-status-system.js';
+import { DeckWalkSystem } from './systems/deck-walk-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
 import { GripSystem } from './systems/grip-system.js';
@@ -35,6 +36,7 @@ World.create(
   world.registerSystem(ComfortSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
+  world.registerSystem(DeckWalkSystem);
   world.registerSystem(OwnHandsSystem);
   // After NetSystem, which updates the crew presence it shows.
   world.registerSystem(CrewStatusSystem);
