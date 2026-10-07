@@ -398,8 +398,8 @@ export class NetSystem extends createSystem({}) {
       mesh.geometry = geometry;
     };
     swap(this.torso, avatarTorsoGeometry(index));
-    swap(this.leftHand, avatarHandGeometry(index));
-    swap(this.rightHand, avatarHandGeometry(index));
+    swap(this.leftHand, avatarHandGeometry(index, 'left'));
+    swap(this.rightHand, avatarHandGeometry(index, 'right'));
   }
 
   private async logStats(): Promise<void> {

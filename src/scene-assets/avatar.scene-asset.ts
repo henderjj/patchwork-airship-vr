@@ -4,11 +4,12 @@ import {
   ConeGeometry,
   CylinderGeometry,
   IcosahedronGeometry,
+  Matrix4,
   Mesh,
   MeshLambertMaterial,
   TorusGeometry,
 } from '@iwsdk/core';
-import { mergeParts, type Part, shade } from './lowpoly.js';
+import { beam, mergeParts, type Part, shade } from './lowpoly.js';
 
 /**
  * Stylised crew avatar: an aviator in a leather flying cap and goggles, a
@@ -20,7 +21,8 @@ import { mergeParts, type Part, shade } from './lowpoly.js';
  * each one draw call: the head follows the remote headset; the torso hangs
  * below it and turns only with its heading; the legs stand on the deck below
  * the torso and stretch to the head's height; each glove follows a
- * controller. The stress-test dummy merges the same parts into one mesh.
+ * controller's grip pose. The stress-test dummy merges the same parts into
+ * one mesh.
  */
 
 export const CREW_COLORS = [0x2f6db3, 0xc0563a, 0x3f8f5a, 0x8a4fb0, 0xd19a2a, 0x2a9a9a, 0x9a3a5a, 0x5a5a5a];
@@ -95,17 +97,74 @@ function legParts(): Part[] {
   return parts;
 }
 
-/** A gloved fist round the controller, with the origin at the grip: fingers towards -Z, thumb up, sleeve towards +Z. */
+/**
+ * A gloved fist and forearm in its own frame, the WebXR hand-joint frame of
+ * a right wrist: origin at the wrist, fingers towards -Z, back of the hand
+ * +Y, thumb on the -X side, forearm back along +Z. The thumb wraps round the
+ * front of the curled fingers, as round a controller's handle.
+ */
 function handParts(coat: number): Part[] {
   return [
-    { geometry: new BoxGeometry(0.075, 0.06, 0.085), color: LEATHER, position: [0, 0, -0.005] },
-    { geometry: new BoxGeometry(0.08, 0.025, 0.03), color: shade(LEATHER, 0.85), position: [0, 0.012, -0.045] },
-    { geometry: new BoxGeometry(0.024, 0.024, 0.05), color: LEATHER, position: [0, 0.036, -0.03], rotation: [0.25, 0, 0] },
+    // Back of the hand from the wrist to the knuckles, then the curled
+    // fingers down the front and their tips tucked under.
+    { geometry: new BoxGeometry(0.084, 0.04, 0.09), color: LEATHER, position: [0, -0.005, -0.05] },
+    { geometry: new BoxGeometry(0.088, 0.075, 0.045), color: LEATHER, position: [0.002, -0.035, -0.112], rotation: [-0.15, 0, 0] },
+    { geometry: new BoxGeometry(0.08, 0.025, 0.05), color: LEATHER, position: [0.004, -0.068, -0.085] },
+    { geometry: new BoxGeometry(0.09, 0.022, 0.03), color: shade(LEATHER, 0.85), position: [0.002, 0.01, -0.1] },
+    beam([-0.032, -0.022, -0.032], [-0.044, -0.06, -0.098], 0.014, LEATHER),
     // Gauntlet cuff, then the forearm in its sleeve back towards the elbow,
     // which suggests an arm without needing to work out where the elbow is.
-    { geometry: new CylinderGeometry(0.05, 0.04, 0.05, 7), color: LEATHER, position: [0, 0, 0.06], rotation: [Math.PI / 2, 0, 0] },
-    { geometry: new CylinderGeometry(0.052, 0.042, 0.2, 7), color: coat, position: [0, -0.005, 0.18], rotation: [Math.PI / 2, 0, 0] },
+    { geometry: new CylinderGeometry(0.05, 0.042, 0.05, 7), color: LEATHER, position: [0, -0.005, 0.02], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.8] },
+    { geometry: new CylinderGeometry(0.052, 0.042, 0.2, 7), color: coat, position: [0, -0.005, 0.14], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.85] },
   ];
+}
+
+/**
+ * Where a right wrist sits in its controller's grip space, from IWSDK's
+ * controller-hand pose for a squeezed grip (AnimatedControllerHand). The grip
+ * space has its origin in the middle of the fist, -Z along the handle
+ * towards the thumb and +X out of the back of a right hand, so the forearm
+ * leaves the fist up and back along +Y and +Z rather than straight back.
+ */
+const WRIST_IN_GRIP = new Matrix4().fromArray([
+  -0.19326625764369965, -0.700115978717804, 0.6873756647109985, 0,
+  0.9811022877693176, -0.13126900792121887, 0.14215001463890076, 0,
+  -0.009290123358368874, 0.7018587589263916, 0.7122553586959839, 0,
+  0.04728994518518448, 0.03910332918167114, 0.07807964831590652, 1,
+]);
+const MIRROR_X = new Matrix4().makeScale(-1, 1, 1);
+
+/**
+ * The glove and sleeve placed in a controller's (or tracked hand's) grip
+ * space for `side`. The left hand is the right one mirrored, as the WebXR
+ * grip spaces are.
+ */
+function handGeometry(coat: number, side: 'left' | 'right'): BufferGeometry {
+  const geometry = mergeParts(handParts(coat));
+  geometry.applyMatrix4(WRIST_IN_GRIP);
+  if (side === 'left') {
+    geometry.applyMatrix4(MIRROR_X);
+    flipWinding(geometry);
+  }
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** Swap two corners of every triangle so a mirrored mesh faces outwards again. */
+function flipWinding(geometry: BufferGeometry): void {
+  for (const name of ['position', 'color']) {
+    const attr = geometry.getAttribute(name);
+    for (let i = 0; i < attr.count; i += 3) {
+      for (let k = 0; k < attr.itemSize; k++) {
+        const a = attr.getComponent(i + 1, k);
+        attr.setComponent(i + 1, k, attr.getComponent(i + 2, k));
+        attr.setComponent(i + 2, k, a);
+      }
+    }
+    attr.needsUpdate = true;
+  }
 }
 
 function shifted(parts: Part[], dx: number, dy: number, dz: number): Part[] {
@@ -129,9 +188,9 @@ export function createDummyAvatar(index: number): Mesh {
       ...shifted(headParts(), 0, EYE_HEIGHT, 0),
       ...shifted(torsoParts(coat), 0, EYE_HEIGHT, 0),
       ...legParts(),
-      // Hands held forward, as if on the crank.
-      ...shifted(handParts(coat), -0.2, 1.02, -0.3),
-      ...shifted(handParts(coat), 0.2, 1.02, -0.3),
+      // Hands held forward, palms down, as if on the crank.
+      ...shifted(handParts(coat), -0.2, 1.02, -0.38),
+      ...shifted(handParts(coat), 0.2, 1.02, -0.38),
     ],
     `Crew Avatar ${index + 1}`,
   );
@@ -154,10 +213,13 @@ export function avatarTorsoGeometry(index: number): BufferGeometry {
   return mergeParts(torsoParts(CREW_COLORS[index % CREW_COLORS.length]));
 }
 
-export function avatarHandGeometry(index: number): BufferGeometry {
-  return mergeParts(handParts(CREW_COLORS[index % CREW_COLORS.length]));
+/** A glove and sleeve in crew colour `index`, placed for drawing at a grip pose. */
+export function avatarHandGeometry(index: number, side: 'left' | 'right'): BufferGeometry {
+  return handGeometry(CREW_COLORS[index % CREW_COLORS.length], side);
 }
 
 export function createAvatarHand(index: number, side: 'left' | 'right'): Mesh {
-  return partsMesh(handParts(CREW_COLORS[index % CREW_COLORS.length]), `Crew ${index + 1} ${side === 'left' ? 'Left' : 'Right'} Hand`);
+  const mesh = new Mesh(avatarHandGeometry(index, side), new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  mesh.name = `Crew ${index + 1} ${side === 'left' ? 'Left' : 'Right'} Hand`;
+  return mesh;
 }
