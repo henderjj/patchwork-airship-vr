@@ -26,7 +26,7 @@ Trim: where the crew stands leans the deck by about 0.9° per metre each person 
 | Tiller | The bar on the rudder post at the stern | Squeeze the grip on the handle and swing it. Like a boat's tiller, pushing it to starboard turns the ship to port. It stays where it is left |
 | Ballast | Four sandbags hanging outside the starboard rail, stern end | Squeeze the grip on a bag to lift it off its hook and let go outside the rail to drop it. Let go inside the rail and it goes back on its hook |
 
-The instrument board on the burner flue shows height, climb or descent, airspeed, burner time left and the sandbags left. A lantern hangs from the rigging near the stern; it hangs along the gravity the crew feels, so it shows which way the deck leans and swings when the ship turns or changes speed. Flames show in the hopper and at the envelope's mouth while the burner is lit.
+The instrument board on the burner flue shows height, climb or descent, airspeed, burner time left and the sandbags left. A lantern hangs from an iron bracket on the burner flue, above the middle of the deck; it hangs along the gravity the crew feels, so it shows which way the deck leans and swings when the ship turns or changes speed. Flames show in the hopper and at the envelope's mouth while the burner is lit.
 
 With a crewmate, the vent opens as far as either player pulls it, and whoever holds the tiller steers (the host if both do). The guest's hands reach the host 20 times a second in a 9-byte packet; bricks burned and sandbags dropped are reliable events. Everyone sees the tiller, vent and bags as the host's ship state says, except a control in their own hand.
 

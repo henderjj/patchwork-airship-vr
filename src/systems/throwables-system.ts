@@ -332,11 +332,11 @@ export class ThrowablesSystem extends createSystem({}) {
       const p = o.entity.object3D!.position;
       if (!o.remote && !o.heldBy && p.y < OVERBOARD_Y) {
         // Fell overboard: back to the crate.
-        this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
+        this.placeAtRest(o, FUEL_CRATE_POSITION[0], FUEL_CRATE_POSITION[1] + 0.3 + o.id * 0.08, FUEL_CRATE_POSITION[2]);
       } else if (!o.remote && !o.heldBy && inHopper(p.x, p.y, p.z)) {
         // Phase 2: into the burner. A fresh brick takes its place in the crate.
         feedBurner();
-        this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
+        this.placeAtRest(o, FUEL_CRATE_POSITION[0], FUEL_CRATE_POSITION[1] + 0.3 + o.id * 0.08, FUEL_CRATE_POSITION[2]);
       } else if (o.heldBy || (o.remote && o.speed > 0.05)) {
         // A held body (or a moving one the crewmate drives) is moved there
         // outright as well as targeted, so it arrives at rest instead of

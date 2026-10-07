@@ -37,7 +37,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 // Mirrors src/scene-assets/gondola.scene-asset.ts.
 const DECK_HALF_WIDTH = 1.0;
 const DECK_HALF_LENGTH = 1.5;
-const CRATE = { x: -0.55, z: 1.1, halfW: 0.3, halfD: 0.225, height: 0.32 };
+const CRATE = { x: -0.55, base: 0.55, z: 1.1, halfW: 0.3, halfD: 0.225, height: 0.26 };
 const BRICK_COUNT = 8;
 const SQUEEZE = 1; // gamepad button index for proximity grab
 
@@ -137,7 +137,7 @@ function toOrigin(p) {
 
 const fmt = (p) => p.map((v) => v.toFixed(3)).join(', ');
 const inCrate = (p) =>
-  Math.abs(p[0] - CRATE.x) < CRATE.halfW && Math.abs(p[2] - CRATE.z) < CRATE.halfD && p[1] > 0 && p[1] < CRATE.height + 0.2;
+  Math.abs(p[0] - CRATE.x) < CRATE.halfW && Math.abs(p[2] - CRATE.z) < CRATE.halfD && p[1] > CRATE.base && p[1] < CRATE.base + CRATE.height + 0.2;
 const aboard = (p) =>
   Math.abs(p[0]) < DECK_HALF_WIDTH + 0.05 && Math.abs(p[2]) < DECK_HALF_LENGTH + 0.05 && p[1] > -0.02 && p[1] < 2.5;
 
@@ -307,7 +307,7 @@ async function main() {
   check('Pulling a brick out of a pile leaves the others in place', pulledBy === 'right' && pile.fastest < 8 && pile.flung === 0,
     `held by ${pulledBy}, fastest neighbour ${pile.fastest.toFixed(1)} m/s, ${pile.flung} samples off the deck`);
   // Back into the crate for the rest of the test.
-  evalInApp(`(() => { for (let i = 0; i < ${BRICK_COUNT}; i++) window.__throw.place(i, ${CRATE.x} + (i % 2) * 0.2 - 0.1, 0.06 + Math.floor(i / 2) * 0.07, ${CRATE.z}); return 1; })()`);
+  evalInApp(`(() => { for (let i = 0; i < ${BRICK_COUNT}; i++) window.__throw.place(i, ${CRATE.x} + (i % 2) * 0.2 - 0.1, ${CRATE.base} + 0.06 + Math.floor(i / 2) * 0.07, ${CRATE.z}); return 1; })()`);
   await sleep(1500);
 
   // 5. Tilt the ship hard (test only): a resting brick must wake up and slide
@@ -342,6 +342,8 @@ async function main() {
   const crankHolder = evalInApp('window.__crank.holders().local[1]');
   check('Squeeze takes the crank handle', crankHolder === 'right', `handle 1 held by ${crankHolder}`);
   const crankStart = evalInApp('window.__crank.sim.angle');
+  const propellerAngle = () => evalInApp("window.__debug.world.scene.getObjectByName('Propeller').rotation.z");
+  const propellerStart = propellerAngle();
   for (let i = 1; i <= 16; i++) {
     iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(onCircle(Math.PI + (i * Math.PI) / 8)), duration: 0.12 });
   }
@@ -349,6 +351,9 @@ async function main() {
   const crankTurned = evalInApp('window.__crank.sim.angle') - crankStart;
   const stillHeld = evalInApp('window.__crank.holders().local[1]');
   check('Turning the hand turns the crank', crankTurned > 1.5 * Math.PI && stillHeld === 'right', `turned ${(crankTurned / (2 * Math.PI)).toFixed(2)} turns, held by ${stillHeld}`);
+  const propellerTurned = propellerAngle() - propellerStart;
+  check('The crank turns the propeller at the bow', Math.abs(propellerTurned - 3 * crankTurned) < 0.3,
+    `${(propellerTurned / (2 * Math.PI)).toFixed(2)} turns for the crank's ${(crankTurned / (2 * Math.PI)).toFixed(2)}`);
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.0, z: -1.2 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-crank.png'], {});
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
@@ -460,7 +465,7 @@ async function main() {
   check('Opening the pinch releases the line', evalInApp('window.__rope.holding().left') === false);
   handTo('left', [-0.3, 1.0, 0.2], 0.4, leftOffset);
 
-  const looseBrick = bricks.map((b) => ({ b, p: position(b.entityIndex) })).find(({ p }) => aboard(p) && p[1] < 0.3);
+  const looseBrick = bricks.map((b) => ({ b, p: position(b.entityIndex) })).find(({ p }) => aboard(p) && p[1] < 0.9);
   handTo('right', looseBrick.p, 0.5, rightOffset);
   await sleep(700);
   iwsdk(['xr', 'set-select-value'], { device: 'hand-right', value: 1 });
