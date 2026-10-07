@@ -58,6 +58,7 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
 ## Controls
 
+- **Walking:** walk in your room, or push the left thumbstick to walk the deck the way you face; the right thumbstick snap turns 45° about your head. The thumbstick stops your head a quarter of a metre inside the rails, wherever you stand in your room (`src/sim/deck-walk.ts`).
 - **Perf HUD:** on the left wrist in VR, toggled with the **X** button; in a desktop browser it is the box in the bottom right, toggled with **H**. It shows frames per second against the refresh rate, a frame-time graph (green on budget, amber close, red dropped), main-thread time, draw calls, triangles, JS heap and network round trip. The last two lines describe this player's browser and headset runtime (`me`) and the crewmate's (`crew`); a `~` before the Hz means the rate was measured because the runtime didn't report it (see [docs/spikes/s8-pcvr.md](docs/spikes/s8-pcvr.md)).
 - **Perf CSV:** one row per second is recorded. After leaving VR, click **CSV** in the desktop HUD to download it, or run `__perf.download()` in remote DevTools.
 - **B** (right controller) or **P** (keyboard) stops the ship at once and starts it again. The guest's button stops the host's ship, which both players share.
@@ -88,10 +89,10 @@ src/index.ts               world creation and system registration
 src/settings.ts            URL settings
 src/scene-assets/          procedural low-poly assets (gondola, avatar, merge helpers)
 src/world/                 sky dome, islands and clouds
-src/sim/                   engine-free simulation: ship motion, flight model, gondola controls and trim, world tiling, comfort log, release velocity, crank, rope haul, hand grip
+src/sim/                   engine-free simulation: deck walking, ship motion, flight model, gondola controls and trim, world tiling, comfort log, release velocity, crank, rope haul, hand grip
 src/net/                   lobby protocol, WebRTC session and reconnection, packets, clock sync, jitter buffers, object ownership, crew presence, following the host's ship
 src/perf/                  frame statistics and CSV, measured refresh rate, platform report
-src/systems/               ECS systems: frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, flight controls, throws, network, own hands, control signs, crew status sign, crank, rope
+src/systems/               ECS systems: deck walking, frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, flight controls, throws, network, own hands, control signs, crew status sign, crank, rope
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

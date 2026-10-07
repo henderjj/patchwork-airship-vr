@@ -276,9 +276,9 @@ function tillerPostParts(): Part[] {
 const gondolaMaterial = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
 /**
- * The walkable hull: deck, bulwarks and rails. This is the only part with a
- * LocomotionEnvironment, so thumbstick movement collides with the sides but
- * not with ropes or the burner flue overhead.
+ * The hull: deck, bulwarks and rails. Thumbstick walking keeps the player's
+ * head inside the rails without colliding with this mesh (see
+ * src/sim/deck-walk.ts).
  */
 export function createGondolaHull(): Mesh {
   const mesh = new Mesh(mergeParts([...deckParts(), ...bulwarkParts()]), gondolaMaterial);
