@@ -69,6 +69,7 @@ export class RopeSystem extends createSystem({}) {
   private hands = Array.from({ length: ROPE_SLOTS }, () => createRopeHandInput());
   private hold: Record<Side, boolean> = { left: false, right: false };
   private testHands: Record<Side, TestHand | null> = { left: null, right: null };
+  private testRests: Record<Side, TestHand | null> = { left: null, right: null };
   private handPos = new Vector3();
   private lastTestAlong: Record<Side, number> = { left: 0, right: 0 };
   private overrides: Record<Side, PoseSample> = {
@@ -103,12 +104,7 @@ export class RopeSystem extends createSystem({}) {
 
     const debug: RopeDebug = {
       sim: this.sim,
-      setTestHand: (side, hand) => {
-        this.testHands[side] = hand;
-        if (!hand) {
-          netLink.handOverride[side] = null;
-        }
-      },
+      setTestHand: (side, hand) => this.setScriptedHand(side, hand),
       holding: () => ({ ...this.hold }),
       hostError: () => this.blendError,
       reset: () => {
@@ -118,6 +114,21 @@ export class RopeSystem extends createSystem({}) {
     };
     (window as unknown as { __rope: RopeDebug }).__rope = debug;
     this.cleanupFuncs.push(() => netLink.handlers.delete(PacketType.Rope));
+  }
+
+  /**
+   * Hold the line with this player's `side` hand at the position along it
+   * that `hand` gives for a time (m; null lets go but keeps the script), or
+   * stop scripting that hand with null: for tests and the practice crewmate.
+   * `rest` says where along the line the hand waits while it isn't holding
+   * (by default, where it let go).
+   */
+  setScriptedHand(side: Side, hand: TestHand | null, rest: TestHand | null = null): void {
+    this.testHands[side] = hand;
+    this.testRests[side] = rest;
+    if (!hand) {
+      netLink.handOverride[side] = null;
+    }
   }
 
   update(delta: number): void {
@@ -254,7 +265,7 @@ export class RopeSystem extends createSystem({}) {
       const o = this.overrides[side];
       netLink.handOverride[side] ??= (sendMs) => {
         // A scripted hand that has let go stays where it was, like a real one reaching back.
-        const along = this.testHands[side]?.(sendMs) ?? this.lastTestAlong[side];
+        const along = this.testHands[side]?.(sendMs) ?? this.testRests[side]?.(sendMs) ?? this.lastTestAlong[side];
         this.lastTestAlong[side] = along;
         o.px = ROPE_X;
         o.py = ROPE_Y;
