@@ -14,6 +14,11 @@ type Vec3 = readonly [number, number, number];
 
 /** Overall loudness, below the crewmate's voice. */
 const MASTER_GAIN = 0.55;
+/**
+ * Length of the looped noise, s (about 1 MB). A 2 s loop could be heard
+ * repeating as a rhythmic swish under the wind.
+ */
+const NOISE_SECONDS = 5;
 /** How quickly the looped sounds follow their targets, s (time constant). */
 const FOLLOW = 0.12;
 
@@ -61,8 +66,8 @@ export class ShipSounds {
     this.master.connect(this.analyser);
     this.analyser.connect(ctx.destination);
 
-    // Two seconds of white noise, looped by the burner and the wind and sliced for clicks.
-    this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    // White noise, looped by the burner and the wind and sliced for clicks.
+    this.noise = ctx.createBuffer(1, ctx.sampleRate * NOISE_SECONDS, ctx.sampleRate);
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) {
       data[i] = Math.random() * 2 - 1;
@@ -109,7 +114,7 @@ export class ShipSounds {
     source.buffer = this.noise;
     source.loop = true;
     // Start each loop at a different point so the burner and wind don't share a pattern.
-    source.start(0, Math.random() * 2);
+    source.start(0, Math.random() * NOISE_SECONDS);
     source.connect(filter);
     return filter;
   }
@@ -170,7 +175,7 @@ export class ShipSounds {
     gain.gain.setValueAtTime(0.25 + 0.35 * strength, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.025);
     click.connect(gain).connect(this.ratchetOut);
-    click.start(t, Math.random() * 1.9, 0.03);
+    click.start(t, Math.random() * (NOISE_SECONDS - 0.1), 0.03);
     this.played.ratchet++;
   }
 
