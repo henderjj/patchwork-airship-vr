@@ -11,6 +11,7 @@ import { decodeRope, encodeRope, PacketType, type PoseSample, ROPE_PACKET_BYTES,
 import {
   createRope,
   nearestOnRope,
+  ROPE_OVERSIDE,
   ROPE_REACH,
   ROPE_RUN,
   ROPE_X,
@@ -18,9 +19,14 @@ import {
   ROPE_Z0,
   setRopeHauled,
 } from '../scene-assets/rope.scene-asset.js';
+import { groundBelow } from '../sim/islands.js';
+import { KEEL_DEPTH } from '../sim/gondola-layout.js';
 import { createRopeHandInput, ROPE_SLOTS, RopeHaulSim } from '../sim/rope-haul.js';
+import { wrapNear } from '../sim/world-tile.js';
+import { ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
 import { FLAG_LEFT_ROPE, FLAG_LEFT_TRACKED, FLAG_RIGHT_ROPE, FLAG_RIGHT_TRACKED, netLink } from './net-system.js';
 import { grip } from './grip-system.js';
+import { flightInfo, ship } from './ship-system.js';
 
 /**
  * Spike S6, part 2: hauling the mooring line hand over hand. Squeeze the grip
@@ -38,6 +44,11 @@ const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
 const SEND_HZ = 45;
 const BLEND_RATE = 0.12;
+/** The hanging line trails aft with speed: tan(angle) per (m/s)², and the most it trails, radians. */
+const TRAIL_PER_SPEED2 = 0.008;
+const TRAIL_MAX = 0.5;
+/** How fast the hanging line swings to a new lean, per second. */
+const OVERSIDE_RATE = 1.5;
 
 type TestHand = (nowMs: number) => number | null;
 
@@ -53,6 +64,8 @@ interface RopeDebug {
 export class RopeSystem extends createSystem({}) {
   readonly sim = new RopeHaulSim();
   private texture!: CanvasTexture;
+  private overside!: Mesh;
+  private lean = { x: 0, z: 0 };
   private hands = Array.from({ length: ROPE_SLOTS }, () => createRopeHandInput());
   private hold: Record<Side, boolean> = { left: false, right: false };
   private testHands: Record<Side, TestHand | null> = { left: null, right: null };
@@ -78,6 +91,8 @@ export class RopeSystem extends createSystem({}) {
     this.texture = rope.texture;
     this.world.createTransformEntity(rope.run);
     this.world.createTransformEntity(rope.fittings);
+    this.overside = rope.overside;
+    this.world.createTransformEntity(rope.overside);
     this.createSign();
 
     netLink.handlers.set(PacketType.Rope, (view) => {
@@ -172,11 +187,40 @@ export class RopeSystem extends createSystem({}) {
     }
 
     setRopeHauled(this.texture, this.sim.hauled);
+    this.hangOverside(dt);
     this.feedback(now);
     if (now - this.lastSignDraw > 200) {
       this.lastSignDraw = now;
       this.drawSign();
     }
+  }
+
+  /**
+   * The line still out hangs over the side along the felt gravity, trailing
+   * aft with speed, and stops where it reaches an island below the ship.
+   */
+  private hangOverside(dt: number): void {
+    let length = this.sim.params.length - this.sim.hauled;
+    if (flightInfo.flying) {
+      const ground = Math.max(
+        groundBelow(ROUTE_ISLANDS, ship.x, ship.z, ship.y),
+        groundBelow(sceneryIslands, ship.x, ship.z, ship.y, wrapNear),
+      );
+      // groundBelow gives the deck height of a ship resting there; the rock is a keel's depth lower.
+      length = Math.min(length, ROPE_OVERSIDE[1] + KEEL_DEPTH + ship.y - ground);
+    }
+    this.overside.visible = length > 0.02;
+    this.overside.scale.y = Math.max(0.02, length);
+    const gy = Math.min(-0.1, ship.gy);
+    const speed2 = ship.vx * ship.vx + ship.vz * ship.vz;
+    const trail = Math.min(TRAIL_MAX, Math.atan(TRAIL_PER_SPEED2 * speed2));
+    // Same convention as the lantern: rotation.x leans the bottom towards ±Z, rotation.z towards ±X.
+    const targetX = -Math.atan2(ship.gz, -gy) - trail;
+    const targetZ = Math.atan2(ship.gx, -gy);
+    const k = Math.min(1, OVERSIDE_RATE * dt);
+    this.lean.x += (targetX - this.lean.x) * k;
+    this.lean.z += (targetZ - this.lean.z) * k;
+    this.overside.rotation.set(this.lean.x, 0, this.lean.z);
   }
 
   private updateLocalHands(): void {
@@ -298,7 +342,7 @@ export class RopeSystem extends createSystem({}) {
     ctx.font = 'bold 24px sans-serif';
     if (s.docked) {
       ctx.fillStyle = '#7fd17f';
-      ctx.fillText('DOCKED!', 128, 78);
+      ctx.fillText('ALL IN!', 128, 78);
     } else if (this.wasHeave) {
       ctx.fillStyle = '#f4c542';
       ctx.fillText('HEAVE!', 128, 78);

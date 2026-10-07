@@ -21,7 +21,7 @@ import {
   createVentToggle,
 } from '../scene-assets/controls.scene-asset.js';
 import { FIRE_DOOR } from '../scene-assets/gondola.scene-asset.js';
-import { BURNER_POSITION, BURNER_SIZE } from '../sim/gondola-layout.js';
+import { BURNER_POSITION, BURNER_SIZE, LANTERN_HOOK } from '../sim/gondola-layout.js';
 import {
   BALLAST_BAGS,
   BALLAST_REACH,
@@ -164,7 +164,7 @@ export class ControlsSystem extends createSystem({}) {
     this.fireGlow.position.set(BURNER_POSITION[0] - BURNER_SIZE[0] / 2 - 0.002, FIRE_DOOR[0], BURNER_POSITION[2]);
     this.world.createTransformEntity(this.fireGlow);
     this.lantern = createLantern();
-    this.lantern.position.set(-0.45, 2.15, 0.55);
+    this.lantern.position.set(LANTERN_HOOK[0], LANTERN_HOOK[1], LANTERN_HOOK[2]);
     // The ship's bell's lanyard (the bell itself belongs to the route, RouteSystem).
     this.lanyard = createBellLanyard();
     this.lanyard.position.set(BELL_CLAPPER[0], BELL_CLAPPER[1], BELL_CLAPPER[2]);
