@@ -154,6 +154,8 @@ export class ControlsSystem extends createSystem({}) {
   private lanyardTurn = new Quaternion();
   private clapper = new BellClapper();
   private clapperTail = { x: 0, y: 0, z: 0 };
+  /** Where the hand holding the lanyard took it, from the toggle, so taking it doesn't tug it. */
+  private lanyardGrip = new Vector3();
   private bellStrikes = 0;
 
   init(): void {
@@ -278,8 +280,8 @@ export class ControlsSystem extends createSystem({}) {
           rudder = rudderFromHand(p.x, p.z);
         } else if (held === 'bell') {
           // The lanyard's end follows the hand, which swings the clapper (updateBell).
-          this.lanyardEnd.copy(p);
-          if (p.distanceTo(this.lanyardRest) > BELL_LANYARD_SLIP) {
+          this.lanyardEnd.copy(p).sub(this.lanyardGrip);
+          if (this.lanyardEnd.distanceTo(this.lanyardRest) > BELL_LANYARD_SLIP) {
             this.release(side, held, p);
           }
         } else {
@@ -342,7 +344,9 @@ export class ControlsSystem extends createSystem({}) {
         bagIndex = i;
       }
     }
-    if (best === 'vent') {
+    if (best === 'bell') {
+      this.lanyardGrip.copy(p).sub(this.lanyardEnd);
+    } else if (best === 'vent') {
       this.toggleOffset[side] = p.y - this.toggleY;
     } else if (bagIndex >= 0 && best === `bag${bagIndex}`) {
       this.bags[bagIndex].heldBy = side;
