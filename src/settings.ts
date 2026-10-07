@@ -61,6 +61,11 @@ export interface Settings {
   comfort: number;
   /** A tag for this session (tester or variant) written into the perf and comfort logs. */
   label: string;
+  /**
+   * This page plays as the practice crewmate, a bot that joins the crew as
+   * the second player so one person can test the two-player parts.
+   */
+  bot: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -94,6 +99,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motionGust: Number.NaN,
   comfort: 0,
   label: '',
+  bot: false,
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -151,6 +157,7 @@ export function parseSettings(search: string): Settings {
     motionGust: num(params, 'gust', d.motionGust, 0, 10),
     comfort: num(params, 'comfort', d.comfort, 0, 600),
     label: (params.get('label') ?? d.label).slice(0, 40),
+    bot: bool(params, 'bot', d.bot),
   };
 }
 

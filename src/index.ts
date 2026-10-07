@@ -6,6 +6,7 @@ import { ControlsSystem } from './systems/controls-system.js';
 import { RouteSystem } from './systems/route-system.js';
 import { AudioSystem } from './systems/audio-system.js';
 import { CrankSystem } from './systems/crank-system.js';
+import { CrewBotSystem } from './systems/crew-bot-system.js';
 import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
@@ -49,6 +50,8 @@ World.create(
   world.registerSystem(AudioSystem);
   // After the crank, rope and controls, so it knows which hands they hold.
   world.registerSystem(ThrowablesSystem);
+  // After the systems it drives; their scripted hands are functions of time, so a frame late costs nothing.
+  world.registerSystem(CrewBotSystem);
   world.registerSystem(PanelSystem);
   world.registerSystem(PlatformSystem);
   // Handles for the automated XR tests.

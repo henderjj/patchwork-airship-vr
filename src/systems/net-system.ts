@@ -103,6 +103,8 @@ export const netLink = {
     left: null as ((nowMs: number) => PoseSample) | null,
     right: null as ((nowMs: number) => PoseSample) | null,
   },
+  /** A head pose to send instead of the camera's (the practice crewmate), or null. */
+  headOverride: null as ((nowMs: number) => PoseSample) | null,
   send: (_buffer: ArrayBuffer, _length: number): void => undefined,
   /** The clock offset to the crewmate is known (packet times can be placed). */
   clockSynced: false,
@@ -209,7 +211,8 @@ export class NetSystem extends createSystem({}) {
 
   init(): void {
     crewLook.color = this.color;
-    this.voice = new Voice(settings.voice, settings.voiceLoop, (track) => {
+    // The practice crewmate has nothing to say, and shouldn't open the microphone.
+    this.voice = new Voice(settings.bot ? 'off' : settings.voice, settings.voiceLoop, (track) => {
       netLink.micLabel = track?.label ?? '';
       this.session.setMicTrack(track);
     });
@@ -359,7 +362,7 @@ export class NetSystem extends createSystem({}) {
 
   private join(room: string): void {
     this.room = room;
-    const name = settings.name || `Crew ${Math.floor(Math.random() * 900 + 100)}`;
+    const name = settings.name || (settings.bot ? 'Practice crewmate' : `Crew ${Math.floor(Math.random() * 900 + 100)}`);
     this.session.join(lobbyBaseUrl(), room, name, this.color);
     this.voice.resume();
     void this.voice.startMic().then(() => this.showMic());
@@ -504,6 +507,9 @@ export class NetSystem extends createSystem({}) {
       }
       for (const key in netLink.extraFlags) {
         pose.flags |= netLink.extraFlags[key];
+      }
+      if (netLink.headOverride) {
+        copyPose(netLink.headOverride(now), pose.head);
       }
       if (netLink.handOverride.left) {
         copyPose(netLink.handOverride.left(now), pose.left);

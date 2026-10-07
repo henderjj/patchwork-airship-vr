@@ -104,12 +104,7 @@ export class CrankSystem extends createSystem({}) {
 
     const debug: CrankDebug = {
       sim: this.sim,
-      setTestHand: (handle, hand) => {
-        this.testHands[handle] = hand;
-        if (!hand) {
-          netLink.handOverride[handle === 0 ? 'left' : 'right'] = null;
-        }
-      },
+      setTestHand: (handle, hand) => this.setScriptedHand(handle, hand),
       holders: () => ({
         local: [0, 1].map((h) => (this.hold.left === h ? 'left' : this.hold.right === h ? 'right' : null)),
         sim: this.inputs.map((i) => i.holding),
@@ -125,6 +120,17 @@ export class CrankSystem extends createSystem({}) {
     };
     (window as unknown as { __crank: CrankDebug }).__crank = debug;
     this.cleanupFuncs.push(() => netLink.handlers.delete(PacketType.Crank));
+  }
+
+  /**
+   * Hold `handle` with a scripted hand at the angle `hand` gives for a time
+   * (radians), or let go with null: for tests and the practice crewmate.
+   */
+  setScriptedHand(handle: number, hand: TestHand | null): void {
+    this.testHands[handle] = hand;
+    if (!hand) {
+      netLink.handOverride[handle === 0 ? 'left' : 'right'] = null;
+    }
   }
 
   update(delta: number): void {

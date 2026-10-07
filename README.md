@@ -23,7 +23,7 @@ Every push to `main` is built, tested and deployed to GitHub Pages by `.github/w
 
 ## Settings
 
-The everyday settings (how the ship moves, frame rate, sounds, voice, the comfort question, the perf HUD, clouds, rain, shadows and foveation) are in the **Settings** menu on the crew panel at the top right of the page: pick, then **Save and reload**. They are kept in the browser; **Defaults** clears them. Every setting can also be given in the address bar, which wins over the saved ones, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
+The everyday settings (whether this page plays as you or the practice crewmate, how the ship moves, frame rate, sounds, voice, the comfort question, the perf HUD, clouds, rain, shadows and foveation) are in the **Settings** menu on the crew panel at the top right of the page: pick, then **Save and reload**. They are kept in the browser; **Defaults** clears them. Every setting can also be given in the address bar, which wins over the saved ones, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ The everyday settings (how the ship moves, frame rate, sounds, voice, the comfor
 | `voiceloop` | 0 | `1` routes spatial voice through a local loopback so echo cancellation can hear it |
 | `fist` | 0.6 | Tracked hands grip when the fingers' curl falls below this (1 straight, about 0.4 a fist) |
 | `pinch` | 2 | Tracked hands also grip when thumb and index tips are closer than this, cm; `0` turns it off |
+| `bot` | 0 | `1` makes this page the practice crewmate (see [Testing alone](#testing-alone-the-practice-crewmate)) |
 
 Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 
@@ -78,6 +79,17 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 On Quest 3: open the GitHub Pages URL in the Quest Browser, press Enter XR, and check the HUD shows 90 Hz. For a local build, run `npm run dev`, connect the headset by USB with developer mode on, run `adb reverse tcp:8081 tcp:8081`, and open `https://localhost:8081/`. On the same Wi-Fi you can instead open the network URL from `npx iwsdk dev status` and accept the certificate warning.
 
 On PC VR: make Meta Horizon Link the active OpenXR runtime, connect the Quest with Link or Air Link, and open the same URL in Chrome or Edge on Windows. Set-up steps are in [docs/spikes/s8-pcvr.md](docs/spikes/s8-pcvr.md).
+
+## Testing alone: the practice crewmate
+
+The crank's high gear, heaving the mooring line and throwing to each other need two players. To try them alone, open the game on a PC as well as the headset, and in the PC's **Settings** set **This page plays as** to **Practice crewmate (a bot)**, then **Save and reload**. Join the same crew code on both. The PC page then plays the second player, with no microphone:
+
+- On island A it rings the bell once you have, so the ship casts off.
+- When you take a crank handle, it walks to the other one and turns in step with you, so the crank clicks into high gear.
+- When you haul the mooring line, it hauls beside you. After your first two strokes it has your rhythm and starts each stroke with yours, so you heave together.
+- Otherwise it stands at the bow (or the stern, if you're at the bow) facing you. Throw a brick near its hand and it catches it, then throws it back to your chest.
+
+Keep the PC page showing: a hidden tab counts as a crewmate who stepped away and pauses the ship. Set it back to **Me** in Settings when you're done. The code is `src/systems/crew-bot-system.ts`; `npm run test:net` checks all four against a scripted player (`ONLY_BOT=1` runs just those).
 
 ## How the code is laid out
 
