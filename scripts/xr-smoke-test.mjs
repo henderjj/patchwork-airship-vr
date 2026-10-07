@@ -8,6 +8,8 @@
  *  1. reloads the app, enters an immersive session and checks this player's
  *     own hands are drawn (the game starts in flight; the spike checks hold
  *     the ship still);
+ *  1b. walks the deck with the thumbstick from off the room's centre and
+ *     checks the head stops at the rails, then snap turns about the head;
  *  2. checks the 90 Hz request ran;
  *  3. checks the fuel bricks settled in the crate;
  *  4. grabs a brick with the right controller's squeeze, lifts and drops it,
@@ -193,6 +195,35 @@ async function main() {
   // The game starts in flight on island A; the spike checks below want the
   // ship held still (6b switches to the flight model again).
   evalInApp("window.__ship.setProfile('still')");
+
+  // 1b. Thumbstick walking stops the head at the rails wherever the player
+  //     stands in their room: here 0.8 m behind and 0.5 m left of its middle.
+  const walk = evalInApp('window.__deckWalk.bounds');
+  const walkHead = () => evalInApp('window.__deckWalk.head()');
+  const thumbstick = (device, x, y) =>
+    iwsdk(['xr', 'set-gamepad-state'], { device, axes: [{ index: 0, value: x }, { index: 1, value: y }] });
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: -0.5, y: 1.6, z: 0.8 } });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.5, y: 1.4, z: -3 } });
+  await sleep(300);
+  thumbstick('controller-left', 0, -1);
+  const atBow = await waitFor('walk to the bow', () => { const p = walkHead(); return p[2] < -walk.halfLength + 0.01 && p; }, 8000).catch(() => walkHead());
+  thumbstick('controller-left', 1, 0);
+  const atStarboard = await waitFor('walk to starboard', () => { const p = walkHead(); return p[0] > walk.halfWidth - 0.01 && p; }, 8000).catch(() => walkHead());
+  await sleep(500);
+  const stopped = walkHead();
+  thumbstick('controller-left', 0, 0);
+  check('Walking takes the head to the bow and starboard rails from off the room centre, and no further',
+    Math.abs(atBow[2] + walk.halfLength) < 0.02 && Math.abs(stopped[0] - walk.halfWidth) < 0.02 && Math.abs(stopped[2] + walk.halfLength) < 0.02,
+    `head at the bow ${fmt(atBow)}, at starboard ${fmt(atStarboard)}, stopped at ${fmt(stopped)}; bounds ±${walk.halfWidth} × ±${walk.halfLength}`);
+  thumbstick('controller-right', 1, 0);
+  await sleep(300);
+  thumbstick('controller-right', 0, 0);
+  const snapped = { head: walkHead(), yaw: evalInApp('window.__debug.world.player.rotation.y') };
+  check('Snap turning turns about the head', Math.abs(snapped.yaw + Math.PI / 4) < 0.01 && Math.hypot(snapped.head[0] - stopped[0], snapped.head[2] - stopped[2]) < 0.01,
+    `yaw ${((snapped.yaw * 180) / Math.PI).toFixed(0)}°, head moved ${(Math.hypot(snapped.head[0] - stopped[0], snapped.head[2] - stopped[2]) * 100).toFixed(1)} cm`);
+  // Back to the middle of the deck for the checks below, which place hands in room space.
+  evalInApp('(window.__debug.world.player.position.set(0, 0, 0), window.__debug.world.player.rotation.set(0, 0, 0), true)');
+  iwsdk(['xr', 'set-device-state'], {});
 
   // 2. The frame-rate system ran when the session started.
   const rateLog = await waitFor(
