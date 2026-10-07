@@ -5,7 +5,6 @@ import { BURNER_POSITION } from '../sim/gondola-layout.js';
 import { restingDeck } from '../sim/islands.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
-import { sounds } from './audio-system.js';
 import { netLink } from './net-system.js';
 import { crewReady, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
 
@@ -15,25 +14,25 @@ const CANVAS = [512, 320] as const;
 const BOARD_REFRESH_MS = 250;
 /** Mid-run, a second ring within this long starts again, ms. */
 const RING_AGAIN_MS = 3000;
-/** Bell pendulum: natural frequency squared (g / length), damping, and the kick a ring gives, rad/s. */
-const BELL_OMEGA2 = 9.81 / 0.12;
-const BELL_DAMPING = 2.5;
-const BELL_KICK = 6;
 /** Where the best score is kept in this browser. */
 const BEST_KEY = 'patchwork-airship.best';
 
-/** The ship's bell, for the lanyard (ControlsSystem) to ring. */
-export const bell = { ring: (): void => undefined };
+/**
+ * The ship's bell: `ring` is what a ring means for the route (set here, and
+ * called by ControlsSystem, whose clapper strikes the bell); `knock` strikes
+ * it as if its lanyard were tugged (set by ControlsSystem, for the keyboard).
+ */
+export const bell = { ring: (): void => undefined, knock: (): void => undefined };
 
 /**
  * Phase 2's route on deck: a board on the bow side of the burner flue that
  * shows the run (waiting on island A, the timer and the way to the next ring
  * or island B, then the score), and the ship's bell, which starts the route
- * again from island A. It rings when its lanyard (ControlsSystem) is pulled
- * to one side. Mid-run it takes two rings, so a knock doesn't throw a good
- * run away. With a crewmate, ringing it on island A says you're
- * ready, and the ship stays moored until both have. The host runs the route
- * itself (ShipSystem).
+ * again from island A. Its clapper and lanyard are in ControlsSystem, which
+ * calls `bell.ring` for each ring. Mid-run it takes two rings, so a knock
+ * doesn't throw a good run away. With a crewmate, ringing it on island A
+ * says you're ready, and the ship stays moored until both have. The host
+ * runs the route itself (ShipSystem).
  */
 export class RouteSystem extends createSystem({}) {
   private bell!: Mesh;
@@ -43,8 +42,8 @@ export class RouteSystem extends createSystem({}) {
   private board!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; lines: string[] };
   private lastDraw = 0;
   private lastRing = Number.NEGATIVE_INFINITY;
-  /** The bell's swing, rad, and the widest it has swung since it was last rung. */
-  private swing = { angle: 0, rate: 0, peak: 0 };
+  /** The bell was last rung for the ready check on island A: ringing on as the ship casts off doesn't count mid-run. */
+  private rungBeforeRun = false;
   private best = 0;
   private scored: unknown = null;
 
@@ -69,7 +68,7 @@ export class RouteSystem extends createSystem({}) {
     // Keyboard: N rings the bell (clear of the emulator's keys).
     const onKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() === 'n' && !event.repeat && !(event.target as Element | null)?.closest?.('input, textarea')) {
-        this.ring();
+        bell.knock();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -79,23 +78,27 @@ export class RouteSystem extends createSystem({}) {
       run: route,
       ring: () => this.ring(),
       boardText: () => [...this.board.lines],
-      bell: () => ({ angle: this.swing.angle, peak: this.swing.peak }),
     };
   }
 
   /**
    * The bell was rung: on island A with a crewmate, this player is ready to
    * cast off; otherwise start again if the run is over, or on a second ring
-   * mid-run.
+   * mid-run. Ringing on from the ready check as the crew casts off (rings
+   * no more than a few seconds apart since island A) doesn't count mid-run.
    */
   private ring(): void {
     const now = performance.now();
-    this.swing.rate += BELL_KICK;
-    this.swing.peak = 0;
-    sounds.bell();
+    const pealing = now - this.lastRing < RING_AGAIN_MS;
+    if (route.phase === 'flying' && this.rungBeforeRun && pealing) {
+      this.lastRing = now;
+      return;
+    }
+    this.rungBeforeRun = route.phase === 'ready' && netLink.connected;
     if (route.phase === 'ready' && netLink.connected) {
       markReady();
-    } else if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && now - this.lastRing < RING_AGAIN_MS)) {
+      this.lastRing = now;
+    } else if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && pealing)) {
       restartRoute();
       this.lastRing = Number.NEGATIVE_INFINITY;
     } else {
@@ -104,8 +107,7 @@ export class RouteSystem extends createSystem({}) {
     this.lastDraw = 0;
   }
 
-  update(delta: number): void {
-    const dt = Math.min(delta, 0.1);
+  update(): void {
     const shown = flightInfo.flying;
     for (const mesh of [this.bell, this.bracket, this.frame, this.face]) {
       mesh.visible = shown;
@@ -113,11 +115,6 @@ export class RouteSystem extends createSystem({}) {
     if (!shown) {
       return;
     }
-    const s = this.swing;
-    s.rate += (-BELL_OMEGA2 * s.angle - BELL_DAMPING * s.rate) * dt;
-    s.angle += s.rate * dt;
-    s.peak = Math.max(s.peak, Math.abs(s.angle));
-    this.bell.rotation.x = s.angle;
 
     if (route.phase === 'finished' && route.result && route.result !== this.scored) {
       this.scored = route.result;
@@ -161,7 +158,7 @@ export class RouteSystem extends createSystem({}) {
 
   private boardLines(now: number): string[] {
     const best = this.best > 0 ? `Best score ${this.best}` : '';
-    const ringAgain = now - this.lastRing < RING_AGAIN_MS;
+    const ringAgain = !this.rungBeforeRun && now - this.lastRing < RING_AGAIN_MS;
     switch (route.phase) {
       case 'ready': {
         if (netLink.connected) {

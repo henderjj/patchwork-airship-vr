@@ -20,7 +20,7 @@ About 550 m in all: roughly three minutes with one player cranking, under two wi
 - **A ring counts** when the middle of the ship passes through it at least 4 m inside the rim, in either direction. Rings can be flown in any order.
 - **The run finishes** after the ship has rested on island B for 3 seconds.
 - **The run is lost** if the ship runs into an island's rock (resting on any island's top is fine), sinks below 40 m into the haze, or strays more than 450 m from the route. The ship stops where it is.
-- **Restart** by ringing the ship's bell, on a bracket over the port bow corner: take the wooden toggle at the end of its lanyard and pull it to one side (it strikes once per pull, and swings back to hang straight when let go). Mid-run it takes two rings within 3 seconds, so a knock doesn't throw a good run away. On a keyboard, **N** rings the bell.
+- **Restart** by ringing the ship's bell, on a bracket over the port bow corner. Like a real ship's bell, the bell stays still and its clapper swings: the lanyard is tied to the clapper's tail below the bell's lip, so taking the wooden toggle at its end and tugging it to one side swings the clapper's iron ball against that side of the bell. Tug it from side to side and it rings on each side in turn; a harder tug rings louder, and a very slow pull just leans the ball against the bell without a sound. Let go and the clapper swings back to hang straight. Each strike is a ring. Mid-run it takes two rings within 3 seconds, so a knock doesn't throw a good run away, and with a crewmate, ringing on from the ready check as the ship casts off doesn't count mid-run until the bell has been quiet for 3 seconds. On a keyboard, **N** rings the bell.
 
 The ship can now rest on any island: its keel settles on the grass, and while it rests it can't drift, turn or be cranked along; it needs lift to rise again. A heavily vented ship takes a minute or two of burning to recover.
 
@@ -40,7 +40,7 @@ Measured in the emulated headset: showing the route adds about 8 draw calls and 
 
 ## Two players
 
-The host runs the route and sends its state (phase, rings, clock start, result) as a reliable event whenever it changes, and once a second while a guest is connected, so someone who joins mid-run catches up. The guest's bell asks the host to restart, or on island A says the guest is ready. Both browsers must use the same `?seed=` and `?islands=` (the defaults do), since the scenery islands are now things the ship can hit.
+The host runs the route and sends its state (phase, rings, clock start, result) as a reliable event whenever it changes, and once a second while a guest is connected, so someone who joins mid-run catches up. The guest's bell asks the host to restart, or on island A says the guest is ready. Each player hears and sees the other's bell: every strike goes to the crewmate as a small reliable event (which side, how hard), which swings their copy of the clapper and plays the bell there, but only the player who rang it acts on it for the route. Both browsers must use the same `?seed=` and `?islands=` (the defaults do), since the scenery islands are now things the ship can hit.
 
 ## Trying it
 

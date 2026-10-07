@@ -9,6 +9,7 @@ import {
   PacketType,
 } from '../net/pose-codec.js';
 import {
+  createBellClapper,
   createBellLanyard,
   createBellToggle,
   createBoardFrame,
@@ -25,11 +26,13 @@ import { BURNER_POSITION, BURNER_SIZE } from '../sim/gondola-layout.js';
 import {
   BALLAST_BAGS,
   BALLAST_REACH,
-  BELL_CLAPPER,
   BELL_LANYARD_END,
+  BELL_LANYARD_LENGTH,
   BELL_LANYARD_REACH,
   BELL_LANYARD_SLIP,
-  BellPull,
+  BELL_PIVOT,
+  BELL_STRIKE_SPEED,
+  BellClapper,
   overboard,
   rudderFromHand,
   TILLER_PIVOT,
@@ -44,6 +47,7 @@ import {
   VENT_TOGGLE,
   ventFromToggle,
 } from '../sim/gondola-controls.js';
+import { sounds } from './audio-system.js';
 import { grip, handUse } from './grip-system.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { bell } from './route-system.js';
@@ -63,8 +67,10 @@ const LANTERN_OMEGA2 = 9.81 / 0.32;
 const LANTERN_DAMPING = 0.8;
 /** A dropped bag falls this long before it is gone, s. */
 const BAG_FALL_SECONDS = 1.6;
-/** How quickly the bell's lanyard swings back to hanging straight when let go, per second. */
-const LANYARD_SETTLE = 6;
+/** How quickly the bell's lanyard swings back to hang below the clapper when let go, per second. */
+const LANYARD_SETTLE = 8;
+/** A strike this fast, m/s, rings the bell at full loudness. */
+const LOUDEST_STRIKE = 1.2;
 const DOWN = new Vector3(0, -1, 0);
 
 interface Bag {
@@ -85,6 +91,8 @@ interface ControlsDebug {
   bags(): { gone: boolean; falling: boolean; heldBy: Side | null }[];
   lantern(): { x: number; z: number };
   boardText(): string[];
+  /** The bell's clapper: the strikes this player's hand (or the keyboard) made so far, and its widest swing, rad. */
+  bell(): { strikes: number; peak: number };
 }
 
 /**
@@ -137,13 +145,16 @@ export class ControlsSystem extends createSystem({}) {
   private crewZ = [0, 0];
   private swing = { x: 0, z: 0, vx: 0, vz: 0 };
   private tillerTmp = { x: 0, y: 0, z: 0 };
+  private clapperMesh!: Mesh;
   private lanyard!: Mesh;
   private bellToggle!: Mesh;
   private lanyardEnd = new Vector3(BELL_LANYARD_END[0], BELL_LANYARD_END[1], BELL_LANYARD_END[2]);
   private lanyardRest = new Vector3(BELL_LANYARD_END[0], BELL_LANYARD_END[1], BELL_LANYARD_END[2]);
   private lanyardDir = new Vector3();
   private lanyardTurn = new Quaternion();
-  private bellPull = new BellPull();
+  private clapper = new BellClapper();
+  private clapperTail = { x: 0, y: 0, z: 0 };
+  private bellStrikes = 0;
 
   init(): void {
     this.tiller = createTillerBar();
@@ -165,11 +176,12 @@ export class ControlsSystem extends createSystem({}) {
     this.world.createTransformEntity(this.fireGlow);
     this.lantern = createLantern();
     this.lantern.position.set(-0.45, 2.15, 0.55);
-    // The ship's bell's lanyard (the bell itself belongs to the route, RouteSystem).
+    // The ship's bell's clapper and lanyard (the bell itself belongs to the route, RouteSystem).
+    this.clapperMesh = createBellClapper();
+    this.clapperMesh.position.set(BELL_PIVOT[0], BELL_PIVOT[1], BELL_PIVOT[2]);
     this.lanyard = createBellLanyard();
-    this.lanyard.position.set(BELL_CLAPPER[0], BELL_CLAPPER[1], BELL_CLAPPER[2]);
     this.bellToggle = createBellToggle();
-    for (const mesh of [this.tiller, this.toggle, this.cord, hopper, mouth, this.lantern, this.lanyard, this.bellToggle]) {
+    for (const mesh of [this.tiller, this.toggle, this.cord, hopper, mouth, this.lantern, this.clapperMesh, this.lanyard, this.bellToggle]) {
       this.world.createTransformEntity(mesh);
     }
     BALLAST_BAGS.forEach((p, i) => {
@@ -186,6 +198,27 @@ export class ControlsSystem extends createSystem({}) {
       }
     });
     this.cleanupFuncs.push(() => netLink.handlers.delete(PacketType.Controls));
+    // The crewmate's bell: heard and seen here, but it's their ring for the route.
+    netLink.events.set('bell', (event) => {
+      const x = Number(event.x) || 0;
+      const z = Number(event.z) || 0;
+      const speed = Math.min(Math.max(Number(event.s) || 0, BELL_STRIKE_SPEED), LOUDEST_STRIKE * 2);
+      if (flightInfo.flying) {
+        this.clapper.knock(x, z, speed);
+        sounds.bell(Math.min(1, speed / LOUDEST_STRIKE));
+      }
+    });
+    // The keyboard's bell: a tug on the lanyard towards the bow.
+    bell.knock = () => {
+      if (flightInfo.flying) {
+        this.clapper.knock(0, -1, LOUDEST_STRIKE / 2);
+        this.struck(LOUDEST_STRIKE / 2, null);
+      }
+    };
+    this.cleanupFuncs.push(() => {
+      netLink.events.delete('bell');
+      bell.knock = () => undefined;
+    });
 
     const debug: ControlsDebug = {
       test: (hold) => {
@@ -202,6 +235,7 @@ export class ControlsSystem extends createSystem({}) {
       bags: () => this.bags.map((b) => ({ gone: b.gone, falling: b.falling >= 0, heldBy: b.heldBy })),
       lantern: () => ({ x: this.swing.x, z: this.swing.z }),
       boardText: () => [...this.board.lines],
+      bell: () => ({ strikes: this.bellStrikes, peak: this.clapper.peak }),
     };
     (window as unknown as { __controls: ControlsDebug }).__controls = debug;
   }
@@ -218,6 +252,7 @@ export class ControlsSystem extends createSystem({}) {
       this.combine(now);
     }
     this.updateBags(dt);
+    this.updateBell(dt);
     this.draw(now, dt);
   }
 
@@ -242,13 +277,10 @@ export class ControlsSystem extends createSystem({}) {
         } else if (held === 'tiller') {
           rudder = rudderFromHand(p.x, p.z);
         } else if (held === 'bell') {
-          // Pull the lanyard to one side and the clapper strikes.
+          // The lanyard's end follows the hand, which swings the clapper (updateBell).
           this.lanyardEnd.copy(p);
           if (p.distanceTo(this.lanyardRest) > BELL_LANYARD_SLIP) {
             this.release(side, held, p);
-          } else if (this.bellPull.step(p.x, p.z)) {
-            bell.ring();
-            this.pulse(side, 0.6, 60);
           }
         } else {
           // A bag hangs from the hand by its neck.
@@ -320,9 +352,6 @@ export class ControlsSystem extends createSystem({}) {
 
   private release(side: Side, held: string, p: Vector3): void {
     this.hold[side] = null;
-    if (held === 'bell') {
-      this.bellPull.reset();
-    }
     if (held.startsWith('bag')) {
       const index = Number(held.slice(3));
       const bag = this.bags[index];
@@ -521,16 +550,58 @@ export class ControlsSystem extends createSystem({}) {
     texture.needsUpdate = true;
   }
 
-  /** The bell's lanyard: to the hand holding it, else swinging back to hang straight. Shown with the bell. */
+  /**
+   * The bell's clapper, swung by the lanyard in this player's hand. Each
+   * time its ball meets the bell it rings, louder the harder it strikes,
+   * and the crewmate hears it too, so pulling it from side to side rings it
+   * on each side in turn.
+   */
+  private updateBell(dt: number): void {
+    const side: Side | null = this.hold.left === 'bell' ? 'left' : this.hold.right === 'bell' ? 'right' : null;
+    const speed = this.clapper.step(dt, side !== null, this.lanyardEnd.x, this.lanyardEnd.z);
+    if (speed > 0 && flightInfo.flying) {
+      this.struck(speed, side);
+      if (netLink.connected) {
+        const strike = this.clapper.lastStrike;
+        netLink.sendEvent({ t: 'bell', x: Math.round(strike.x * 100) / 100, z: Math.round(strike.z * 100) / 100, s: Math.round(speed * 100) / 100 } as { t: string });
+      }
+    }
+  }
+
+  /** This player's clapper struck the bell: sound it, feel it in the hand, and ring for the route. */
+  private struck(speed: number, side: Side | null): void {
+    this.bellStrikes++;
+    sounds.bell(Math.min(1, speed / LOUDEST_STRIKE));
+    if (side) {
+      this.pulse(side, Math.min(1, 0.3 + speed / LOUDEST_STRIKE), 50);
+    }
+    bell.ring();
+  }
+
+  /** The clapper turned as the bell's clapper swings, and its lanyard: to the hand holding it, else hanging below its tail. Shown with the bell. */
   private updateLanyard(dt: number): void {
     const shown = flightInfo.flying;
+    this.clapperMesh.visible = shown;
     this.lanyard.visible = shown;
     this.bellToggle.visible = shown;
+    const c = this.clapper;
+    const tail = c.tail(this.clapperTail);
+    this.lanyard.position.set(BELL_PIVOT[0] + tail.x, BELL_PIVOT[1] + tail.y, BELL_PIVOT[2] + tail.z);
     if (this.hold.left !== 'bell' && this.hold.right !== 'bell') {
-      this.lanyardEnd.lerp(this.lanyardRest, Math.min(1, LANYARD_SETTLE * dt));
+      const hang = this.lanyardDir.copy(this.lanyard.position);
+      hang.y -= BELL_LANYARD_LENGTH;
+      this.lanyardEnd.lerp(hang, Math.min(1, LANYARD_SETTLE * dt));
     }
     if (!shown) {
       return;
+    }
+    const angle = Math.hypot(c.x, c.z);
+    if (angle > 1e-6) {
+      const s = Math.sin(angle) / angle;
+      this.lanyardDir.set(c.x * s, -Math.cos(angle), c.z * s);
+      this.clapperMesh.quaternion.setFromUnitVectors(DOWN, this.lanyardDir);
+    } else {
+      this.clapperMesh.quaternion.identity();
     }
     const dir = this.lanyardDir.copy(this.lanyardEnd).sub(this.lanyard.position);
     const length = dir.length();
