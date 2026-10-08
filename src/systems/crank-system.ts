@@ -368,7 +368,7 @@ export class CrankSystem extends createSystem({}) {
     ctx.fillStyle = '#f3e3c3';
     ctx.font = 'bold 30px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`${turns.toFixed(2)} turns/s`, 128, 40);
+    ctx.fillText(turns === 0 ? '0.00 turns/s' : `${turns > 0 ? 'AHEAD' : 'ASTERN'} ${Math.abs(turns).toFixed(2)}/s`, 128, 40);
     ctx.font = 'bold 24px sans-serif';
     if (s.gear > 0.95) {
       ctx.fillStyle = '#f4c542';

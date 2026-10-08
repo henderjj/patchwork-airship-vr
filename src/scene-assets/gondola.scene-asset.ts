@@ -1,12 +1,23 @@
 import {
   BoxGeometry,
+  ConeGeometry,
   CylinderGeometry,
   IcosahedronGeometry,
   Mesh,
   MeshLambertMaterial,
+  TorusGeometry,
 } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly.js';
-import { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK } from '../sim/gondola-layout.js';
+import {
+  BURNER_POSITION,
+  BURNER_SIZE,
+  DECK_LENGTH,
+  DECK_WIDTH,
+  FLUE_POSITION,
+  FUNNEL_POSITION,
+  LANTERN_HOOK,
+  NOZZLE_TOP,
+} from '../sim/gondola-layout.js';
 
 export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK };
 
@@ -220,10 +231,26 @@ function envelopeParts(): Part[] {
   ];
 }
 
+/**
+ * An open cone or tube, `outer` coloured outside and `inner` inside: the
+ * material draws front faces only, so an open cylinder alone vanishes from
+ * the inside. The inner shell is the same shape mirrored, which turns its
+ * faces inwards, and a touch smaller.
+ */
+function hollow(top: number, bottom: number, height: number, sides: number, outer: number, inner: number, position: [number, number, number]): Part[] {
+  return [
+    { geometry: new CylinderGeometry(top, bottom, height, sides, 1, true), color: outer, position },
+    { geometry: new CylinderGeometry(top, bottom, height, sides, 1, true), color: inner, position, scale: [-0.96, 1, 0.96] },
+  ];
+}
+
+const SOOT = 0x2b2622;
+
 function burnerParts(): Part[] {
   const [x, , z] = BURNER_POSITION;
   const [w, h, d] = BURNER_SIZE;
-  const ringY = ENVELOPE_CENTER[1] - ENVELOPE_RADII[1] * 0.82;
+  const [fx, fz] = FUNNEL_POSITION;
+  const [px, pz] = FLUE_POSITION;
   // The fire door on the side facing the middle of the deck: a brass frame
   // and grate bars in front of the glow (ControlsSystem's fire glow).
   const doorX = x - w / 2 - 0.006;
@@ -240,20 +267,40 @@ function burnerParts(): Part[] {
     box([0.016, doorH, 0.025], [doorX, doorY, z - doorW / 2 - 0.012], BRASS),
     box([0.016, doorH, 0.025], [doorX, doorY, z + doorW / 2 + 0.012], BRASS),
     ...grate,
-    // A brass funnel on top for the fuel bricks.
-    {
-      geometry: new CylinderGeometry(0.2, 0.11, 0.2, 8, 1, true),
-      color: BRASS,
-      position: [x, h + 0.1, z],
-    },
-    { geometry: new CylinderGeometry(0.21, 0.21, 0.025, 8, 1, true), color: shade(BRASS, 0.8), position: [x, h + 0.2, z] },
-    // Flue up to the envelope mouth.
-    beam([x, h, z], [x, ringY + 0.4, z], 0.07, IRON),
-    {
-      geometry: new CylinderGeometry(0.35, 0.25, 0.3, 8),
-      color: BRASS,
-      position: [x, ringY + 0.55, z],
-    },
+    // A brass funnel on the bow half of the top for the fuel bricks: sooty
+    // inside, with the fire's dark throat at the bottom.
+    ...hollow(0.15, 0.08, 0.2, 8, BRASS, SOOT, [fx, h + 0.12, fz]),
+    { geometry: new TorusGeometry(0.15, 0.012, 4, 8), color: shade(BRASS, 0.8), position: [fx, h + 0.22, fz], rotation: [Math.PI / 2, 0, 0] },
+    { geometry: new CylinderGeometry(0.08, 0.08, 0.01, 8), color: 0x3a1a10, position: [fx, h + 0.025, fz] },
+    // The flue rises from the stern half to a flared, open nozzle a little
+    // below the envelope's mouth: the hot air and the flame leap the gap.
+    beam([px, h, pz], [px, NOZZLE_TOP - 0.25, pz], 0.07, IRON),
+    ...hollow(0.2, 0.08, 0.28, 8, BRASS, SOOT, [px, NOZZLE_TOP - 0.14, pz]),
+    { geometry: new TorusGeometry(0.2, 0.015, 4, 10), color: shade(BRASS, 0.8), position: [px, NOZZLE_TOP, pz], rotation: [Math.PI / 2, 0, 0] },
+  ];
+}
+
+/**
+ * The envelope's mouth over the flue: a short canvas skirt hanging from the
+ * bottom of the envelope, dark inside, so the flue visibly feeds an opening
+ * rather than running into the cloth.
+ */
+function envelopeMouthParts(): Part[] {
+  const [px, pz] = FLUE_POSITION;
+  const [ex, ey, ez] = ENVELOPE_CENTER;
+  const [rx, ry, rz] = ENVELOPE_RADII;
+  const dx = (px - ex) / rx;
+  const dz = (pz - ez) / rz;
+  // Where the envelope's underside is above the flue; the skirt reaches up past it.
+  const bottom = ey - ry * Math.sqrt(1 - dx * dx - dz * dz);
+  const skirtTop = bottom + 0.12;
+  const skirtBottom = NOZZLE_TOP + 0.22;
+  const height = skirtTop - skirtBottom;
+  return [
+    ...hollow(0.38, 0.44, height, 10, shade(CANVAS[1], 0.75), SOOT, [px, skirtBottom + height / 2, pz]),
+    { geometry: new TorusGeometry(0.44, 0.02, 4, 12), color: WOOD_DARK, position: [px, skirtBottom, pz], rotation: [Math.PI / 2, 0, 0] },
+    // The dark opening inside, below the cloth's jittered underside.
+    { geometry: new CylinderGeometry(0.38, 0.38, 0.01, 10), color: 0x1c1712, position: [px, bottom - 0.12, pz] },
   ];
 }
 
@@ -265,14 +312,16 @@ function crateParts(): Part[] {
   const ld = d - LOCKER_INSET;
   return [
     // The locker it stands on: a dark plank chest with iron corner straps and a lid rim.
-    box([lw, cy, ld], [cx, cy / 2, cz], WOOD_DARK),
+    box([lw, cy - 0.03, ld], [cx, (cy - 0.03) / 2, cz], WOOD_DARK),
     box([lw + 0.02, 0.03, ld + 0.02], [cx, cy - 0.015, cz], WOOD),
-    box([lw + 0.01, 0.04, ld + 0.01], [cx, 0.02, cz], shade(IRON, 0.9)),
+    box([lw + 0.01, 0.04, ld + 0.01], [cx, 0.021, cz], shade(IRON, 0.9)),
     ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => box([0.035, cy - 0.06, 0.035], [cx + sx * (lw / 2 - 0.01), cy / 2, cz + sz * (ld / 2 - 0.01)], IRON))),
-    // The open crate on top.
-    box([w, t, d], [cx, cy + t / 2, cz], WOOD_DARK),
-    box([t, h, d], [cx - w / 2 + t / 2, cy + h / 2, cz], WOOD),
-    box([t, h, d], [cx + w / 2 - t / 2, cy + h / 2, cz], WOOD),
+    // The open crate on top. The floor sits inside the walls and the side
+    // walls between the end walls, so no two faces share a plane (they
+    // flickered where they overlapped).
+    box([w - 2 * t, t, d - 2 * t], [cx, cy + t / 2, cz], WOOD_DARK),
+    box([t, h, d - 2 * t], [cx - w / 2 + t / 2, cy + h / 2, cz], WOOD),
+    box([t, h, d - 2 * t], [cx + w / 2 - t / 2, cy + h / 2, cz], WOOD),
     box([w, h, t], [cx, cy + h / 2, cz - d / 2 + t / 2], WOOD_LIGHT),
     box([w, h, t], [cx, cy + h / 2, cz + d / 2 - t / 2], WOOD_LIGHT),
   ];
@@ -281,7 +330,7 @@ function crateParts(): Part[] {
 /** The lantern's iron bracket: a collar round the burner flue and an arm out to the hook. */
 function lanternBracketParts(): Part[] {
   const [hx, hy, hz] = LANTERN_HOOK;
-  const [fx, , fz] = BURNER_POSITION;
+  const [fx, fz] = FLUE_POSITION;
   const collarX = fx - 0.07;
   return [
     { geometry: new CylinderGeometry(0.085, 0.085, 0.05, 8), color: IRON, position: [fx, hy, fz] },
@@ -308,6 +357,49 @@ function crankPedestalParts(): Part[] {
   ];
 }
 
+/** Green painted for "ahead": the crank's direction arrows. */
+const AHEAD_GREEN = 0x3f9a4a;
+
+/**
+ * A curved arrow beside the crank on each side, over the top of the axle
+ * from stern to bow, showing which way to turn the handles to go ahead
+ * (turning them the other way goes astern). Each arc stands on a small iron
+ * frame bolted to the pedestal.
+ */
+function crankArrowParts(): Part[] {
+  const [, , z] = CRANK_POSITION;
+  const y0 = CRANK_AXLE_HEIGHT;
+  const r = 0.28;
+  const end = (80 * Math.PI) / 180;
+  const steps = 8;
+  // Same angle convention as the crank: 0 straight up, positive towards the bow (-Z).
+  const at = (x: number, a: number): [number, number, number] => [x, y0 + r * Math.cos(a), z - r * Math.sin(a)];
+  const parts: Part[] = [];
+  for (const x of [-0.2, 0.2]) {
+    for (let i = 0; i < steps; i++) {
+      const a0 = -end + ((2 * end) * i) / steps;
+      const a1 = -end + ((2 * end) * (i + 1)) / steps;
+      parts.push(beam(at(x, a0), at(x, i === steps - 1 ? a1 - 0.12 : a1), 0.014, AHEAD_GREEN, 5));
+    }
+    // Arrowhead at the bow end, pointing along the turn.
+    parts.push({
+      geometry: new ConeGeometry(0.04, 0.09, 6),
+      color: AHEAD_GREEN,
+      position: at(x, end - 0.05),
+      rotation: [Math.atan2(-Math.cos(end), -Math.sin(end)), 0, 0],
+    });
+    // The frame: posts down from the arc's ends to a rail, and a bar to the pedestal.
+    const railY = 0.85;
+    const [, fy, fz] = at(x, end);
+    const [, by, bz] = at(x, -end);
+    parts.push(beam([x, by, bz], [x, railY, bz], 0.01, IRON, 4));
+    parts.push(beam([x, fy, fz], [x, railY, fz], 0.01, IRON, 4));
+    parts.push(beam([x, railY, bz], [x, railY, fz], 0.012, IRON, 4));
+    parts.push(beam([Math.sign(x) * 0.07, railY, z], [x, railY, z], 0.012, IRON, 4));
+  }
+  return parts;
+}
+
 function tillerPostParts(): Part[] {
   return [box([0.1, 0.8, 0.1], [0, 0.4, DECK_LENGTH / 2 - 0.15], WOOD_DARK)];
 }
@@ -332,9 +424,11 @@ export function createGondolaRigging(): Mesh {
       ...riggingParts(),
       ...envelopeParts(),
       ...burnerParts(),
+      ...envelopeMouthParts(),
       ...crateParts(),
       ...lanternBracketParts(),
       ...crankPedestalParts(),
+      ...crankArrowParts(),
       ...tillerPostParts(),
     ]),
     gondolaMaterial,

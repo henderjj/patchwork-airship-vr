@@ -1,7 +1,7 @@
 import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from '@iwsdk/core';
 import { createBell, createBellBracket, createBoardFrame } from '../scene-assets/controls.scene-asset.js';
 import { BELL_HOOK } from '../sim/gondola-controls.js';
-import { BURNER_POSITION } from '../sim/gondola-layout.js';
+import { FLUE_POSITION } from '../sim/gondola-layout.js';
 import { restingDeck } from '../sim/islands.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
@@ -148,7 +148,7 @@ export class RouteSystem extends createSystem({}) {
     // On the bow side of the burner flue at eye height, facing the crank,
     // back to back with the instrument board.
     for (const mesh of [this.frame, this.face]) {
-      mesh.position.set(BURNER_POSITION[0], 1.5, BURNER_POSITION[2] - 0.1);
+      mesh.position.set(FLUE_POSITION[0], 1.5, FLUE_POSITION[1] - 0.1);
       mesh.rotation.y = Math.PI;
       this.world.createTransformEntity(mesh);
     }

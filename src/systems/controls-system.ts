@@ -22,7 +22,7 @@ import {
   createVentToggle,
 } from '../scene-assets/controls.scene-asset.js';
 import { FIRE_DOOR } from '../scene-assets/gondola.scene-asset.js';
-import { BURNER_POSITION, BURNER_SIZE, LANTERN_HOOK } from '../sim/gondola-layout.js';
+import { BURNER_POSITION, BURNER_SIZE, FLUE_POSITION, FUNNEL_POSITION, LANTERN_HOOK, NOZZLE_TOP } from '../sim/gondola-layout.js';
 import {
   BALLAST_BAGS,
   BALLAST_REACH,
@@ -165,11 +165,11 @@ export class ControlsSystem extends createSystem({}) {
     this.toggle.position.set(VENT_TOGGLE[0], VENT_TOGGLE[1], VENT_TOGGLE[2]);
     this.cord = createVentCord();
     this.cord.position.set(VENT_TOGGLE[0], VENT_CORD_TOP, VENT_TOGGLE[2]);
-    // One flame in the hopper mouth, one at the envelope's mouth above the flue.
+    // One flame in the fuel funnel, one leaping from the flue's nozzle up into the envelope's mouth.
     const hopper = createFlame('Burner Flame');
-    hopper.position.set(BURNER_POSITION[0], BURNER_SIZE[1] + 0.02, BURNER_POSITION[2]);
+    hopper.position.set(FUNNEL_POSITION[0], BURNER_SIZE[1] + 0.02, FUNNEL_POSITION[1]);
     const mouth = createFlame('Envelope Flame');
-    mouth.position.set(BURNER_POSITION[0], 4.55, BURNER_POSITION[2]);
+    mouth.position.set(FLUE_POSITION[0], NOZZLE_TOP, FLUE_POSITION[1]);
     mouth.scale.setScalar(2.2);
     this.flames.push(hopper, mouth);
     // The fire behind the door grate: glowing while lit, embers when out.
@@ -511,7 +511,7 @@ export class ControlsSystem extends createSystem({}) {
     const frame = createBoardFrame(BOARD_SIZE[0], BOARD_SIZE[1]);
     // On the burner flue at eye height, facing the stern and the tiller.
     for (const mesh of [frame, face]) {
-      mesh.position.set(BURNER_POSITION[0], 1.5, BURNER_POSITION[2] + 0.1);
+      mesh.position.set(FLUE_POSITION[0], 1.5, FLUE_POSITION[1] + 0.1);
       this.world.createTransformEntity(mesh);
     }
     face.position.z += 0.001;
@@ -529,7 +529,7 @@ export class ControlsSystem extends createSystem({}) {
     const lines = [
       `HEIGHT ${ship.y.toFixed(0)} m`,
       `CLIMB ${arrow} ${Math.abs(climb).toFixed(1)} m/s`,
-      `SPEED ${ship.speed.toFixed(1)} m/s`,
+      ship.speed < -0.05 ? `ASTERN ${(-ship.speed).toFixed(1)} m/s` : `SPEED ${Math.max(0, ship.speed).toFixed(1)} m/s`,
       `BURNER ${info.burnLeft > 0 ? `${Math.ceil(info.burnLeft)} s` : 'out'}`,
       `BALLAST ${bags - dropped} of ${bags}`,
     ];

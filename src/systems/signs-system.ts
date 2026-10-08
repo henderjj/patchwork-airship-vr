@@ -27,14 +27,14 @@ const STARBOARD_RAIL = DECK_WIDTH / 2 - 0.01;
 const SIGNS: readonly Sign[] = [
   {
     title: 'BURNER',
-    hint: 'Drop fuel bricks in the top',
+    hint: 'Drop fuel bricks in the funnel',
     at: [BURNER_POSITION[0] - BURNER_SIZE[0] / 2 - 0.004, 0.475, BURNER_POSITION[2]],
     facing: [-1, 0, 0],
     twoSided: false,
   },
   {
     title: 'BURNER',
-    hint: 'Drop fuel bricks in the top',
+    hint: 'Drop fuel bricks in the funnel',
     at: [BURNER_POSITION[0], 0.42, BURNER_POSITION[2] + BURNER_SIZE[2] / 2 + 0.004],
     facing: [0, 0, 1],
     twoSided: false,
@@ -51,7 +51,7 @@ const SIGNS: readonly Sign[] = [
   { title: 'MOORING LINE', hint: 'Haul it towards the stern', at: [PORT_RAIL, RAIL_TOP, -0.45], facing: [1, 0, 0], twoSided: true },
   { title: 'BALLAST', hint: 'Drop a bag overboard to rise', at: [STARBOARD_RAIL, RAIL_TOP, 0.9], facing: [-1, 0, 0], twoSided: true },
   { title: 'TILLER', hint: 'Swing it to steer', at: [TILLER_PIVOT[0], 0.62, TILLER_PIVOT[2] - 0.055], facing: [0, 0, -1], twoSided: false },
-  { title: 'CRANK', hint: 'Turn the handles for speed', at: [CRANK_POSITION[0], 0.6, CRANK_POSITION[2] + 0.074], facing: [0, 0, 1], twoSided: false },
+  { title: 'CRANK', hint: 'Tops to the bow: ahead. Back: astern', at: [CRANK_POSITION[0], 0.6, CRANK_POSITION[2] + 0.074], facing: [0, 0, 1], twoSided: false },
   {
     title: 'FUEL',
     hint: 'Bricks for the burner',
