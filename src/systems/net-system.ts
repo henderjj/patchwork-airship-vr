@@ -39,6 +39,12 @@ import { onVrStart, startVr, vrStartState } from '../vr-start.js';
  */
 
 const SEND_HZ = 45;
+/**
+ * How far a scripted hand's grip is pitched back from level, rad: with the
+ * controller's handle tilted forward like this, the glove's forearm lies
+ * level (see the grip space in avatar.scene-asset.ts).
+ */
+const SCRIPTED_GRIP_PITCH = 0.9;
 const STATS_LOG_MS = 5000;
 /** Where this player's coat colour is kept in the browser. */
 const COLOR_KEY = 'patchwork-airship.colour';
@@ -200,6 +206,9 @@ export class NetSystem extends createSystem({}) {
   private tmpQuat = new Quaternion();
   private tmpScale = new Vector3();
   private tmpEuler = new Euler(0, 0, 0, 'YXZ');
+  private scriptedGrip = new Quaternion();
+  private readonly gripPitch = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), SCRIPTED_GRIP_PITCH);
+  private readonly yAxis = new Vector3(0, 1, 0);
   private debug!: NetDebug;
   private voice!: Voice;
   private listenerPos = new Vector3();
@@ -548,11 +557,20 @@ export class NetSystem extends createSystem({}) {
       if (netLink.headOverride) {
         copyPose(netLink.headOverride(now), pose.head);
       }
+      if (netLink.handOverride.left || netLink.handOverride.right) {
+        // Scripted hands (the practice crewmate, tests) give only a position:
+        // hold them as a player would, facing the way the head does.
+        this.tmpQuat.set(pose.head.qx, pose.head.qy, pose.head.qz, pose.head.qw);
+        this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ');
+        this.scriptedGrip.setFromAxisAngle(this.yAxis, this.tmpEuler.y).multiply(this.gripPitch);
+      }
       if (netLink.handOverride.left) {
         copyPose(netLink.handOverride.left(now), pose.left);
+        this.holdScripted(pose.left);
       }
       if (netLink.handOverride.right) {
         copyPose(netLink.handOverride.right(now), pose.right);
+        this.holdScripted(pose.right);
       }
       const length = encodePose(this.sendBuffer, this.seq, now, pose);
       this.seq = (this.seq + 1) & 0xffff;
@@ -587,6 +605,13 @@ export class NetSystem extends createSystem({}) {
     this.mouth.y += h.py;
     this.mouth.z += h.pz;
     this.voice.setSource(this.mouth);
+  }
+
+  private holdScripted(hand: PoseSample): void {
+    hand.qx = this.scriptedGrip.x;
+    hand.qy = this.scriptedGrip.y;
+    hand.qz = this.scriptedGrip.z;
+    hand.qw = this.scriptedGrip.w;
   }
 
   private readLocalPose(): AvatarPose {
