@@ -698,6 +698,16 @@ async function lobbyChecks(browser, host, guest) {
   const requests = await waitFor('a VR session request', () => solo.page.evaluate(() => window.__vrRequests), 3000).catch(() => 0);
   check('The page has its own Enter VR button, kept after joining a crew', shownSolo && shownInCrew && requests > 0,
     `shown ${shownSolo ? 'solo' : 'not solo'}, ${shownInCrew ? 'and' : 'but not'} in a crew; ${requests} session request(s) on click`);
+  // A refused request says why under the button, and the button can be pressed again.
+  const vrNote = await waitFor('the reason VR didn\'t start', () => solo.page.evaluate(() => {
+    const note = document.getElementById('crew-vr-status');
+    const b = document.getElementById('crew-enter-vr');
+    return note && getComputedStyle(note).display !== 'none' && note.textContent.startsWith("VR didn't start")
+      ? { text: note.textContent, disabled: b.disabled } : null;
+  }), 3000).catch(() => null);
+  check('A refused VR request says why on the crew panel',
+    vrNote !== null && vrNote.text.includes('No headset in this test') && !vrNote.disabled,
+    vrNote ? `"${vrNote.text}", button ${vrNote.disabled ? 'disabled' : 'ready'}` : 'no reason shown');
 
   // The Settings menu on the crew panel: turning the ship's sounds off saves
   // the choice in the browser and reloads the page with it.

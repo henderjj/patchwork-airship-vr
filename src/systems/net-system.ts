@@ -22,6 +22,9 @@ import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import { handCurls } from './grip-system.js';
 import { perf } from './perf-hud-system.js';
+import { describeBrowser } from '../perf/platform-report.js';
+import { vrStartMessage, vrSupportNote } from '../vr-messages.js';
+import { onVrStart, startVr, vrStartState } from '../vr-start.js';
 
 /**
  * Spike S4: two players in one gondola. Sends this player's head and hands
@@ -309,22 +312,56 @@ export class NetSystem extends createSystem({}) {
       onColor: (index) => this.setColor(index),
       onEnterVr: () => {
         this.voice.resume();
-        this.world.launchXR();
+        startVr(this.world);
       },
       colors: CREW_COLORS,
       colorNames: CREW_COLOR_NAMES,
       color: this.color,
     });
     void this.voice.checkPermission().then(() => this.showMic());
-    void navigator.xr
-      ?.isSessionSupported('immersive-vr')
-      .then((supported) => this.ui?.showEnterVr(supported))
-      .catch(() => undefined);
+    // Whether to offer Enter VR. A desktop browser can see no headset when the
+    // page opened before Link was running, so look again when it reports a
+    // device change or the window comes back into focus.
+    const kind = describeBrowser(navigator.userAgent).kind;
+    const checkVr = () => {
+      const xr = navigator.xr;
+      if (xr == null) {
+        const { button, note } = vrSupportNote(kind, false, false);
+        this.ui?.showEnterVr(button, note);
+        return;
+      }
+      void xr
+        .isSessionSupported('immersive-vr')
+        .catch(() => false)
+        .then((supported) => {
+          const { button, note } = vrSupportNote(kind, true, supported);
+          this.ui?.showEnterVr(button, note);
+        });
+    };
+    checkVr();
+    navigator.xr?.addEventListener('devicechange', checkVr);
+    window.addEventListener('focus', checkVr);
+    // How a press of Enter VR is going, ticking each second while it starts.
+    let vrTick: ReturnType<typeof setInterval> | undefined;
+    const showVrStart = () => {
+      const state = vrStartState();
+      this.ui?.setVrStart(vrStartMessage(state, performance.now(), kind), state.phase === 'starting');
+      if (state.phase === 'starting' && vrTick === undefined) {
+        vrTick = setInterval(showVrStart, 1000);
+      } else if (state.phase !== 'starting' && vrTick !== undefined) {
+        clearInterval(vrTick);
+        vrTick = undefined;
+      }
+    };
     // Browsers only start audio after a user gesture: any click, or entering VR.
     const resume = () => this.voice.resume();
     window.addEventListener('pointerdown', resume);
     this.cleanupFuncs.push(
       () => window.removeEventListener('pointerdown', resume),
+      () => navigator.xr?.removeEventListener('devicechange', checkVr),
+      () => window.removeEventListener('focus', checkVr),
+      onVrStart(showVrStart),
+      () => clearInterval(vrTick),
       () => clearInterval(this.statsTimer),
       () => this.session.close(),
       () => this.voice.dispose(),
