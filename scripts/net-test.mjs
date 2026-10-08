@@ -887,8 +887,16 @@ async function botChecks(browser) {
     };
     tick();
   }));
+  // Grip locking: the player sees the bot's hand on handle 1 as the crank turns, though its
+  // packets put it where the handle was a network delay ago.
+  const crewOnHandle = await me.page.evaluate(() => {
+    const hand = window.__net.crewHands().right;
+    const handle = window.__crank.handle(1);
+    return Math.hypot(hand[0] - handle[0], hand[1] - handle[1], hand[2] - handle[2]);
+  });
   const botMode = await bot.page.evaluate(() => window.__bot.mode);
   await me.page.evaluate(() => window.__crank.setTestHand(0, null));
+  check("Practice crewmate: its hand is drawn on the crank handle it turns", crewOnHandle < 0.01, `${(crewOnHandle * 100).toFixed(1)} cm from the handle`);
   check('Practice crewmate: cranks in step, so the crank reaches high gear',
     crank.gearFrames / crank.frames > 0.6 && crank.omega > 1.5 * solo && crank.held[1],
     `${(crank.omega / (2 * Math.PI)).toFixed(2)} turns/s (solo top ${(solo / (2 * Math.PI)).toFixed(2)}), high gear ${((100 * crank.gearFrames) / crank.frames).toFixed(0)}% of frames, handles held ${JSON.stringify(crank.held)}, bot ${botMode}`);

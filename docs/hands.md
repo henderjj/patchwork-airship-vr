@@ -51,8 +51,17 @@ Alternatives considered: morph targets per finger group (cheap, but blending str
 1. A HUD line showing each control's touched state and value, and a check on the Quest 3 (John). The HUD lines are built; the check is John's.
 2. The skinned hand model and its three-curl pose function, with unit tests on the pose function and a screenshot of each named pose. Done.
 3. Drive own hands from the controllers and tracked hands; send the curls to the crewmate. Done.
-4. Grip locking (below). Next.
+4. Grip locking (below). Done.
 
-## Locking hands to what they hold (next, after posed hands)
+## Locking hands to what they hold (built 2026-10-08)
 
-While a hand grips the crank, the mooring line, the tiller, the vent cord or the bell lanyard, draw the hand on the handle instead of at the controller, in a closed pose shaped to it. Each grippable control declares a grip frame (where the palm goes and which way the handle runs), and the drawn hand takes that position with the controller's twist about the handle. On grab and release the drawn hand eases between the controller and the handle over about 80 ms, and the sleeve follows the drawn hand. The crewmate sees the same, since who holds what is already synced. Today a grip only ends when the grip button is let go; with locking it should also end when the real hand gets more than about 25 cm from the handle, so the drawn hand never stretches far from the player's own.
+While a hand grips the crank, the mooring line, the tiller, the vent cord or the bell lanyard, the hand is drawn on the handle instead of at the controller, closed round it. Built in `src/systems/hand-lock.ts`:
+
+- **Where each control is held.** The system that owns each control registers a resolver for it: the point on the handle's centre line the palm closes round, and which way the handle runs. The crank: the handle on the hand's side of the pedestal, along its rod (X). The line: the point on it level with the real hand, along the line (Z). The tiller: the middle of its dark grip, along the bar. The vent cord and the bell lanyard: their wooden toggles, along X.
+- **How the hand sits on it.** The drawn hand goes to that point and is turned only as far as it takes for the controller's handle axis (grip -Z) to lie along the control's, so the controller's twist about the handle still shows. Which way round is fixed when it takes hold. The fingers close (index at least 0.9, the rest 1, thumb down).
+- **Easing.** Taking hold and letting go ease the drawn hand between the controller and the handle over 80 ms (smoothstep).
+- **Letting go.** A grip still ends when the grip button is let go. It now also ends when the real hand is more than 25 cm from what it holds: the grip then reads as released until the button is actually let go (`forcedRelease` in GripSystem), so every control lets go the way it always does. The crank and the line also let go on their own slips as before.
+- **The crewmate.** Each pose packet now ends with one byte saying what each hand holds (four bits per hand: nothing, crank, line, tiller, vent cord, bell), 54 bytes in all, and the crewmate's hands are locked the same way to the controls as drawn on this page. A page on an older version sends no kinds; its crank and line holds still come from the pose flags. The crewmate's hand on the bell lanyard isn't locked, because their lanyard isn't drawn on this page.
+- **Order.** OwnHandsSystem now runs after the crank, rope, controls and throwables, so a locked hand sits on its handle in the same frame the handle moves; it also locks the crewmate's hands (through NetSystem).
+
+Checks: unit tests for the easing, the turn onto the handle and the kept twist; the emulated-headset test checks the drawn hand sits on the crank handle while turning it and that pulling the hand 40 cm off the handle lets go; the two-player test checks the practice crewmate's hand is drawn on the crank handle it turns (its packets alone would put it where the handle was a network delay ago).

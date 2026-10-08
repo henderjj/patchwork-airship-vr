@@ -20,7 +20,8 @@ import type { PosedHand } from '../scene-assets/hand.scene-asset.js';
 import { copyCurls, createFingerCurls, type FingerCurls, setCurls } from '../sim/hand-pose.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
-import { handCurls } from './grip-system.js';
+import { handCurls, handUse } from './grip-system.js';
+import { HoldKind, LockedHand } from './hand-lock.js';
 import { perf } from './perf-hud-system.js';
 import { describeBrowser } from '../perf/platform-report.js';
 import { vrStartMessage, vrSupportNote } from '../vr-messages.js';
@@ -92,6 +93,18 @@ export const FLAG_RIGHT_CRANK = 8;
 /** Pose flag bits: hand holding the mooring line (4, 5). */
 export const FLAG_LEFT_ROPE = 16;
 export const FLAG_RIGHT_ROPE = 32;
+
+/**
+ * What a hand holds, as a HoldKind, for grip locking: the crank or the line
+ * from the pose flags (this player's from the crank and rope systems'
+ * extra flags), else the gondola control in `use` (handUse, this player's
+ * own hands only).
+ */
+export function holdKindOf(side: 'left' | 'right', flags: number, use: string | null): number {
+  if (flags & (side === 'left' ? FLAG_LEFT_CRANK : FLAG_RIGHT_CRANK)) return HoldKind.Crank;
+  if (flags & (side === 'left' ? FLAG_LEFT_ROPE : FLAG_RIGHT_ROPE)) return HoldKind.Rope;
+  return use === 'tiller' ? HoldKind.Tiller : use === 'vent' ? HoldKind.Vent : use === 'bell' ? HoldKind.Bell : HoldKind.None;
+}
 
 /**
  * What other systems (the crank, the rope and loose objects) need from the
@@ -168,6 +181,8 @@ interface NetDebug {
   setTestPose(pose: AvatarPose | ((nowMs: number) => AvatarPose) | null): void;
   /** The crewmate's pose as currently drawn, or null before any packets. */
   remotePose(): AvatarPose | null;
+  /** Where the crewmate's hands are drawn (on what they hold, with grip locking), ship space. */
+  crewHands(): { left: number[]; right: number[] };
   /** This player's coat colour, and the crewmate's as last told. */
   color: number;
   remoteColor: number;
@@ -210,6 +225,9 @@ export class NetSystem extends createSystem({}) {
   private legs!: Mesh;
   private leftHand!: PosedHand;
   private rightHand!: PosedHand;
+  /** Grip locking for the crewmate's hands, and their curls as drawn. */
+  private crewLocks = { left: new LockedHand(), right: new LockedHand() };
+  private crewCurls = { left: createFingerCurls(), right: createFingerCurls() };
   private tmpPos = new Vector3();
   private tmpQuat = new Quaternion();
   private tmpScale = new Vector3();
@@ -293,6 +311,7 @@ export class NetSystem extends createSystem({}) {
       get lateFrames() { return self.buffer.late; },
       setTestPose: (pose) => { this.testPose = pose; },
       remotePose: () => (this.haveRemote ? this.remote : null),
+      crewHands: () => ({ left: this.leftHand.mesh.position.toArray(), right: this.rightHand.mesh.position.toArray() }),
       get color() { return self.color; },
       get remoteColor() { return self.remoteColor; },
       join: (room) => this.join(room),
@@ -584,6 +603,9 @@ export class NetSystem extends createSystem({}) {
         const holding = (pose.flags & (FLAG_RIGHT_CRANK | FLAG_RIGHT_ROPE)) !== 0 || netLink.scriptedSqueeze.right;
         copyCurls(holding ? SCRIPTED_HOLDING : SCRIPTED_RELAXED, pose.rightFingers);
       }
+      pose.holds =
+        holdKindOf('left', pose.flags, test === null ? handUse.left : null) |
+        (holdKindOf('right', pose.flags, test === null ? handUse.right : null) << 4);
       const length = encodePose(this.sendBuffer, this.seq, now, pose);
       this.seq = (this.seq + 1) & 0xffff;
       session.sendUnreliable(this.sendBuffer, length);
@@ -661,9 +683,36 @@ export class NetSystem extends createSystem({}) {
     this.legs.scale.y = Math.min(1.3, Math.max(0.3, (r.head.py - HIP_BELOW_EYES) / LEG_LENGTH));
     setFromPose(this.leftHand.mesh, r.left);
     setFromPose(this.rightHand.mesh, r.right);
-    this.leftHand.pose(r.leftFingers);
-    this.rightHand.pose(r.rightFingers);
+    // Their fingers are posed, and hands locked to what they hold, in lockCrewHands.
     this.setRemoteVisible(true, r.flags);
+  }
+
+  /**
+   * Draw the crewmate's hands on whatever they hold (grip locking). Run late
+   * in the frame (OwnHandsSystem calls it), once the crank, line and
+   * controls have moved. Their bell lanyard isn't drawn here in their hand,
+   * so a hand on it isn't locked.
+   */
+  lockCrewHands(dt: number): void {
+    if (!netLink.haveRemote) {
+      return;
+    }
+    const r = this.remote;
+    for (const side of ['left', 'right'] as const) {
+      const hand = side === 'left' ? this.leftHand : this.rightHand;
+      if (!hand.mesh.visible) {
+        continue;
+      }
+      const sent = (r.holds >> (side === 'left' ? 0 : 4)) & 15;
+      // A crewmate on a version before grip locking sends no kinds; the crank and line are in its flags.
+      const kind = sent !== HoldKind.None ? sent : holdKindOf(side, r.flags, null);
+      const p = side === 'left' ? r.left : r.right;
+      this.tmpPos.set(p.px, p.py, p.pz);
+      this.tmpQuat.set(p.qx, p.qy, p.qz, p.qw);
+      const curls = copyCurls(side === 'left' ? r.leftFingers : r.rightFingers, this.crewCurls[side]);
+      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls);
+      hand.pose(curls);
+    }
   }
 
   private setRemoteVisible(visible: boolean, flags: number): void {
@@ -677,9 +726,10 @@ export class NetSystem extends createSystem({}) {
 
 /** A test pose from a script may leave out the fingers: draw those hands as fists. */
 function withFingers(pose: AvatarPose): AvatarPose {
-  const p = pose as Partial<Pick<AvatarPose, 'leftFingers' | 'rightFingers'>> & AvatarPose;
+  const p = pose as Partial<Pick<AvatarPose, 'leftFingers' | 'rightFingers' | 'holds'>> & AvatarPose;
   p.leftFingers ??= setCurls({} as FingerCurls, 1, 1, 1);
   p.rightFingers ??= setCurls({} as FingerCurls, 1, 1, 1);
+  p.holds ??= 0;
   return p;
 }
 

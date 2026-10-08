@@ -29,6 +29,7 @@ import {
   netLink,
 } from './net-system.js';
 import { grip } from './grip-system.js';
+import { HoldKind, lockResolvers } from './hand-lock.js';
 
 /**
  * Spike S6: the two-person propeller crank in the gondola. Squeeze the grip
@@ -55,6 +56,8 @@ interface CrankDebug {
   sim: CrankSim;
   /** Hold `handle` with a scripted hand angle (radians) for tests; null lets go. */
   setTestHand(handle: number, hand: TestHand | null): void;
+  /** Where handle `i` is now, ship space. */
+  handle(i: number): [number, number, number];
   /** Which local hand holds each handle ('left', 'right' or null) and who holds it in the simulation. */
   holders(): { local: (Side | null)[]; sim: boolean[] };
   /** Crank turns per second. */
@@ -112,6 +115,10 @@ export class CrankSystem extends createSystem({}) {
     const debug: CrankDebug = {
       sim: this.sim,
       setTestHand: (handle, hand) => this.setScriptedHand(handle, hand),
+      handle: (i) => {
+        handlePosition(i, this.sim.angle, this.handleTmp);
+        return [this.handleTmp.x, this.handleTmp.y, this.handleTmp.z];
+      },
       holders: () => ({
         local: [0, 1].map((h) => (this.hold.left === h ? 'left' : this.hold.right === h ? 'right' : null)),
         sim: this.inputs.map((i) => i.holding),
@@ -127,6 +134,12 @@ export class CrankSystem extends createSystem({}) {
     };
     (window as unknown as { __crank: CrankDebug }).__crank = debug;
     this.cleanupFuncs.push(() => netLink.handlers.delete(PacketType.Crank));
+    // Grip locking: a hand on the crank is drawn on its handle (the one on its side of the pedestal), round the handle's rod.
+    lockResolvers.set(HoldKind.Crank, (hand, point, axis) => {
+      handlePosition(hand.x < CRANK_CENTER[0] ? 0 : 1, this.sim.angle, point);
+      axis.set(1, 0, 0);
+    });
+    this.cleanupFuncs.push(() => lockResolvers.delete(HoldKind.Crank));
   }
 
   /**

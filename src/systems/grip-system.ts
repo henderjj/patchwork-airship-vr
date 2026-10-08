@@ -44,6 +44,13 @@ export const grip: Record<Side, GripState> = {
  */
 export const handUse: Record<Side, string | null> = { left: null, right: null };
 
+/**
+ * Hands made to let go because the real hand strayed too far from what its
+ * drawn hand holds (grip locking, OwnHandsSystem): their grip reads as let
+ * go until the button (or fist) is actually released.
+ */
+export const forcedRelease: Record<Side, boolean> = { left: false, right: false };
+
 /** Per-hand gesture state (curl, pinch), for the perf HUD and tests. */
 export const handGrips: Record<Side, HandGrip> = { left: new HandGrip(), right: new HandGrip() };
 
@@ -117,6 +124,10 @@ export class GripSystem extends createSystem({}) {
         this.readFingers(side, pad);
       }
       easeCurls(handCurls[side], this.targetCurls[side], Math.min(delta, 0.1));
+      if (forcedRelease[side]) {
+        forcedRelease[side] = pressed;
+        pressed = false;
+      }
       state.down = pressed && !state.pressed;
       state.pressed = pressed;
     }

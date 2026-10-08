@@ -142,7 +142,7 @@ describe('finger curls in pose packets', () => {
   });
 
   it('stay small', () => {
-    expect(POSE_PACKET_BYTES).toBe(POSE_PACKET_MIN_BYTES + 6);
+    expect(POSE_PACKET_BYTES).toBe(POSE_PACKET_MIN_BYTES + 7);
   });
 
   it('interpolate between packets and stay within 0 to 1 when extrapolating', () => {

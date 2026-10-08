@@ -37,7 +37,6 @@ World.create(
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
   world.registerSystem(DeckWalkSystem);
-  world.registerSystem(OwnHandsSystem);
   // After NetSystem, which updates the crew presence it shows.
   world.registerSystem(CrewStatusSystem);
   // After NetSystem, so it sees the crewmate's pose drawn this frame.
@@ -54,6 +53,8 @@ World.create(
   world.registerSystem(ThrowablesSystem);
   // After the systems it drives; their scripted hands are functions of time, so a frame late costs nothing.
   world.registerSystem(CrewBotSystem);
+  // After the crank, rope and controls have moved, so hands drawn on them (grip locking) sit on them this frame.
+  world.registerSystem(OwnHandsSystem);
   world.registerSystem(PanelSystem);
   world.registerSystem(PlatformSystem);
   // Handles for the automated XR tests.
