@@ -8,7 +8,9 @@
  *   cooler, so lift builds and fades over tens of seconds. Dropping ballast
  *   lowers the balancing heat at once.
  * - Thrust: the propeller crank is the only thrust. Airspeed eases towards a
- *   speed set by how fast the crank turns.
+ *   speed set by how fast the crank turns. Turned the other way (handle tops
+ *   towards the stern), it drives the ship astern, at most at a fraction of
+ *   the top speed.
  * - Steering: the rudder sets a turn rate that needs airflow over it, so it
  *   bites properly only once the ship is moving.
  * - Wind: a gentle, slowly varying breeze drifts the ship.
@@ -77,6 +79,8 @@ export interface FlightParams {
   speedPerCrank: number;
   /** Seconds for the airspeed to settle at the crank's speed. */
   speedLag: number;
+  /** Fastest astern speed, as a fraction of the speed limit. */
+  reverseFraction: number;
   /** Airspeed at which the rudder has full effect, m/s. */
   rudderFullSpeed: number;
   /** Share of the rudder's effect with the ship standing still. */
@@ -104,6 +108,7 @@ export const DEFAULT_FLIGHT: FlightParams = {
   // (about 9.6 rad/s) reach the speed limit.
   speedPerCrank: 0.75,
   speedLag: 6,
+  reverseFraction: 0.4,
   rudderFullSpeed: 3,
   rudderStill: 0.25,
   windSpeed: 0.6,
@@ -119,7 +124,7 @@ export interface FlightControls {
   vent: number;
   /** Rudder, -1 (hard to port, turning left) to 1 (hard to starboard, turning right). */
   rudder: number;
-  /** Propeller crank speed, rad/s (either direction gives forward thrust). */
+  /** Propeller crank speed, rad/s: positive drives the ship ahead, negative astern. */
   crankSpeed: number;
   /** Ballast dropped so far, kg. */
   ballastDropped: number;
@@ -218,13 +223,13 @@ export class FlightSim {
     const climbAccel = clamp(lift - p.verticalDrag * this.climb, -lim.maxClimbAccel, lim.maxClimbAccel);
     this.climb = clamp(this.climb + climbAccel * dt, -lim.maxClimb, lim.maxClimb);
 
-    // Airspeed from the crank, eased and capped.
-    const wanted = Math.min(lim.maxSpeed, Math.abs(c.crankSpeed) * p.speedPerCrank);
+    // Airspeed from the crank, eased and capped; negative is astern.
+    const wanted = clamp(c.crankSpeed * p.speedPerCrank, -lim.maxSpeed * p.reverseFraction, lim.maxSpeed);
     let speedAccel = clamp((wanted - this.airspeed) / p.speedLag, -lim.maxAccel, lim.maxAccel);
-    this.airspeed = Math.max(0, this.airspeed + speedAccel * dt);
+    this.airspeed += speedAccel * dt;
 
     // Turn rate from the rudder and the airflow over it.
-    const bite = p.rudderStill + (1 - p.rudderStill) * Math.min(1, this.airspeed / p.rudderFullSpeed);
+    const bite = p.rudderStill + (1 - p.rudderStill) * Math.min(1, Math.abs(this.airspeed) / p.rudderFullSpeed);
     // Rudder to starboard turns the ship to starboard, which is negative yaw.
     const wantedYaw = -clamp(c.rudder, -1, 1) * bite * lim.maxYawRateDeg * DEG;
     this.yawRate = approach(this.yawRate, wantedYaw, lim.maxYawAccelDeg * DEG * dt);

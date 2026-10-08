@@ -92,6 +92,21 @@ describe('flight model', () => {
     expect(ship.yaw).toBeLessThan(yaw0 - 20 * DEG);
   });
 
+  it('goes astern when the crank turns backwards, at most at the reverse limit', () => {
+    const sim = new FlightSim(CALM);
+    const ship = createShipState(100);
+    sim.reset(ship, 0, 100, 0, 0);
+    const c = createFlightControls();
+    c.crankSpeed = -3.2;
+    fly(sim, ship, 30, c);
+    // Bow towards -Z, so astern is +Z.
+    expect(sim.airspeed).toBeLessThan(-2);
+    expect(ship.z).toBeGreaterThan(20);
+    c.crankSpeed = -12;
+    fly(sim, ship, 60, c);
+    expect(sim.airspeed).toBeCloseTo(-DEFAULT_FLIGHT_LIMITS.maxSpeed * DEFAULT_FLIGHT.reverseFraction, 1);
+  });
+
   it('keeps the motion within the comfort limits however hard it is driven', () => {
     const sim = new FlightSim(DEFAULT_FLIGHT);
     const ship = createShipState(100);

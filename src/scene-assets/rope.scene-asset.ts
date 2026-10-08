@@ -33,8 +33,18 @@ export const ROPE_RADIUS = 0.018;
 export const ROPE_REACH = 0.1;
 /** Metres of line per stripe repeat on the texture. */
 const STRIPE_METRES = 0.25;
-/** The coil's centre on the deck (x, z): under the end of the hauling run, clear of the fuel crate's locker. */
-const COIL = [ROPE_X + 0.13, ROPE_Z1 - 0.12] as const;
+/**
+ * The coil's centre on the deck (x, z), clear of the fuel crate's locker. Its
+ * turns step inwards as they stack, and the line from the end of the run
+ * comes down onto the edge of the top turn.
+ */
+const COIL = [ROPE_X + 0.04, ROPE_Z1 - 0.044] as const;
+const COIL_TURNS = [0.13, 0.11, 0.085] as const;
+/** Each turn sits this much higher, and its centre steps this far towards the line's drop. */
+const COIL_RISE = 0.03;
+const COIL_STEP = [0.01, -0.008] as const;
+/** Height of the top turn, where the dropping line meets the coil. */
+const COIL_TOP = 0.02 + (COIL_TURNS.length - 1) * COIL_RISE;
 /** Where the outboard line goes over the rail top and hangs down from. */
 export const ROPE_OVERSIDE = [-1.04, 1.04, ROPE_Z0] as const;
 
@@ -94,17 +104,17 @@ export function createRope(): RopeMeshes {
     beam([ox + 0.06, oy + 0.01, oz], [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
     // Fairlead ring on the rail.
     { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] },
-    // Line dropping from the end of the run to a coil on the deck, clear of the fuel crate's locker.
+    // Line dropping from the end of the run onto the top turn of the coil.
     {
-      geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, ROPE_Y - 0.06, 6, 1, true),
+      geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, ROPE_Y - COIL_TOP, 6, 1, true),
       color: ROPE_COLOR,
-      position: [ROPE_X, ROPE_Y / 2 + 0.03, ROPE_Z1],
+      position: [ROPE_X, (ROPE_Y + COIL_TOP) / 2, ROPE_Z1],
     },
     // Three loose turns of the coil, a shade darker than the run so they read as rope on the planks.
-    ...[0.13, 0.11, 0.085].map((r, i): Part => ({
+    ...COIL_TURNS.map((r, i): Part => ({
       geometry: new TorusGeometry(r, 0.02, 5, 14),
       color: shade(ROPE_COLOR, 0.82 - i * 0.04),
-      position: [COIL[0] + i * 0.01, 0.02 + i * 0.03, COIL[1] - i * 0.008],
+      position: [COIL[0] + i * COIL_STEP[0], 0.02 + i * COIL_RISE, COIL[1] + i * COIL_STEP[1]],
       rotation: flat,
     })),
   ];

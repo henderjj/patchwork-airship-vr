@@ -17,12 +17,12 @@
  *   moving, a nose-down trim makes it descend.
  */
 
-import { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH } from './gondola-layout.js';
+import { BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, FUNNEL_POSITION } from './gondola-layout.js';
 
 /** Hopper mouth: a brick whose centre comes within this region and isn't held is burned. */
 export const HOPPER = {
-  x: BURNER_POSITION[0],
-  z: BURNER_POSITION[2],
+  x: FUNNEL_POSITION[0],
+  z: FUNNEL_POSITION[1],
   /** Horizontal reach from the hopper's centre line, m (the burner top is 0.42 m across). */
   radius: 0.22,
   /** From just above the burner's top (where a dropped brick comes to rest) to well above it, m. */
