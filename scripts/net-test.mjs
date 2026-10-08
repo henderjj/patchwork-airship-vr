@@ -824,19 +824,26 @@ async function botChecks(browser) {
   }), HEAD);
 
   // Ready check: the player rings, the bot follows, the ship casts off.
+  // Each page's view: host or guest, the run's phase, and the ready line on the board.
+  const view = (page) => page.evaluate(() => `${window.__net.session.isHost ? 'host' : 'guest'} ${window.__route.run.phase} "${window.__route.boardText()[3] ?? ''}"`);
   await me.page.evaluate(() => {
     window.__ship.fly();
     window.__ship.feedFuel();
     window.__ship.feedFuel();
   });
+  // Ring once the bot has the fresh run (as in the two-player ready check).
+  const synced = await waitFor('the bot to see the run waiting', async () => {
+    const b = await bot.page.evaluate(() => window.__route.boardText());
+    return b[3] === 'You ...  Crewmate ...';
+  }, 5000).then(() => true).catch(() => false);
   await me.page.waitForTimeout(1500);
-  const before = await me.page.evaluate(() => window.__route.run.phase);
+  const before = await view(me.page);
   await me.page.evaluate(() => window.__route.ring());
   const castOff = await waitFor('the ship to cast off', async () =>
     (await me.page.evaluate(() => window.__route.run.phase)) === 'flying', 15000).then(() => true).catch(() => false);
   const rings = await bot.page.evaluate(() => window.__bot.stats.rings);
-  check('Practice crewmate: rings the bell after the player, and the ship casts off', before === 'ready' && castOff && rings >= 1,
-    `${before} before ringing, then ${castOff ? 'cast off' : 'still moored'}; the bot rang ${rings} time(s)`);
+  check('Practice crewmate: rings the bell after the player, and the ship casts off', before.includes('ready') && castOff && rings >= 1,
+    `player ${before} before ringing${synced ? '' : ' (the bot never saw the run waiting)'}, then ${castOff ? 'cast off' : 'still moored'}; the bot rang ${rings} time(s)${castOff ? '' : `; now player sees ${await view(me.page)}, bot sees ${await view(bot.page)}`}`);
   await me.page.evaluate(() => {
     window.__ship.fly();
     window.__ship.setProfile('still');
