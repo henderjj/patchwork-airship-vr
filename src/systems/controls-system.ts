@@ -35,6 +35,7 @@ import {
   BellClapper,
   overboard,
   rudderFromHand,
+  TILLER_LENGTH,
   TILLER_PIVOT,
   TILLER_REACH,
   tillerAngle,
@@ -49,6 +50,7 @@ import {
 } from '../sim/gondola-controls.js';
 import { sounds } from './audio-system.js';
 import { grip, handUse } from './grip-system.js';
+import { HoldKind, lockResolvers } from './hand-lock.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { bell } from './route-system.js';
 import { dropBallast, flightControls, flightInfo, ship, stations } from './ship-system.js';
@@ -157,6 +159,8 @@ export class ControlsSystem extends createSystem({}) {
   /** Where the hand holding the lanyard took it, from the toggle, so taking it doesn't tug it. */
   private lanyardGrip = new Vector3();
   private bellStrikes = 0;
+  /** The rudder setting the tiller is drawn at. */
+  private drawnRudder = 0;
 
   init(): void {
     this.tiller = createTillerBar();
@@ -238,6 +242,27 @@ export class ControlsSystem extends createSystem({}) {
       bell: () => ({ strikes: this.bellStrikes, peak: this.clapper.peak }),
     };
     (window as unknown as { __controls: ControlsDebug }).__controls = debug;
+
+    // Grip locking: hands are drawn on the tiller's handle, the vent cord's toggle and the bell lanyard's toggle.
+    lockResolvers.set(HoldKind.Tiller, (_hand, point, axis) => {
+      const a = tillerAngle(this.drawnRudder);
+      const along = TILLER_LENGTH - 0.075;
+      point.set(TILLER_PIVOT[0] + Math.sin(a) * along, TILLER_PIVOT[1] + 0.04, TILLER_PIVOT[2] - Math.cos(a) * along);
+      axis.set(Math.sin(a), 0, -Math.cos(a));
+    });
+    lockResolvers.set(HoldKind.Vent, (_hand, point, axis) => {
+      point.set(VENT_TOGGLE[0], this.toggleY, VENT_TOGGLE[2]);
+      axis.set(1, 0, 0);
+    });
+    lockResolvers.set(HoldKind.Bell, (_hand, point, axis) => {
+      point.copy(this.lanyardEnd);
+      axis.set(1, 0, 0);
+    });
+    this.cleanupFuncs.push(() => {
+      lockResolvers.delete(HoldKind.Tiller);
+      lockResolvers.delete(HoldKind.Vent);
+      lockResolvers.delete(HoldKind.Bell);
+    });
   }
 
   update(delta: number): void {
@@ -454,6 +479,7 @@ export class ControlsSystem extends createSystem({}) {
     // Tiller: in this player's hand, else as the host flies it.
     const rudder = this.localRudder ?? (netLink.connected && !netLink.isHost ? flightInfo.rudder : flightControls.rudder);
     this.tiller.rotation.y = -tillerAngle(rudder);
+    this.drawnRudder = rudder;
 
     // Vent toggle: in this player's hand, else as far as the vent is open.
     const holdingVent = this.hold.left === 'vent' || this.hold.right === 'vent' || this.testHold.vent !== null;

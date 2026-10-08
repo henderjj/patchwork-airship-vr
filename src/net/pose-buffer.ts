@@ -98,6 +98,7 @@ export function copyAvatar(a: AvatarPose, out: AvatarPose): void {
   out.flags = a.flags;
   copyCurls(a.leftFingers, out.leftFingers);
   copyCurls(a.rightFingers, out.rightFingers);
+  out.holds = a.holds;
 }
 
 function lerpCurl(a: number, b: number, t: number): number {
@@ -133,6 +134,7 @@ export function lerpAvatar(a: AvatarPose, b: AvatarPose, t: number, out: AvatarP
   lerpPose(a.left, b.left, t, out.left);
   lerpPose(a.right, b.right, t, out.right);
   out.flags = t < 0.5 ? a.flags : b.flags;
+  out.holds = t < 0.5 ? a.holds : b.holds;
   lerpFingers(a.leftFingers, b.leftFingers, t, out.leftFingers);
   lerpFingers(a.rightFingers, b.rightFingers, t, out.rightFingers);
 }

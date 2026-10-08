@@ -26,6 +26,7 @@ import { wrapNear } from '../sim/world-tile.js';
 import { ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
 import { FLAG_LEFT_ROPE, FLAG_LEFT_TRACKED, FLAG_RIGHT_ROPE, FLAG_RIGHT_TRACKED, netLink } from './net-system.js';
 import { grip } from './grip-system.js';
+import { HoldKind, lockResolvers } from './hand-lock.js';
 import { flightInfo, ship } from './ship-system.js';
 
 /**
@@ -114,6 +115,12 @@ export class RopeSystem extends createSystem({}) {
     };
     (window as unknown as { __rope: RopeDebug }).__rope = debug;
     this.cleanupFuncs.push(() => netLink.handlers.delete(PacketType.Rope));
+    // Grip locking: a hand on the line is drawn round it, level with where the real hand is along it.
+    lockResolvers.set(HoldKind.Rope, (hand, point, axis) => {
+      point.set(ROPE_X, ROPE_Y, ROPE_Z0 + Math.max(0, Math.min(ROPE_RUN, hand.z - ROPE_Z0)));
+      axis.set(0, 0, 1);
+    });
+    this.cleanupFuncs.push(() => lockResolvers.delete(HoldKind.Rope));
   }
 
   /**

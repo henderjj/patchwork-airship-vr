@@ -1,25 +1,38 @@
-import { createSystem, Vector3, VisibilityState } from '@iwsdk/core';
-import { poseName } from '../sim/hand-pose.js';
+import { createSystem, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
+import { copyCurls, createFingerCurls, poseName } from '../sim/hand-pose.js';
 import { createAvatarHand, crewCoat } from '../scene-assets/avatar.scene-asset.js';
 import type { PosedHand } from '../scene-assets/hand.scene-asset.js';
-import { handCurls } from './grip-system.js';
-import { crewLook } from './net-system.js';
+import { forcedRelease, handCurls, handUse } from './grip-system.js';
+import { LOCK_SLIP, LockedHand } from './hand-lock.js';
+import { crewLook, holdKindOf, netLink, NetSystem } from './net-system.js';
 
 const SIDES = ['left', 'right'] as const;
 
 /**
- * This player's own hands in VR: the same mittens and sleeves the crewmate
+ * This player's own hands in VR: the same gloves and sleeves the crewmate
  * sees, in this player's coat colour, at each controller's (or tracked
  * hand's) grip pose, posed by the fingers on the controller (or the tracked
- * hand's own fingers; see GripSystem). They replace IWSDK's controller and hand models, which
- * are never loaded: on Quest 3 those are two 4,470-triangle controllers in
- * six draw calls each, downloaded from a CDN (about 430 KB) when a session
- * starts.
+ * hand's own; see GripSystem). While a hand holds the crank, the line, the
+ * tiller, the vent cord or the bell lanyard it is drawn closed on the handle
+ * instead (grip locking, see hand-lock.ts), and lets go if the real hand
+ * strays more than LOCK_SLIP from it. The crewmate's hands are locked here
+ * too, through NetSystem, so this runs after the systems that move the
+ * controls.
+ *
+ * The hands replace IWSDK's controller and hand models, which are never
+ * loaded: on Quest 3 those are two 4,470-triangle controllers in six draw
+ * calls each, downloaded from a CDN (about 430 KB) when a session starts.
  */
 export class OwnHandsSystem extends createSystem({}) {
   private hands!: Record<(typeof SIDES)[number], PosedHand>;
   private shownColor = -1;
   private scale = new Vector3();
+  private gripPos = new Vector3();
+  private gripQuat = new Quaternion();
+  private locks = { left: new LockedHand(), right: new LockedHand() };
+  /** The fingers as drawn: the player's, closed round anything they hold. */
+  private curls = { left: createFingerCurls(), right: createFingerCurls() };
+  private net: NetSystem | undefined;
 
   init(): void {
     const adapters = this.input.xr.visualAdapters;
@@ -46,11 +59,14 @@ export class OwnHandsSystem extends createSystem({}) {
       color: () => this.shownColor,
       position: (side: (typeof SIDES)[number]) => this.hands[side].mesh.position.toArray(),
       curls: (side: (typeof SIDES)[number]) => ({ ...handCurls[side] }),
+      /** How far each hand is eased onto what it holds (0 at the controller, 1 on the handle). */
+      locked: (side: (typeof SIDES)[number]) => this.locks[side].blend,
       pose: (side: (typeof SIDES)[number]) => poseName(handCurls[side]),
     };
   }
 
-  update(): void {
+  update(delta: number): void {
+    const dt = Math.min(delta, 0.1);
     if (crewLook.color !== this.shownColor) {
       this.shownColor = crewLook.color;
       for (const side of SIDES) {
@@ -58,15 +74,24 @@ export class OwnHandsSystem extends createSystem({}) {
       }
     }
     const immersive = this.world.visibilityState.peek() !== VisibilityState.NonImmersive;
+    const flags = (netLink.extraFlags.crank ?? 0) | (netLink.extraFlags.rope ?? 0);
     for (const side of SIDES) {
       const hand = this.hands[side].mesh;
       hand.visible = immersive && this.input.xr.getPrimaryInputSource(side) !== undefined;
       if (hand.visible) {
         const grip = this.player.gripSpaces[side];
         grip.updateWorldMatrix(true, false);
-        grip.matrixWorld.decompose(hand.position, hand.quaternion, this.scale);
-        this.hands[side].pose(handCurls[side]);
+        grip.matrixWorld.decompose(this.gripPos, this.gripQuat, this.scale);
+        const curls = copyCurls(handCurls[side], this.curls[side]);
+        const lock = this.locks[side];
+        lock.update(dt, holdKindOf(side, flags, handUse[side]), this.gripPos, this.gripQuat, hand.position, hand.quaternion, curls);
+        if (lock.strain > LOCK_SLIP) {
+          forcedRelease[side] = true;
+        }
+        this.hands[side].pose(curls);
       }
     }
+    this.net ??= this.world.getSystem(NetSystem);
+    this.net?.lockCrewHands(dt);
   }
 }

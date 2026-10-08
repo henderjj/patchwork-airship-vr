@@ -419,6 +419,11 @@ async function main() {
   const crankTurned = evalInApp('window.__crank.sim.angle') - crankStart;
   const stillHeld = evalInApp('window.__crank.holders().local[1]');
   check('Turning the hand turns the crank', crankTurned > 1.5 * Math.PI && stillHeld === 'right', `turned ${(crankTurned / (2 * Math.PI)).toFixed(2)} turns, held by ${stillHeld}`);
+  // Grip locking: the drawn hand sits on the handle, not at the controller.
+  const lockedOn = evalInApp('({ blend: window.__ownHands.locked("right"), hand: window.__ownHands.position("right"), handle: window.__crank.handle(1) })');
+  const lockGap = Math.hypot(...lockedOn.hand.map((v, i) => v - lockedOn.handle[i]));
+  check('The drawn hand locks onto the crank handle it holds', lockedOn.blend === 1 && lockGap < 0.005,
+    `eased ${lockedOn.blend.toFixed(2)} onto it, ${(lockGap * 100).toFixed(1)} cm from the handle`);
   const propellerTurned = propellerAngle() - propellerStart;
   check('The crank turns the propeller at the bow', Math.abs(propellerTurned - 3 * crankTurned) < 0.3,
     `${(propellerTurned / (2 * Math.PI)).toFixed(2)} turns for the crank's ${(crankTurned / (2 * Math.PI)).toFixed(2)}`);
@@ -427,6 +432,21 @@ async function main() {
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
   await sleep(300);
   check('Letting go releases the crank', evalInApp('window.__crank.holders().local[1]') === null);
+  // A hand pulled well away from the handle it holds lets go, though the grip is still squeezed:
+  // here straight out from the pedestal, which doesn't turn the crank.
+  const handleNow = evalInApp('window.__crank.handle(1)');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(handleNow), duration: 0.3 });
+  await sleep(500);
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 1 }] });
+  await sleep(300);
+  const retaken = evalInApp('window.__crank.holders().local[1]');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([handleNow[0] + 0.4, handleNow[1], handleNow[2]]), duration: 0.4 });
+  await sleep(700);
+  const strayed = evalInApp('({ holder: window.__crank.holders().local[1], blend: window.__ownHands.locked("right") })');
+  check('A hand pulled 40 cm off the handle lets go of it', retaken === 'right' && strayed.holder === null && strayed.blend === 0,
+    `retaken by ${retaken}, then held by ${strayed.holder}, drawn ${strayed.blend.toFixed(2)} onto it`);
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
+  await sleep(200);
   iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: { x: 0.3, y: 1.0, z: 0.2 }, duration: 0.4 });
 
   // 5c. Take the mooring line along the port rail with the left hand and haul it in.
