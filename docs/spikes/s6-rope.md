@@ -4,8 +4,8 @@ Status: built and tested in the emulated headset and between two networked brows
 
 ## How it works
 
-- **The mooring line** comes aboard through a brass fairlead at the bow end of the port rail. It runs along the inside of the rail to the stern, where it drops to a coil on the deck. Outboard it runs off towards the dock. Red marker bands on the line show it moving.
-- **Hauling.** Stand at the port rail and squeeze the grip within 10 cm of the line to take hold. Pull towards the stern, let go, reach forward with the other hand and repeat. The hand holds the bit of rope under it and pulls it like a stiff spring. Each player's total pull, from both hands together, is capped. The dock pulls the line back out with a steady load, so if nobody holds it, it runs out.
+- **The mooring line** comes aboard through a brass fairlead at the bow end of the port rail. It runs along the inside of the rail to the stern, where it drops to a coil on the deck. Outboard, the line still out hangs over the side, swinging with the felt gravity and trailing aft with speed; hauling shortens it, and it stops where it reaches an island below. Red marker bands on the line show it moving. There is no dock yet: throwing the line or a grapple to a dock post and hauling the ship in is the docking feature planned for Phase 3, and this spike tests only the hauling.
+- **Hauling.** Stand at the port rail and squeeze the grip within 10 cm of the line to take hold. Pull towards the stern, let go, reach forward with the other hand and repeat. The hand holds the bit of rope under it and pulls it like a stiff spring. Each player's total pull, from both hands together, is capped. The line's weight (standing in for the dock) pulls it back out with a steady load, so if nobody holds it, it runs out.
 - **Solo vs crew.**
   - **One player** can haul alone, but only slowly, up to about 0.5 m/s. Pulling harder than that makes the line slip through their hands.
   - **Two players** can pull twice as hard.
@@ -13,7 +13,7 @@ Status: built and tested in the emulated headset and between two networked brows
 - **What counts as a stroke.** Each grab can start one stroke, when the hand first pulls inboard briskly within 0.3 s of grabbing. If the line slips through a hand and the hand catches it again mid-pull, that doesn't count as a new stroke. Without this rule, slipping hands made ragged hauling look like heaves.
 - **Latency.** As with the crank, every hand input carries the time the hand was there. It is measured against where the line was at that moment, and stroke starts are timed by the hand's own time, so a crewmate's delay doesn't spoil the rhythm.
 - **Network.** The host runs the line and sends a 16-byte state 45 times a second. The guest predicts and blends towards it. A player's grip on the line travels in two more spare bits of the pose packet.
-- **The sign** at the stern end of the run shows metres hauled out of 8 and the heave count, and "DOCKED!" when the whole line is in.
+- **The sign** at the stern end of the run shows metres hauled out of 8 and the heave count, and "ALL IN!" when the whole line is in.
 
 ## Results in the cloud
 
@@ -36,7 +36,7 @@ Status: built and tested in the emulated headset and between two networked brows
 1. **Solo.** Alone, stand at the port rail, take the line and haul hand over hand. Note whether it feels like a heavy line: it should move, but slowly, and slip if you yank it.
 2. **Together.** Both players stand at the port rail, one behind the other, and haul. Try calling "heave!" and starting strokes together: the sign should flash "HEAVE!" with a double pulse in the controllers, and the line should come in noticeably faster. Note how easy the rhythm is to find, and whether 150 ms feels too strict or too loose.
 3. **With latency.** Repeat with `&netlag=60&netjitter=20&netloss=0.01` on both URLs, and between two homes.
-4. **Dock.** Haul all 8 m in; the sign says "DOCKED!". Reload the page to start again.
+4. **All in.** Haul all 8 m in; the sign says "ALL IN!" and nothing hangs over the side. Reload the page to start again.
 
 ## Tuning knobs
 

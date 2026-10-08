@@ -22,7 +22,7 @@ import {
   createVentToggle,
 } from '../scene-assets/controls.scene-asset.js';
 import { FIRE_DOOR } from '../scene-assets/gondola.scene-asset.js';
-import { BURNER_POSITION, BURNER_SIZE } from '../sim/gondola-layout.js';
+import { BURNER_POSITION, BURNER_SIZE, LANTERN_HOOK } from '../sim/gondola-layout.js';
 import {
   BALLAST_BAGS,
   BALLAST_REACH,
@@ -177,7 +177,7 @@ export class ControlsSystem extends createSystem({}) {
     this.fireGlow.position.set(BURNER_POSITION[0] - BURNER_SIZE[0] / 2 - 0.002, FIRE_DOOR[0], BURNER_POSITION[2]);
     this.world.createTransformEntity(this.fireGlow);
     this.lantern = createLantern();
-    this.lantern.position.set(-0.45, 2.15, 0.55);
+    this.lantern.position.set(LANTERN_HOOK[0], LANTERN_HOOK[1], LANTERN_HOOK[2]);
     // The ship's bell's clapper and lanyard (the bell itself belongs to the route, RouteSystem).
     this.clapperMesh = createBellClapper();
     this.clapperMesh.position.set(BELL_PIVOT[0], BELL_PIVOT[1], BELL_PIVOT[2]);
@@ -210,12 +210,10 @@ export class ControlsSystem extends createSystem({}) {
         sounds.bell(Math.min(1, speed / LOUDEST_STRIKE));
       }
     });
-    // The keyboard's bell: a tug on the lanyard towards the bow.
+    // The keyboard's (and the practice crewmate's) bell: a tug on the lanyard towards the bow.
     bell.knock = () => {
-      if (flightInfo.flying) {
-        this.clapper.knock(0, -1, LOUDEST_STRIKE / 2);
-        this.struck(LOUDEST_STRIKE / 2, null);
-      }
+      this.clapper.knock(0, -1, LOUDEST_STRIKE / 2);
+      this.struck(0, -1, LOUDEST_STRIKE / 2, null);
     };
     this.cleanupFuncs.push(() => {
       netLink.events.delete('bell');
@@ -564,17 +562,17 @@ export class ControlsSystem extends createSystem({}) {
     const side: Side | null = this.hold.left === 'bell' ? 'left' : this.hold.right === 'bell' ? 'right' : null;
     const speed = this.clapper.step(dt, side !== null, this.lanyardEnd.x, this.lanyardEnd.z);
     if (speed > 0 && flightInfo.flying) {
-      this.struck(speed, side);
-      if (netLink.connected) {
-        const strike = this.clapper.lastStrike;
-        netLink.sendEvent({ t: 'bell', x: Math.round(strike.x * 100) / 100, z: Math.round(strike.z * 100) / 100, s: Math.round(speed * 100) / 100 } as { t: string });
-      }
+      const strike = this.clapper.lastStrike;
+      this.struck(strike.x, strike.z, speed, side);
     }
   }
 
-  /** This player's clapper struck the bell: sound it, feel it in the hand, and ring for the route. */
-  private struck(speed: number, side: Side | null): void {
+  /** This player's clapper struck the bell towards (x, z): sound it, feel it in the hand, tell the crewmate, and ring for the route. */
+  private struck(x: number, z: number, speed: number, side: Side | null): void {
     this.bellStrikes++;
+    if (netLink.connected) {
+      netLink.sendEvent({ t: 'bell', x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, s: Math.round(speed * 100) / 100 } as { t: string });
+    }
     sounds.bell(Math.min(1, speed / LOUDEST_STRIKE));
     if (side) {
       this.pulse(side, Math.min(1, 0.3 + speed / LOUDEST_STRIKE), 50);

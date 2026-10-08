@@ -55,7 +55,7 @@ const SIGNS: readonly Sign[] = [
   {
     title: 'FUEL',
     hint: 'Bricks for the burner',
-    at: [FUEL_CRATE_POSITION[0], 0.2, FUEL_CRATE_POSITION[2] - FUEL_CRATE_SIZE[2] / 2 - 0.004],
+    at: [FUEL_CRATE_POSITION[0], FUEL_CRATE_POSITION[1] + 0.13, FUEL_CRATE_POSITION[2] - FUEL_CRATE_SIZE[2] / 2 - 0.004],
     facing: [0, 0, -1],
     twoSided: false,
   },

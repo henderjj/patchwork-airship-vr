@@ -13,6 +13,15 @@ const onOff = (s: boolean) => (s ? '1' : '0');
 
 export const MENU_ITEMS: readonly MenuItem[] = [
   {
+    key: 'bot',
+    label: 'This page plays as',
+    options: [
+      ['0', 'Me'],
+      ['1', 'Practice crewmate (a bot)'],
+    ],
+    current: (s) => onOff(s.bot),
+  },
+  {
     key: 'motion',
     label: 'Ship',
     options: [

@@ -6,9 +6,9 @@ import {
   MeshLambertMaterial,
 } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly.js';
-import { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
+import { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK } from '../sim/gondola-layout.js';
 
-export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH };
+export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK };
 
 /**
  * The gondola: a 2 × 3 m wood-and-canvas deck that is the players' fixed frame
@@ -25,14 +25,22 @@ export const RAIL_HEIGHT = 1.0;
 export const ENVELOPE_CENTER = [0, 7.2, 0] as const;
 export const ENVELOPE_RADII = [3.0, 2.8, 5.2] as const;
 
-/** Fuel crate at the stern, port side; bricks start inside it. */
-export const FUEL_CRATE_POSITION = [-0.55, 0, 1.1] as const;
-export const FUEL_CRATE_SIZE = [0.6, 0.32, 0.45] as const;
+/**
+ * Fuel crate at the stern, port side, standing on a locker so the bricks are
+ * at about waist height; bricks start inside it. The position is the centre
+ * of the crate's base.
+ */
+export const FUEL_CRATE_POSITION = [-0.55, 0.55, 1.1] as const;
+export const FUEL_CRATE_SIZE = [0.6, 0.26, 0.45] as const;
+/** The locker under the fuel crate is this much narrower and shallower than the crate, m. */
+const LOCKER_INSET = 0.04;
 /** The burner's fire door on its port side: centre height, width and height, m. */
 export const FIRE_DOOR = [0.3, 0.2, 0.18] as const;
 /** Crank pedestal at the bow; the crank axle runs along X. */
 export const CRANK_POSITION = [0, 0, -1.2] as const;
 export const CRANK_AXLE_HEIGHT = 1.0;
+/** The propeller's hub, out past the bow on the drive shaft from the crank pedestal; it turns about Z. */
+export const PROPELLER_HUB = [0, 0.75, -DECK_LENGTH / 2 - 0.42] as const;
 
 export interface BoxCollider {
   name: string;
@@ -84,15 +92,16 @@ export const GONDOLA_COLLIDERS: BoxCollider[] = [
 ];
 
 function crateColliders(): BoxCollider[] {
-  const [cx, , cz] = FUEL_CRATE_POSITION;
+  const [cx, cy, cz] = FUEL_CRATE_POSITION;
   const [w, h, d] = FUEL_CRATE_SIZE;
   const t = 0.03;
   return [
-    { name: 'crate-floor', center: [cx, t / 2, cz], size: [w, t, d] },
-    { name: 'crate-left', center: [cx - w / 2 + t / 2, h / 2, cz], size: [t, h, d] },
-    { name: 'crate-right', center: [cx + w / 2 - t / 2, h / 2, cz], size: [t, h, d] },
-    { name: 'crate-front', center: [cx, h / 2, cz - d / 2 + t / 2], size: [w, h, t] },
-    { name: 'crate-back', center: [cx, h / 2, cz + d / 2 - t / 2], size: [w, h, t] },
+    { name: 'crate-locker', center: [cx, cy / 2, cz], size: [w - LOCKER_INSET, cy, d - LOCKER_INSET] },
+    { name: 'crate-floor', center: [cx, cy + t / 2, cz], size: [w, t, d] },
+    { name: 'crate-left', center: [cx - w / 2 + t / 2, cy + h / 2, cz], size: [t, h, d] },
+    { name: 'crate-right', center: [cx + w / 2 - t / 2, cy + h / 2, cz], size: [t, h, d] },
+    { name: 'crate-front', center: [cx, cy + h / 2, cz - d / 2 + t / 2], size: [w, h, t] },
+    { name: 'crate-back', center: [cx, cy + h / 2, cz + d / 2 - t / 2], size: [w, h, t] },
   ];
 }
 
@@ -149,6 +158,8 @@ function bulwarkParts(): Part[] {
   }
   for (const z of [-hl + 0.03, hl - 0.03]) {
     for (const x of postXs) {
+      // The bow's middle post would be in the propeller's drive shaft; its bearing post takes that place.
+      if (x === 0 && z < 0) continue;
       parts.push(box([0.06, RAIL_HEIGHT - BULWARK_HEIGHT, 0.06], [x, (RAIL_HEIGHT + BULWARK_HEIGHT) / 2, z], WOOD));
     }
   }
@@ -247,25 +258,53 @@ function burnerParts(): Part[] {
 }
 
 function crateParts(): Part[] {
-  const [cx, , cz] = FUEL_CRATE_POSITION;
+  const [cx, cy, cz] = FUEL_CRATE_POSITION;
   const [w, h, d] = FUEL_CRATE_SIZE;
   const t = 0.03;
+  const lw = w - LOCKER_INSET;
+  const ld = d - LOCKER_INSET;
   return [
-    box([w, t, d], [cx, t / 2, cz], WOOD_DARK),
-    box([t, h, d], [cx - w / 2 + t / 2, h / 2, cz], WOOD),
-    box([t, h, d], [cx + w / 2 - t / 2, h / 2, cz], WOOD),
-    box([w, h, t], [cx, h / 2, cz - d / 2 + t / 2], WOOD_LIGHT),
-    box([w, h, t], [cx, h / 2, cz + d / 2 - t / 2], WOOD_LIGHT),
+    // The locker it stands on: a dark plank chest with iron corner straps and a lid rim.
+    box([lw, cy, ld], [cx, cy / 2, cz], WOOD_DARK),
+    box([lw + 0.02, 0.03, ld + 0.02], [cx, cy - 0.015, cz], WOOD),
+    box([lw + 0.01, 0.04, ld + 0.01], [cx, 0.02, cz], shade(IRON, 0.9)),
+    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => box([0.035, cy - 0.06, 0.035], [cx + sx * (lw / 2 - 0.01), cy / 2, cz + sz * (ld / 2 - 0.01)], IRON))),
+    // The open crate on top.
+    box([w, t, d], [cx, cy + t / 2, cz], WOOD_DARK),
+    box([t, h, d], [cx - w / 2 + t / 2, cy + h / 2, cz], WOOD),
+    box([t, h, d], [cx + w / 2 - t / 2, cy + h / 2, cz], WOOD),
+    box([w, h, t], [cx, cy + h / 2, cz - d / 2 + t / 2], WOOD_LIGHT),
+    box([w, h, t], [cx, cy + h / 2, cz + d / 2 - t / 2], WOOD_LIGHT),
+  ];
+}
+
+/** The lantern's iron bracket: a collar round the burner flue and an arm out to the hook. */
+function lanternBracketParts(): Part[] {
+  const [hx, hy, hz] = LANTERN_HOOK;
+  const [fx, , fz] = BURNER_POSITION;
+  const collarX = fx - 0.07;
+  return [
+    { geometry: new CylinderGeometry(0.085, 0.085, 0.05, 8), color: IRON, position: [fx, hy, fz] },
+    beam([collarX, hy, fz], [hx, hy, hz], 0.016, IRON, 4),
+    // A diagonal brace under the arm, and the hook's eye at its end.
+    beam([collarX, hy - 0.22, fz], [(collarX + hx) / 2, hy, (fz + hz) / 2], 0.01, IRON, 4),
+    beam([hx, hy, hz], [hx, hy - 0.03, hz], 0.008, IRON, 4),
   ];
 }
 
 function crankPedestalParts(): Part[] {
   const [x, , z] = CRANK_POSITION;
+  const [, shaftY, hubZ] = PROPELLER_HUB;
+  const bowZ = -DECK_LENGTH / 2 + 0.03;
   return [
     box([0.14, CRANK_AXLE_HEIGHT - 0.05, 0.14], [x, (CRANK_AXLE_HEIGHT - 0.05) / 2, z], WOOD_DARK),
     box([0.3, 0.05, 0.3], [x, 0.025, z], IRON),
-    // Drive shaft forward to the propeller at the bow.
-    beam([x, CRANK_AXLE_HEIGHT - 0.1, z], [x, 0.5, -DECK_LENGTH / 2 - 0.3], 0.03, IRON),
+    // Gearbox on the pedestal's bow face, and the drive shaft forward over the bulwark to the propeller.
+    box([0.12, 0.14, 0.08], [x, shaftY, z - 0.1], IRON),
+    beam([x, shaftY, z - 0.14], [x, shaftY, hubZ + 0.04], 0.022, IRON, 6),
+    // The shaft's bearing on a short post on the bow bulwark.
+    box([0.08, shaftY - BULWARK_HEIGHT - 0.03, 0.06], [x, (shaftY + BULWARK_HEIGHT - 0.03) / 2, bowZ], WOOD),
+    { geometry: new CylinderGeometry(0.045, 0.045, 0.07, 8), color: BRASS, position: [x, shaftY, bowZ], rotation: [Math.PI / 2, 0, 0] },
   ];
 }
 
@@ -294,6 +333,7 @@ export function createGondolaRigging(): Mesh {
       ...envelopeParts(),
       ...burnerParts(),
       ...crateParts(),
+      ...lanternBracketParts(),
       ...crankPedestalParts(),
       ...tillerPostParts(),
     ]),

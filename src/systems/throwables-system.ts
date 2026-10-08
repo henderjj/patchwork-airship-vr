@@ -103,6 +103,19 @@ export interface TestHand {
 }
 type TestHandFn = (nowMs: number) => TestHand | null;
 
+/** One throwable as a player sees it (read with `readObject`). */
+export interface ObjectView {
+  /** The crewmate is simulating it (it's drawn from their packets). */
+  remote: boolean;
+  /** Which of this player's hands holds it. */
+  heldBy: 'left' | 'right' | null;
+  /** The crewmate is holding it. */
+  remoteHeld: boolean;
+  pos: [number, number, number];
+  /** m/s */
+  speed: number;
+}
+
 interface Throwable {
   id: number;
   entity: Entity;
@@ -245,24 +258,7 @@ export class ThrowablesSystem extends createSystem({}) {
     });
 
     const debug: ThrowDebug = {
-      setTestHand: (side, hand) => {
-        this.testHands[side] = hand;
-        const pose = this.testPoses[side];
-        netLink.handOverride[side] = hand
-          ? (sendMs) => {
-              const h = this.testHands[side]?.(sendMs);
-              if (h) {
-                pose.px = h.x;
-                pose.py = h.y;
-                pose.pz = h.z;
-              }
-              return pose;
-            }
-          : null;
-        const bit = side === 'left' ? FLAG_LEFT_TRACKED : FLAG_RIGHT_TRACKED;
-        const flags = netLink.extraFlags.throw ?? 0;
-        netLink.extraFlags.throw = hand ? flags | bit : flags & ~bit;
-      },
+      setTestHand: (side, hand) => this.setScriptedHand(side, hand),
       objects: () =>
         this.objects.map((o) => {
           const s = this.ownership.objects[o.id];
@@ -293,6 +289,44 @@ export class ThrowablesSystem extends createSystem({}) {
       stats: this.stats,
     };
     (window as unknown as { __throw: ThrowDebug }).__throw = debug;
+  }
+
+  /** Move this player's `side` hand by script (position and squeeze for a time), or stop with null: for tests and the practice crewmate. */
+  setScriptedHand(side: Side, hand: TestHandFn | null): void {
+    this.testHands[side] = hand;
+    const pose = this.testPoses[side];
+    netLink.handOverride[side] = hand
+      ? (sendMs) => {
+          const h = this.testHands[side]?.(sendMs);
+          if (h) {
+            pose.px = h.x;
+            pose.py = h.y;
+            pose.pz = h.z;
+          }
+          return pose;
+        }
+      : null;
+    const bit = side === 'left' ? FLAG_LEFT_TRACKED : FLAG_RIGHT_TRACKED;
+    const flags = netLink.extraFlags.throw ?? 0;
+    netLink.extraFlags.throw = hand ? flags | bit : flags & ~bit;
+  }
+
+  /** How many throwable objects there are. */
+  get objectCount(): number {
+    return this.objects.length;
+  }
+
+  /** Fill `out` with object `id`'s state as this player sees it, without allocating. */
+  readObject(id: number, out: ObjectView): void {
+    const o = this.objects[id];
+    const p = o.entity.object3D!.position;
+    out.remote = o.remote;
+    out.heldBy = o.heldBy;
+    out.remoteHeld = this.ownership.objects[id].remoteHeld;
+    out.pos[0] = p.x;
+    out.pos[1] = p.y;
+    out.pos[2] = p.z;
+    out.speed = o.speed;
   }
 
   update(delta: number): void {
@@ -332,11 +366,11 @@ export class ThrowablesSystem extends createSystem({}) {
       const p = o.entity.object3D!.position;
       if (!o.remote && !o.heldBy && p.y < OVERBOARD_Y) {
         // Fell overboard: back to the crate.
-        this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
+        this.placeAtRest(o, FUEL_CRATE_POSITION[0], FUEL_CRATE_POSITION[1] + 0.3 + o.id * 0.08, FUEL_CRATE_POSITION[2]);
       } else if (!o.remote && !o.heldBy && inHopper(p.x, p.y, p.z)) {
         // Phase 2: into the burner. A fresh brick takes its place in the crate.
         feedBurner();
-        this.placeAtRest(o, FUEL_CRATE_POSITION[0], 0.45 + o.id * 0.1, FUEL_CRATE_POSITION[2]);
+        this.placeAtRest(o, FUEL_CRATE_POSITION[0], FUEL_CRATE_POSITION[1] + 0.3 + o.id * 0.08, FUEL_CRATE_POSITION[2]);
       } else if (o.heldBy || (o.remote && o.speed > 0.05)) {
         // A held body (or a moving one the crewmate drives) is moved there
         // outright as well as targeted, so it arrives at rest instead of
