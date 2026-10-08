@@ -71,9 +71,11 @@ export class PerfHudSystem extends createSystem({}) {
       new MeshBasicMaterial({ map: this.texture, toneMapped: false }),
     );
     this.panel.name = 'PerfHud';
-    // Above the back of the left wrist, tilted towards the eyes.
-    this.panel.position.set(0, 0.06, 0.07);
-    this.panel.rotation.set(-Math.PI / 3, 0, 0);
+    // Above the left fist, clear of the glove's cuff and sleeve (which
+    // leave the fist up and back along the grip's +Y and +Z), tilted
+    // towards the eyes.
+    this.panel.position.set(-0.04, 0.16, 0.06);
+    this.panel.rotation.set(-1.2, 0, 0);
     this.world.createTransformEntity(this.panel, {
       parent: this.world.playerSpaceEntities.gripSpaces.left,
       persistent: true,
