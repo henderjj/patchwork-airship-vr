@@ -214,8 +214,8 @@ export class ShipSounds {
     this.played.creak++;
   }
 
-  /** The ship's bell: a struck brass bell's out-of-tune partials, each dying away at its own rate. */
-  bell(): void {
+  /** The ship's bell: a struck brass bell's out-of-tune partials, each dying away at its own rate; `strength` 0 to 1 for how hard it was struck. */
+  bell(strength = 1): void {
     const ctx = this.ctx;
     if (!ctx) {
       return;
@@ -228,7 +228,7 @@ export class ShipSounds {
       [5.95, 0.06, 0.45],
     ];
     for (const [ratio, level, decay] of partials) {
-      this.tone(784 * ratio, 'sine', level, 0.004, decay, this.bellOut, t);
+      this.tone(784 * ratio, 'sine', level * (0.3 + 0.7 * Math.min(1, Math.max(0, strength))), 0.004, decay, this.bellOut, t);
     }
     this.played.bell++;
   }

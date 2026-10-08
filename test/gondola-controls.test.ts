@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   BALLAST_BAG_KG,
+  BELL_HOOK,
   BELL_LANYARD_END,
-  BellPull,
+  BELL_MOUTH,
+  BELL_PIVOT,
+  BELL_STRIKE_ANGLE,
+  BellClapper,
+  CLAPPER_BALL,
+  CLAPPER_BALL_RADIUS,
   BALLAST_BAGS,
   ballastDropped,
   HOPPER,
@@ -70,19 +76,78 @@ describe('gondola controls', () => {
     expect(out.roll).toBeGreaterThan(0);
   });
 
-  it('strikes the bell once for each pull of the lanyard to one side', () => {
-    const pull = new BellPull();
-    const [x, , z] = BELL_LANYARD_END;
-    expect(pull.step(x, z)).toBe(false);
-    expect(pull.step(x + 0.04, z)).toBe(false);
-    expect(pull.step(x + 0.09, z)).toBe(true);
-    // Held out to the side: no more strikes until it swings back.
-    expect(pull.step(x + 0.12, z)).toBe(false);
-    expect(pull.step(x + 0.05, z)).toBe(false);
-    expect(pull.step(x + 0.01, z)).toBe(false);
-    // To the other side, and fore and aft too.
-    expect(pull.step(x - 0.09, z)).toBe(true);
-    expect(pull.step(x, z)).toBe(false);
-    expect(pull.step(x, z + 0.08)).toBe(true);
+  describe('ship\'s bell', () => {
+    const [x0, , z0] = BELL_LANYARD_END;
+    const dt = 1 / 90;
+    /** Swing the clapper for `seconds` with the hand at `hand(t)` (null: let go); returns each strike as [time, side]. */
+    const swing = (clapper: BellClapper, seconds: number, hand: (t: number) => [number, number] | null) => {
+      const strikes: [number, string][] = [];
+      for (let t = 0; t < seconds; t += dt) {
+        const h = hand(t);
+        if (clapper.step(dt, h !== null, h?.[0], h?.[1]) > 0) {
+          const s = clapper.lastStrike;
+          strikes.push([t, Math.abs(s.x) > Math.abs(s.z) ? (s.x > 0 ? 'starboard' : 'port') : s.z > 0 ? 'aft' : 'fore']);
+        }
+      }
+      return strikes;
+    };
+
+    it('stops the clapper\'s ball where it meets the inside of the bell', () => {
+      const ballY = BELL_PIVOT[1] - BELL_HOOK[1] - CLAPPER_BALL * Math.cos(BELL_STRIKE_ANGLE);
+      const t = (ballY - BELL_MOUTH.crownY) / (BELL_MOUTH.lipY - BELL_MOUTH.crownY);
+      const wall = BELL_MOUTH.crownRadius + t * (BELL_MOUTH.lipRadius - BELL_MOUTH.crownRadius);
+      expect(CLAPPER_BALL * Math.sin(BELL_STRIKE_ANGLE) + CLAPPER_BALL_RADIUS).toBeCloseTo(wall, 4);
+      expect(BELL_STRIKE_ANGLE).toBeGreaterThan(0.3);
+      expect(BELL_STRIKE_ANGLE).toBeLessThan(0.6);
+    });
+
+    it('hangs still and silent until the lanyard is pulled', () => {
+      const clapper = new BellClapper();
+      expect(swing(clapper, 2, () => null)).toEqual([]);
+      expect(swing(clapper, 2, () => [x0, z0])).toEqual([]);
+      expect(clapper.peak).toBeLessThan(0.01);
+    });
+
+    it('swings the ball against the side the lanyard is pulled to, once, then rests there', () => {
+      const clapper = new BellClapper();
+      const strikes = swing(clapper, 2, (t) => [x0 + 0.08 * Math.min(1, t / 0.15), z0]);
+      expect(strikes.map(([, side]) => side)).toEqual(['starboard']);
+      expect(strikes[0][0]).toBeLessThan(0.25);
+      expect(clapper.x).toBeCloseTo(BELL_STRIKE_ANGLE, 3);
+      // Fore and aft too.
+      const other = new BellClapper();
+      expect(swing(other, 1, (t) => [x0, z0 - 0.06 * Math.min(1, t / 0.1)]).map(([, side]) => side)).toEqual(['fore']);
+    });
+
+    it('rings on each side in turn when pulled from side to side', () => {
+      for (const hz of [1, 2, 3]) {
+        const clapper = new BellClapper();
+        const strikes = swing(clapper, 3, (t) => [x0 + 0.07 * Math.sin(2 * Math.PI * hz * t), z0]);
+        expect(strikes.length).toBe(Math.round(3 * hz * 2));
+        strikes.forEach(([, side], i) => expect(side).toBe(i % 2 === 0 ? 'starboard' : 'port'));
+      }
+    });
+
+    it('leans the ball against the bell without ringing when pulled very slowly', () => {
+      const clapper = new BellClapper();
+      expect(swing(clapper, 2, (t) => [x0 + 0.08 * Math.min(1, t / 1.5), z0])).toEqual([]);
+      expect(clapper.x).toBeCloseTo(BELL_STRIKE_ANGLE, 3);
+    });
+
+    it('swings back to hang straight when let go', () => {
+      const clapper = new BellClapper();
+      swing(clapper, 1, (t) => [x0 + 0.08 * Math.min(1, t / 0.15), z0]);
+      swing(clapper, 4, () => null);
+      expect(Math.abs(clapper.x)).toBeLessThan(0.02);
+      expect(Math.abs(clapper.vx)).toBeLessThan(0.1);
+    });
+
+    it('shows a strike from elsewhere without sounding it again', () => {
+      const clapper = new BellClapper();
+      clapper.knock(-1, 0, 1);
+      expect(clapper.x).toBeCloseTo(-BELL_STRIKE_ANGLE, 6);
+      expect(swing(clapper, 0.9, () => null)).toEqual([]);
+      expect(clapper.strikes).toBe(0);
+    });
   });
 });

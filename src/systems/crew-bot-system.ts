@@ -233,7 +233,7 @@ export class CrewBotSystem extends createSystem({}) {
       this.lastRing = now;
       this.stats.rings++;
       console.info('[Bot] ringing the bell: ready to cast off');
-      bell.ring();
+      bell.knock();
     }
   }
 

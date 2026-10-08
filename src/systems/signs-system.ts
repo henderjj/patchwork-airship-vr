@@ -47,7 +47,7 @@ const SIGNS: readonly Sign[] = [
     facing: [0, 0, 1],
     twoSided: true,
   },
-  { title: "SHIP'S BELL", hint: 'Pull its lanyard to one side', at: [PORT_RAIL, RAIL_TOP, -1.05], facing: [1, 0, 0], twoSided: true },
+  { title: "SHIP'S BELL", hint: 'Tug its lanyard side to side', at: [PORT_RAIL, RAIL_TOP, -1.05], facing: [1, 0, 0], twoSided: true },
   { title: 'MOORING LINE', hint: 'Haul it towards the stern', at: [PORT_RAIL, RAIL_TOP, -0.45], facing: [1, 0, 0], twoSided: true },
   { title: 'BALLAST', hint: 'Drop a bag overboard to rise', at: [STARBOARD_RAIL, RAIL_TOP, 0.9], facing: [-1, 0, 0], twoSided: true },
   { title: 'TILLER', hint: 'Swing it to steer', at: [TILLER_PIVOT[0], 0.62, TILLER_PIVOT[2] - 0.055], facing: [0, 0, -1], twoSided: false },

@@ -681,20 +681,26 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.5, z: -0.05 } });
   await sleep(800);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-score.png'], {});
-  // The bell, by pulling its lanyard to one side.
+  // The bell, by pulling its lanyard to one side, which swings the clapper
+  // against the bell; then back the other way for a second ring.
   await move([-0.4, 1.2, -0.8]);
   await move([-0.78, 1.18, -1.3]);
   await squeeze(1);
   const lanyardHeld = controlHeld();
   const beforePull = evalInApp('window.__route.run.phase');
-  await move([-0.64, 1.18, -1.28], 0.3);
+  const bellBefore = evalInApp('window.__controls.bell().strikes');
+  await move([-0.66, 1.18, -1.3], 0.15);
   await sleep(300);
-  const rung = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z, bell: window.__route.bell().peak })');
+  const rung = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z, bell: window.__controls.bell() })');
+  await move([-0.9, 1.18, -1.3], 0.2);
+  await sleep(300);
+  const swungBack = evalInApp('window.__controls.bell()');
   await squeeze(0);
   await move([-0.3, 1.2, -0.5]);
-  check('Pulling the bell lanyard to one side rings it and starts again from island A',
-    lanyardHeld === 'bell' && beforePull === 'finished' && rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z && rung.bell > 0.01,
-    `held by ${lanyardHeld}, ${beforePull} then ${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, bell swung ${((rung.bell * 180) / Math.PI).toFixed(0)}°`);
+  check('Pulling the bell lanyard swings the clapper to strike, side to side rings twice, and it starts again from island A',
+    lanyardHeld === 'bell' && beforePull === 'finished' && rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z &&
+      rung.bell.strikes === bellBefore + 1 && rung.bell.peak > 0.3 && swungBack.strikes === bellBefore + 2,
+    `held by ${lanyardHeld}, ${beforePull} then ${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, clapper swung ${((rung.bell.peak * 180) / Math.PI).toFixed(0)}°, ${swungBack.strikes - bellBefore} strikes`);
   // Mid-run, one ring only asks; sinking into the haze loses the run; N (the keyboard's bell) restarts.
   evalInApp('window.__ship.place(0, 126, -40)');
   await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);

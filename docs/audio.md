@@ -8,11 +8,11 @@ Every sound is made in the browser with Web Audio rather than recorded, so the d
 | Wind | A soft rush that rises and falls in slow gusts (swells about 20 s and 55 s long), a little louder and brighter with airspeed and climb; a faint breeze at rest. Even at full speed it stays under the burner | Looped noise through a low-pass whose cutoff rises from about 250 Hz to about 900 Hz with speed |
 | Timber creaks | Now and then at rest (about one every 20 s), up to about one a second while the gondola tilts, eases into or out of a turn, or changes speed at its limits, never closer than 0.6 s. A steady cruise or a steady turn loads the rigging evenly, so it creaks no more than at rest | A sliding sawtooth with a fast wobble through a narrow band-pass, at a random rail post or the load ring |
 | Crank ratchet | One click per eighth of a turn, matching the haptic clicks | A 25 ms burst of high-passed noise at the crank |
-| Ship's bell | Its lanyard pulled to one side (or N) | Four out-of-tune sine partials, each dying away at its own rate, like struck brass |
+| Ship's bell | Each strike of its clapper against the bell, from the lanyard tugged to one side (or N), louder the harder it strikes; the crewmate's strikes too | Four out-of-tune sine partials, each dying away at its own rate, like struck brass |
 | Ring chime | A ring flown through | Two rising notes |
 | Touchdown | The ship settling onto an island | A falling low thump, harder with a faster descent |
 
-The gondola doesn't move in the player's tracking space, so each source stays where it is on deck and only the listener (the player's head) moves. Panning is equal-power rather than HRTF, which costs less on a headset and suits sounds this broad. Each player hears their own copy, driven by the ship state both already share, so nothing extra goes over the network.
+The gondola doesn't move in the player's tracking space, so each source stays where it is on deck and only the listener (the player's head) moves. Panning is equal-power rather than HRTF, which costs less on a headset and suits sounds this broad. Each player hears their own copy, driven by the ship state both already share, so nothing extra goes over the network, except the bell: each strike is sent to the crewmate so they hear it too.
 
 Browsers only start audio after a click or key on the page, or on entering VR, so the sounds start then.
 
