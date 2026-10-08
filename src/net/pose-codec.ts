@@ -6,6 +6,8 @@
  * Pure TypeScript and allocation free when given reusable buffers.
  */
 
+import { createFingerCurls, type FingerCurls } from '../sim/hand-pose.js';
+
 export const PacketType = {
   /** Head and both hands of the sender's avatar. */
   Pose: 1,
@@ -40,6 +42,9 @@ export interface AvatarPose {
   right: PoseSample;
   /** Bit 0: left hand tracked, bit 1: right hand tracked. */
   flags: number;
+  /** How each hand's fingers are curled (Phase 3 posed hands). */
+  leftFingers: FingerCurls;
+  rightFingers: FingerCurls;
 }
 
 export function createPoseSample(): PoseSample {
@@ -47,13 +52,22 @@ export function createPoseSample(): PoseSample {
 }
 
 export function createAvatarPose(): AvatarPose {
-  return { head: createPoseSample(), left: createPoseSample(), right: createPoseSample(), flags: 0 };
+  return {
+    head: createPoseSample(),
+    left: createPoseSample(),
+    right: createPoseSample(),
+    flags: 0,
+    leftFingers: createFingerCurls(1, 1, 1),
+    rightFingers: createFingerCurls(1, 1, 1),
+  };
 }
 
 const POS_SCALE = 1000; // millimetres
 const ROT_SCALE = 32767 / Math.SQRT1_2; // components after dropping the largest are within ±1/√2
-/** type(1) seq(2) time(4) flags(1) + 3 × (pos 6 + rot 7) */
-export const POSE_PACKET_BYTES = 8 + 3 * 13;
+/** type(1) seq(2) time(4) flags(1) + 3 × (pos 6 + rot 7), as sent before posed hands. */
+export const POSE_PACKET_MIN_BYTES = 8 + 3 * 13;
+/** ... + finger curls u8 × 3 per hand (index, grip, thumb; left then right). */
+export const POSE_PACKET_BYTES = POSE_PACKET_MIN_BYTES + 6;
 
 function clamp16(v: number): number {
   return v < -32767 ? -32767 : v > 32767 ? 32767 : Math.round(v);
@@ -113,7 +127,26 @@ export function encodePose(buffer: ArrayBuffer, seq: number, timeMs: number, pos
   let o = writePose(view, 8, pose.head);
   o = writePose(view, o, pose.left);
   o = writePose(view, o, pose.right);
-  return o;
+  o = writeFingers(view, o, pose.leftFingers);
+  return writeFingers(view, o, pose.rightFingers);
+}
+
+function curlByte(v: number): number {
+  return Math.round((v < 0 ? 0 : v > 1 ? 1 : v) * 255);
+}
+
+function writeFingers(view: DataView, offset: number, f: FingerCurls): number {
+  view.setUint8(offset, curlByte(f.index));
+  view.setUint8(offset + 1, curlByte(f.grip));
+  view.setUint8(offset + 2, curlByte(f.thumb));
+  return offset + 3;
+}
+
+function readFingers(view: DataView, offset: number, out: FingerCurls): number {
+  out.index = view.getUint8(offset) / 255;
+  out.grip = view.getUint8(offset + 1) / 255;
+  out.thumb = view.getUint8(offset + 2) / 255;
+  return offset + 3;
 }
 
 export interface PoseHeader {
@@ -121,9 +154,13 @@ export interface PoseHeader {
   timeMs: number;
 }
 
-/** Decode a pose packet; returns false if it isn't one. */
+/**
+ * Decode a pose packet; returns false if it isn't one. A packet from a
+ * version without posed hands has no finger curls; its hands are drawn as
+ * fists, as that version drew them.
+ */
 export function decodePose(view: DataView, header: PoseHeader, out: AvatarPose): boolean {
-  if (view.byteLength < POSE_PACKET_BYTES || view.getUint8(0) !== PacketType.Pose) {
+  if (view.byteLength < POSE_PACKET_MIN_BYTES || view.getUint8(0) !== PacketType.Pose) {
     return false;
   }
   header.seq = view.getUint16(1);
@@ -131,8 +168,21 @@ export function decodePose(view: DataView, header: PoseHeader, out: AvatarPose):
   out.flags = view.getUint8(7);
   let o = readPose(view, 8, out.head);
   o = readPose(view, o, out.left);
-  readPose(view, o, out.right);
+  o = readPose(view, o, out.right);
+  if (view.byteLength >= POSE_PACKET_BYTES) {
+    o = readFingers(view, o, out.leftFingers);
+    readFingers(view, o, out.rightFingers);
+  } else {
+    setFist(out.leftFingers);
+    setFist(out.rightFingers);
+  }
   return true;
+}
+
+function setFist(f: FingerCurls): void {
+  f.index = 1;
+  f.grip = 1;
+  f.thumb = 1;
 }
 
 /** Ping and pong for clock sync: type(1) + t0(8) [+ t1(8)], as float64 ms. */

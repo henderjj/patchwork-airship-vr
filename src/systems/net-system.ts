@@ -8,16 +8,19 @@ import {
   createAvatarHand,
   createAvatarHead,
   createAvatarLegs,
-  avatarHandGeometry,
   avatarTorsoGeometry,
+  crewCoat,
   createAvatarTorso,
   CREW_COLOR_NAMES,
   CREW_COLORS,
   HIP_BELOW_EYES,
   LEG_LENGTH,
 } from '../scene-assets/avatar.scene-asset.js';
+import type { PosedHand } from '../scene-assets/hand.scene-asset.js';
+import { copyCurls, createFingerCurls, type FingerCurls, setCurls } from '../sim/hand-pose.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
+import { handCurls } from './grip-system.js';
 import { perf } from './perf-hud-system.js';
 
 /**
@@ -43,6 +46,9 @@ const SEND_HZ = 45;
  */
 const SCRIPTED_GRIP_PITCH = 0.9;
 const STATS_LOG_MS = 5000;
+/** Finger curls sent for a scripted hand: closed while it holds something, else relaxed. */
+const SCRIPTED_HOLDING = createFingerCurls(1, 1, 1);
+const SCRIPTED_RELAXED = createFingerCurls(0.35, 0.35, 0.3);
 /** Where this player's coat colour is kept in the browser. */
 const COLOR_KEY = 'patchwork-airship.colour';
 
@@ -109,6 +115,8 @@ export const netLink = {
     left: null as ((nowMs: number) => PoseSample) | null,
     right: null as ((nowMs: number) => PoseSample) | null,
   },
+  /** A scripted hand is squeezing (holding a brick), so it is sent as a fist. */
+  scriptedSqueeze: { left: false, right: false },
   /** A head pose to send instead of the camera's (the practice crewmate), or null. */
   headOverride: null as ((nowMs: number) => PoseSample) | null,
   send: (_buffer: ArrayBuffer, _length: number): void => undefined,
@@ -197,8 +205,8 @@ export class NetSystem extends createSystem({}) {
   private head!: Mesh;
   private torso!: Mesh;
   private legs!: Mesh;
-  private leftHand!: Mesh;
-  private rightHand!: Mesh;
+  private leftHand!: PosedHand;
+  private rightHand!: PosedHand;
   private tmpPos = new Vector3();
   private tmpQuat = new Quaternion();
   private tmpScale = new Vector3();
@@ -410,8 +418,8 @@ export class NetSystem extends createSystem({}) {
       mesh.geometry = geometry;
     };
     swap(this.torso, avatarTorsoGeometry(index));
-    swap(this.leftHand, avatarHandGeometry(index, 'left'));
-    swap(this.rightHand, avatarHandGeometry(index, 'right'));
+    this.leftHand.setCoat(crewCoat(index));
+    this.rightHand.setCoat(crewCoat(index));
   }
 
   private async logStats(): Promise<void> {
@@ -438,7 +446,7 @@ export class NetSystem extends createSystem({}) {
     this.legs = createAvatarLegs(index);
     this.leftHand = createAvatarHand(index, 'left');
     this.rightHand = createAvatarHand(index, 'right');
-    for (const mesh of [this.head, this.torso, this.legs, this.leftHand, this.rightHand]) {
+    for (const mesh of [this.head, this.torso, this.legs, this.leftHand.mesh, this.rightHand.mesh]) {
       mesh.visible = false;
       this.world.createTransformEntity(mesh);
     }
@@ -512,7 +520,7 @@ export class NetSystem extends createSystem({}) {
       const test = this.testPose;
       const pose = test === null ? this.readLocalPose() : this.local;
       if (test !== null) {
-        copyAvatar(typeof test === 'function' ? test(now) : test, this.local);
+        copyAvatar(withFingers(typeof test === 'function' ? test(now) : test), this.local);
       }
       for (const key in netLink.extraFlags) {
         pose.flags |= netLink.extraFlags[key];
@@ -530,10 +538,14 @@ export class NetSystem extends createSystem({}) {
       if (netLink.handOverride.left) {
         copyPose(netLink.handOverride.left(now), pose.left);
         this.holdScripted(pose.left);
+        const holding = (pose.flags & (FLAG_LEFT_CRANK | FLAG_LEFT_ROPE)) !== 0 || netLink.scriptedSqueeze.left;
+        copyCurls(holding ? SCRIPTED_HOLDING : SCRIPTED_RELAXED, pose.leftFingers);
       }
       if (netLink.handOverride.right) {
         copyPose(netLink.handOverride.right(now), pose.right);
         this.holdScripted(pose.right);
+        const holding = (pose.flags & (FLAG_RIGHT_CRANK | FLAG_RIGHT_ROPE)) !== 0 || netLink.scriptedSqueeze.right;
+        copyCurls(holding ? SCRIPTED_HOLDING : SCRIPTED_RELAXED, pose.rightFingers);
       }
       const length = encodePose(this.sendBuffer, this.seq, now, pose);
       this.seq = (this.seq + 1) & 0xffff;
@@ -592,6 +604,8 @@ export class NetSystem extends createSystem({}) {
       flags |= FLAG_RIGHT_TRACKED;
     }
     this.local.flags = flags;
+    copyCurls(handCurls.left, this.local.leftFingers);
+    copyCurls(handCurls.right, this.local.rightFingers);
     return this.local;
   }
 
@@ -608,8 +622,10 @@ export class NetSystem extends createSystem({}) {
     this.legs.position.set(r.head.px, 0, r.head.pz);
     this.legs.rotation.set(0, this.tmpEuler.y, 0);
     this.legs.scale.y = Math.min(1.3, Math.max(0.3, (r.head.py - HIP_BELOW_EYES) / LEG_LENGTH));
-    setFromPose(this.leftHand, r.left);
-    setFromPose(this.rightHand, r.right);
+    setFromPose(this.leftHand.mesh, r.left);
+    setFromPose(this.rightHand.mesh, r.right);
+    this.leftHand.pose(r.leftFingers);
+    this.rightHand.pose(r.rightFingers);
     this.setRemoteVisible(true, r.flags);
   }
 
@@ -617,9 +633,17 @@ export class NetSystem extends createSystem({}) {
     this.head.visible = visible;
     this.torso.visible = visible;
     this.legs.visible = visible;
-    this.leftHand.visible = visible && (flags & FLAG_LEFT_TRACKED) !== 0;
-    this.rightHand.visible = visible && (flags & FLAG_RIGHT_TRACKED) !== 0;
+    this.leftHand.mesh.visible = visible && (flags & FLAG_LEFT_TRACKED) !== 0;
+    this.rightHand.mesh.visible = visible && (flags & FLAG_RIGHT_TRACKED) !== 0;
   }
+}
+
+/** A test pose from a script may leave out the fingers: draw those hands as fists. */
+function withFingers(pose: AvatarPose): AvatarPose {
+  const p = pose as Partial<Pick<AvatarPose, 'leftFingers' | 'rightFingers'>> & AvatarPose;
+  p.leftFingers ??= setCurls({} as FingerCurls, 1, 1, 1);
+  p.rightFingers ??= setCurls({} as FingerCurls, 1, 1, 1);
+  return p;
 }
 
 function readWorldPose(object: Object3D, out: PoseSample, pos: Vector3, quat: Quaternion, scale: Vector3): void {

@@ -20,8 +20,8 @@ export { rng } from '../sim/random.js';
 
 export interface Part {
   geometry: BufferGeometry;
-  /** One colour for the whole part, or a function per triangle. */
-  color: number | ((triangle: number, centroid: Vector3) => number);
+  /** One colour for the whole part, a function per triangle, or 'own' to keep the geometry's `color` attribute. */
+  color: number | ((triangle: number, centroid: Vector3) => number) | 'own';
   position?: readonly [number, number, number];
   rotation?: readonly [number, number, number];
   scale?: readonly [number, number, number];
@@ -51,6 +51,11 @@ export function mergeParts(parts: Part[]): BufferGeometry {
     tmpMatrix.compose(tmpPos, tmpQuat, tmpScale);
     g.applyMatrix4(tmpMatrix);
     const pos = g.getAttribute('position');
+    if (part.color === 'own') {
+      prepared.push(g);
+      vertexCount += pos.count;
+      continue;
+    }
     const colors = new Float32Array(pos.count * 3);
     for (let tri = 0; tri < pos.count / 3; tri++) {
       let hex: number;

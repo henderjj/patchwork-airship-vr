@@ -1027,6 +1027,9 @@ async function main() {
       left: { px: 0.05, py: 1.1, pz: -0.7, qx: 0.2, qy: 0, qz: 0, qw: Math.sqrt(0.96) },
       right: { px: 0.55, py: 1.05, pz: -0.7, qx: 0, qy: 0, qz: -0.3, qw: Math.sqrt(0.91) },
       flags: 3,
+      // Posed hands: the left flat, the right pointing.
+      leftFingers: { index: 0.12, grip: 0.1, thumb: 0 },
+      rightFingers: { index: 0.12, grip: 1, thumb: 1 },
     };
     await a.page.evaluate((pose) => window.__net.setTestPose(pose), sent);
     await new Promise((r) => setTimeout(r, 800));
@@ -1044,6 +1047,17 @@ async function main() {
     }
     check('Head and hand poses arrive intact', posErr < 0.002 && rotDot > 0.9999 && got?.flags === 3,
       `position error ${(posErr * 1000).toFixed(2)} mm, rotation error ${((Math.acos(Math.min(1, rotDot)) * 2 * 180) / Math.PI).toFixed(3)}°`);
+    const fingers = await b.page.evaluate(() => {
+      const pose = window.__net.remotePose();
+      const hand = window.__debug.world.scene.getObjectByName('Crew 2 Right Hand');
+      // Bone 1 is the index finger's first bone; bone 4 the middle finger's.
+      return { left: pose?.leftFingers, right: pose?.rightFingers, index: hand?.skeleton.bones[1].rotation.x, middle: hand?.skeleton.bones[4].rotation.x };
+    });
+    const near = (a, b) => a !== undefined && Math.abs(a - b) < 0.01;
+    check('Finger poses arrive and pose the crewmate\'s hands',
+      near(fingers.left?.index, 0.12) && near(fingers.left?.thumb, 0) && near(fingers.right?.grip, 1) && near(fingers.right?.index, 0.12) &&
+        fingers.index > -0.3 && fingers.middle < -1.3,
+      `left ${JSON.stringify(fingers.left)}, right ${JSON.stringify(fingers.right)}, drawn index bend ${fingers.index?.toFixed(2)}, middle ${fingers.middle?.toFixed(2)} rad`);
     const visible = await b.page.evaluate(() =>
       ['Crew 2 Head', 'Crew 2 Torso', 'Crew 2 Legs', 'Crew 2 Left Hand', 'Crew 2 Right Hand'].every(
         (name) => window.__debug.world.scene.getObjectByName(name)?.visible,

@@ -191,6 +191,42 @@ async function main() {
   await sleep(500);
   const ownHands = evalInApp('({ shown: window.__ownHands.shown(), right: window.__ownHands.position("right") })');
   check('This player sees their own hands', ownHands.shown.length === 2, `shown: ${ownHands.shown.join(', ') || 'none'}, right at ${fmt(ownHands.right)}`);
+  // 1a. Phase 3 posed hands: the fingers follow the controller's trigger,
+  //     grip and touch sensors. A picture of each named pose, held up in
+  //     front of the face against the sky.
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0.5, y: 1.6, z: 0 } });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 2, y: 1.75, z: 0 } });
+  iwsdk(['xr', 'set-transform'], { device: 'controller-right', position: { x: 0.8, y: 1.6, z: 0.09 }, orientation: { pitch: -45, yaw: 0, roll: 0 } });
+  iwsdk(['xr', 'set-transform'], { device: 'controller-left', position: { x: 0.8, y: 1.6, z: -0.09 }, orientation: { pitch: -45, yaw: 0, roll: 0 } });
+  const handPoses = {
+    // Trigger (0) and thumbstick (2) touch sensors, trigger and grip (1) pulls.
+    flat: [{ index: 0, value: 0, touched: false }, { index: 1, value: 0 }, { index: 2, value: 0, touched: false }],
+    fist: [{ index: 0, value: 1, touched: true }, { index: 1, value: 1 }, { index: 2, value: 0, touched: true }],
+    point: [{ index: 0, value: 0, touched: false }, { index: 1, value: 1 }, { index: 2, value: 0, touched: true }],
+    'thumbs-up': [{ index: 0, value: 1, touched: true }, { index: 1, value: 1 }, { index: 2, value: 0, touched: false }],
+  };
+  // Touch something first: until a controller reports a touch, its sensors
+  // count as unknown and the hand rests on the controller.
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: 2, value: 0, touched: true }] });
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 2, value: 0, touched: true }] });
+  await sleep(200);
+  const posesSeen = [];
+  for (const [name, buttons] of Object.entries(handPoses)) {
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons });
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons });
+    const seen = await waitFor(`the ${name} pose`, () => {
+      const p = evalInApp('[window.__ownHands.pose("left"), window.__ownHands.pose("right")]');
+      return p[0] === name && p[1] === name && p;
+    }, 5000).catch(() => evalInApp('[window.__ownHands.pose("left"), window.__ownHands.pose("right")]'));
+    posesSeen.push(`${name}: ${seen.join('/')}`);
+    iwsdk(['browser', 'screenshot', '--output-file', `artifacts/xr-hands-${name}.png`], {});
+  }
+  check('The controllers pose the hands: flat, fist, pointing and thumbs-up',
+    posesSeen.every((line) => { const [name, seen] = line.split(': '); return seen === `${name}/${name}`; }), posesSeen.join(', '));
+  for (const device of ['controller-right', 'controller-left']) {
+    iwsdk(['xr', 'set-gamepad-state'], { device, buttons: [{ index: 0, value: 0, touched: false }, { index: 1, value: 0 }, { index: 2, value: 0, touched: false }] });
+  }
+  iwsdk(['xr', 'set-device-state'], {});
   const signs = evalInApp('window.__signs.titles()');
   check('Painted signs name the controls', ['BURNER', 'VENT', "SHIP'S BELL", 'BALLAST', 'TILLER'].every((t) => signs.includes(t)), signs.join(', '));
   // The game starts in flight on island A; the spike checks below want the

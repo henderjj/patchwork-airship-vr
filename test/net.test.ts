@@ -46,7 +46,7 @@ describe('pose codec', () => {
   });
 
   it('packets are small', () => {
-    expect(POSE_PACKET_BYTES).toBeLessThanOrEqual(50);
+    expect(POSE_PACKET_BYTES).toBeLessThanOrEqual(56);
   });
 
   it('compares wrapping sequence numbers', () => {
