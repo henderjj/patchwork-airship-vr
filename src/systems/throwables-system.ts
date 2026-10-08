@@ -309,6 +309,9 @@ export class ThrowablesSystem extends createSystem({}) {
     const bit = side === 'left' ? FLAG_LEFT_TRACKED : FLAG_RIGHT_TRACKED;
     const flags = netLink.extraFlags.throw ?? 0;
     netLink.extraFlags.throw = hand ? flags | bit : flags & ~bit;
+    if (!hand) {
+      netLink.scriptedSqueeze[side] = false;
+    }
   }
 
   /** How many throwable objects there are. */
@@ -465,6 +468,7 @@ export class ThrowablesSystem extends createSystem({}) {
         hand.down = pressed && !this.testPressed[side];
         hand.pressed = pressed;
         this.testPressed[side] = pressed;
+        netLink.scriptedSqueeze[side] = pressed;
         if (h) {
           hand.pos.set(h.x, h.y, h.z);
           hand.quat.identity();

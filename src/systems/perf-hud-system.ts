@@ -13,13 +13,14 @@ import { settings } from '../settings.js';
 import { estimateRefreshHz } from '../perf/refresh-rate.js';
 import { platformInfo, summarize } from '../perf/platform-report.js';
 import { budgetHz, frameRateInfo } from './frame-rate-system.js';
-import { grip, handGrips } from './grip-system.js';
+import { poseName } from '../sim/hand-pose.js';
+import { fingerInputs, grip, handCurls, handGrips, Touch } from './grip-system.js';
 
 /** Shared recorder: the network layer writes `rttMs`, tests read `csv()`. */
 export const perf = new PerfRecorder();
 
 const CANVAS_W = 512;
-const CANVAS_H = 356;
+const CANVAS_H = 400;
 const HUD_REFRESH_MS = 250;
 /** Recent frames used to measure the refresh rate when the runtime doesn't report it. */
 const MEASURE_FRAMES = 90;
@@ -242,8 +243,26 @@ export class PerfHudSystem extends createSystem({}) {
         10,
         graphTop + graphH + 212,
       );
+    } else {
+      // Posed hands: what each controller's sensors report, to check the
+      // touch sensors on a headset ("*" touched; stick, lower and upper face
+      // button, thumb rest), and the pose they give.
+      this.drawFingers('L', 'left', graphTop + graphH + 212);
+      this.drawFingers('R', 'right', graphTop + graphH + 236);
     }
     this.texture.needsUpdate = true;
+  }
+
+  private drawFingers(label: string, side: 'left' | 'right', y: number): void {
+    const f = fingerInputs[side];
+    this.ctx.font = '16px monospace';
+    const t = (bit: number) => ((f.touches & bit) !== 0 ? '*' : '-');
+    this.ctx.fillText(
+      `${label} trig ${f.trigger.toFixed(2)}${t(Touch.Trigger)} grip ${f.squeeze.toFixed(2)} ` +
+        `st${t(Touch.Thumbstick)} lo${t(Touch.LowerButton)} up${t(Touch.UpperButton)} rest${t(Touch.Thumbrest)} ${poseName(handCurls[side])}`,
+      10,
+      y,
+    );
   }
 
   private drawOverlay(): void {

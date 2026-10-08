@@ -1,3 +1,4 @@
+import { copyCurls, type FingerCurls } from '../sim/hand-pose.js';
 import { type AvatarPose, createAvatarPose, type PoseSample } from './pose-codec.js';
 
 /**
@@ -95,6 +96,20 @@ export function copyAvatar(a: AvatarPose, out: AvatarPose): void {
   copyPose(a.left, out.left);
   copyPose(a.right, out.right);
   out.flags = a.flags;
+  copyCurls(a.leftFingers, out.leftFingers);
+  copyCurls(a.rightFingers, out.rightFingers);
+}
+
+function lerpCurl(a: number, b: number, t: number): number {
+  const v = a + (b - a) * t;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** Linear, kept within 0 to 1 when extrapolating. */
+export function lerpFingers(a: FingerCurls, b: FingerCurls, t: number, out: FingerCurls): void {
+  out.index = lerpCurl(a.index, b.index, t);
+  out.grip = lerpCurl(a.grip, b.grip, t);
+  out.thumb = lerpCurl(a.thumb, b.thumb, t);
 }
 
 /** Linear position, normalised-lerp rotation (fine for the small steps between packets). */
@@ -118,4 +133,6 @@ export function lerpAvatar(a: AvatarPose, b: AvatarPose, t: number, out: AvatarP
   lerpPose(a.left, b.left, t, out.left);
   lerpPose(a.right, b.right, t, out.right);
   out.flags = t < 0.5 ? a.flags : b.flags;
+  lerpFingers(a.leftFingers, b.leftFingers, t, out.leftFingers);
+  lerpFingers(a.rightFingers, b.rightFingers, t, out.rightFingers);
 }
