@@ -48,3 +48,21 @@ Status: built and tested in the cloud with the emulated headset, including a run
 For each test, please send a photo or a description of both HUD lines and anything that behaved differently from the Quest Browser. The full report is the `[Platform]` lines in the PC browser's console (F12).
 
 Pass (from the plan): a cross-play session between one Quest standalone player and one PCVR player works without platform-specific code beyond feature detection.
+
+## If the game doesn't go into VR on PC (2026-10-08)
+
+John's first Air Link try (Meta Horizon Link set as the OpenXR runtime) didn't enter VR. The game asks the browser for a plain VR session with no required features, so a desktop browser over Link should accept it. Two things made a failure, or a slow start, look like nothing happening:
+
+- **Meta Horizon Link 207 makes Chrome wait about 55 seconds** before the session starts. Chrome runs its VR service in a sandbox, and Link 207's runtime retries a connection the sandbox blocks for about 11 seconds at a time before it gets through ([Meta's bug report](https://developers.meta.com/horizon/feedback/vr/investigations/1070515512504086/), opened September 2026, still under investigation). The session does start in the end. Edge has the same sandbox, so it probably waits too. Running Chrome with `--no-sandbox` avoids the wait but turns off a browser safety feature, so it isn't recommended.
+- **The game said nothing.** IWSDK only logs a refused request to the console, and while a request is pending further presses do nothing. The page also hid its Enter VR button when the browser reported no headset at load, for example when the page was opened before Link was running, and never looked again.
+
+The crew panel now says what is happening under Enter VR (`src/vr-start.ts`, `src/vr-messages.ts`): "Starting VR..." with the seconds counting, an explanation after 8 s that Link can take about a minute, "the headset accepted, waiting for the first picture" once the browser hands over a session, a suggestion to restart the browser after 90 s, and the browser's reason if it refuses, with the Link checks on a PC. On a PC the button stays even when the browser reports no headset, with a note to start Link first, and the check is repeated when the browser reports a device change or the window regains focus. A PC browser without WebXR (Firefox, Safari) is told to use Chrome or Edge. The console gets `[VR]` lines with the time to the session and to the first frame.
+
+### What to try
+
+1. Start Link or Air Link first, so the Link home shows in the headset, then open the game in Chrome or Edge on the PC (not Firefox, which has no WebXR on Windows).
+2. Press **Enter VR** on the crew panel and keep the headset on for up to a minute. The line under the button counts the seconds.
+3. If the line shows a reason instead, send it. If it says the browser sees no VR headset, check that Meta Horizon Link is still the active OpenXR runtime (Link app → Settings → General); another VR app such as SteamVR or Virtual Desktop can take it over.
+4. If the Link app shows a screen about content from unknown sources, turn on **Settings → General → Unknown Sources** in the Link app.
+5. If VR started once and won't start again, close every browser window and start the browser again; a second session over Link has hung in other WebXR apps until the browser restarted.
+

@@ -1,4 +1,5 @@
 import { createSystem, UIKitMLAsset, VisibilityState } from '@iwsdk/core';
+import { startVr } from './vr-start.js';
 
 /** Enter/exit buttons on the welcome panel. */
 export class PanelSystem extends createSystem({}) {
@@ -15,7 +16,7 @@ export class PanelSystem extends createSystem({}) {
       return;
     }
 
-    const launchXR = () => this.world.launchXR();
+    const launchXR = () => startVr(this.world);
     const exitXR = () => this.world.exitXR();
     xrButton.addEventListener('click', launchXR);
     exitButton.addEventListener('click', exitXR);
