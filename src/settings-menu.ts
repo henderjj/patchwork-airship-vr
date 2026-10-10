@@ -44,6 +44,20 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     ],
     current: (s) => String(s.hz),
   },
+  {
+    key: 'height',
+    label: 'Character height',
+    options: [
+      ['0', 'Your own'],
+      ['1.5', '1.50 m'],
+      ['1.6', '1.60 m'],
+      ['1.7', '1.70 m'],
+      ['1.8', '1.80 m'],
+      ['1.9', '1.90 m'],
+    ],
+    current: (s) => String(s.height),
+  },
+  { key: 'seated', label: 'Playing', options: [['0', 'Standing'], ['1', 'Seated']], current: (s) => onOff(s.seated) },
   { key: 'audio', label: 'Ship sounds', options: [['1', 'On'], ['0', 'Off']], current: (s) => onOff(s.audio) },
   {
     key: 'voice',
