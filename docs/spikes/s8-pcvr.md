@@ -89,9 +89,23 @@ The fix has three parts:
 - **Make the context VR-ready early.** As soon as the browser reports a headset, `prepareVr` in `src/vr-start.ts` calls `makeXRCompatible()` in the background, so any move between cards happens at page load, where three.js recovers from it, rather than in the middle of starting a session.
 - **Say so if it still happens.** If the context is lost while a session starts, the line under Enter VR says the graphics moved to the headset's card and to press Enter VR again. The restored context is on the right card, so the second try should start.
 
+### Fourth try: still the old build, and a software renderer (2026-10-10 17:51)
+
+John's next log failed the same way (granted after 55.5 s, then the context was lost), but it came from the cached old bundle, before the fix deployed at 17:44; a hard reload (Ctrl+Shift+R) picks up the new one, which logs `[VR] Graphics ready for VR` soon after load. The same log's platform line names the GPU as `ANGLE (Microsoft, Microsoft Basic Render Driver ...)`: Chrome was drawing with Windows' software renderer, which is why the flat page ran at 40 to 50 fps and why starting VR had to move the context to the real graphics card (after the move the page ran at 134 fps). Worth fixing at the source: `chrome://gpu` shows whether Chrome is in software-only mode, Chrome's Settings → System → "Use graphics acceleration when available" must be on, and Windows Settings → System → Display → Graphics can set Chrome to High performance.
+
+### Fifth try: the move still killed the session (2026-10-10 17:58)
+
+With the new build, the early `makeXRCompatible` at page load lost and restored the context but was rejected (`InvalidStateError`), and the context stayed on the software renderer (still about 48 fps). Chrome only seems to learn which card the headset uses once Link's runtime is running, which over Link 207 is about when the session arrives. So the session was granted (55.5 s, and 33.4 s on a second press) and the context was lost again as three.js took it, both times. After the second loss the page ran at 128 fps, on the real card.
+
+The game now holds a granted session back from IWSDK until the graphics are ready (`makeGraphicsReady` in `src/vr-start.ts`). It calls `makeXRCompatible` itself; if the context is lost, it waits for the restore and calls again, up to four times, and only then hands the session over, so three.js's own call is a no-op and the session survives the move. A session waits happily for that second or two. Faked in a browser (the first `makeXRCompatible` loses the context and restores it 0.7 s later), IWSDK got the session only after the context was back. The crew panel also says when a PC browser is drawing with a software renderer, with the settings to change.
+
+### Solved: graphics acceleration was off (2026-10-10 18:03)
+
+John turned on Chrome's Settings → System → "Use graphics acceleration when available", and the game entered VR over Air Link. With acceleration off, Chrome drew with Windows' software renderer, so every VR start had to move the context to the real card, and the session died in that move. The steps below still apply to anyone else; the crew panel now names the setting when it sees a software renderer.
+
 ### What to try
 
-1. Start Link or Air Link first, so the Link home shows in the headset, then open the game in Chrome or Edge on the PC (not Firefox, which has no WebXR on Windows).
+1. Make sure the browser uses the graphics card: Chrome's or Edge's Settings → System → **Use graphics acceleration when available** must be on (`chrome://gpu` should not say "Software only"). Start Link or Air Link first, so the Link home shows in the headset, then open the game in Chrome or Edge on the PC (not Firefox, which has no WebXR on Windows).
 2. Press **Enter VR** on the crew panel, then look at the browser window on the PC screen (lift the headset, or use the desktop view in the Link home): if it asks to use your virtual reality devices, click **Allow while visiting the site**. Then keep the headset on for up to a minute. The line under the button counts the seconds.
 3. If the line shows a reason instead, send it. If it says the browser sees no VR headset, check that Meta Horizon Link is still the active OpenXR runtime (Link app → Settings → General); another VR app such as SteamVR or Virtual Desktop can take it over.
 4. If the Link app shows a screen about content from unknown sources, turn on **Settings → General → Unknown Sources** in the Link app.
