@@ -644,14 +644,9 @@ async function main() {
   await move([0, 0.9, 0.75]);
   await squeeze(1);
   const tillerHeld = controlHeld();
-  // Grip locking: the arm on the tiller comes in from the player, inside the gondola.
-  const tillerArm = evalInApp('({ arm: window.__ownHands.forearm("right"), hand: window.__ownHands.fist("right"), head: window.__debug.world.player.head.getWorldPosition(new window.__debug.world.player.head.position.constructor()).toArray() })');
-  // The bar runs fore and aft through the fist, so the forearm can only turn about it (Z) towards the player.
-  const toHead = [tillerArm.head[0] - tillerArm.hand[0], tillerArm.head[1] - tillerArm.hand[1]];
-  const armAcross = [tillerArm.arm[0], tillerArm.arm[1]];
-  const armToHead = (armAcross[0] * toHead[0] + armAcross[1] * toHead[1]) / (Math.hypot(...armAcross) * Math.hypot(...toHead) || 1);
-  check('The arm on the tiller comes in from the player holding it', armToHead > 0.7 && Math.abs(tillerArm.arm[2]) < 0.05,
-    `forearm ${fmt(tillerArm.arm)}, head at ${fmt(tillerArm.head)}, ${((Math.acos(Math.min(1, armToHead)) * 180) / Math.PI).toFixed(0)}° off the way to the player about the bar`);
+  // Grip locking: the hand on the tiller is drawn closed on it.
+  const tillerLock = evalInApp('window.__ownHands.locked("right")');
+  check('The hand on the tiller is drawn on its handle', tillerLock === 1, `eased ${Number(tillerLock).toFixed(2)} of the way onto it`);
   await move([0.28, 0.9, 0.8], 0.6);
   const steered = evalInApp('window.__ship.controls.rudder');
   await squeeze(0);
