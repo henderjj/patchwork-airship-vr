@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../src/sim/flight.js';
 import { KEEL_DEPTH } from '../src/sim/gondola-layout.js';
 import { groundBelow, hitsIsland, type Island, islandDepth, layoutIslands, restingDeck, SHIP_RADIUS } from '../src/sim/islands.js';
-import { CALM_SKIES, crossesRing, distanceFromRoute, LAND_HOLD_SECONDS, RouteRun, scoreRun } from '../src/sim/route.js';
+import { CALM_SKIES, crossesRing, distanceFromRoute, FAST_HOLD_SECONDS, RouteRun, scoreRun } from '../src/sim/route.js';
 import { createShipState } from '../src/sim/ship-motion.js';
 
 const DT = 1 / 90;
@@ -125,38 +125,49 @@ describe('route', () => {
   });
 
   it('scores a quick, clean run better than a slow one that missed a ring', () => {
-    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, padDistance: 2, touchdown: 0.4 });
-    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, padDistance: 12, touchdown: 1.5 });
+    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0 });
+    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1 });
     expect(clean.score).toBeGreaterThan(messy.score);
     expect(clean.stars).toBe(3);
     expect(messy.stars).toBeLessThan(2);
   });
 
-  it('times a run from lift-off, counts rings, and finishes after resting on island B', () => {
+  it('costs 100 points each time the grapple is torn off the post', () => {
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2 };
+    expect(scoreRun({ ...base, tears: 0 }).score - scoreRun({ ...base, tears: 2 }).score).toBe(200);
+  });
+
+  it('times a run from lift-off, counts rings, and finishes after being made fast at island B', () => {
     const run = new RouteRun(CALM_SKIES);
     const s = { x: 0, y: restingDeck(CALM_SKIES.start), z: 0, time: 0 };
-    expect(run.step(s, true, 0, 0, DT, false)).toBe(false);
+    expect(run.step(s, true, false, 0, 0, DT, false)).toBe(false);
     s.time = 10;
     s.y += 1;
-    expect(run.step(s, false, 0, 0, DT, false)).toBe(true);
+    expect(run.step(s, false, false, 0, 0, DT, false)).toBe(true);
     expect(run.phase).toBe('flying');
     // Through ring 1.
     s.y = ring.y - 5;
     s.z = ring.z + 1;
-    run.step(s, false, 0, 1, DT, false);
+    run.step(s, false, false, 1, 0, DT, false);
     s.z = ring.z - 1;
-    expect(run.step(s, false, 0, 1, DT, false)).toBe(true);
+    expect(run.step(s, false, false, 1, 0, DT, false)).toBe(true);
     expect(run.ringMask).toBe(1);
-    // Down on island B, a few metres off the pad.
+    // Alongside island B's post: landing on the island doesn't finish it...
     const b = CALM_SKIES.finish;
     Object.assign(s, { x: b.x + 3, y: restingDeck(b), z: b.z + 4, time: 130 });
-    const steps = Math.ceil(LAND_HOLD_SECONDS / DT) + 1;
+    for (let i = 0; i < Math.ceil(5 / DT); i++) {
+      run.step(s, true, false, 5, 0, DT, false);
+    }
+    expect(run.phase).toBe('flying');
+    // ...being made fast to the post for a few seconds does.
+    const d = CALM_SKIES.dock;
+    Object.assign(s, { x: d.x + 2, y: d.y + 1.5, z: d.z + 1 });
+    const steps = Math.ceil(FAST_HOLD_SECONDS / DT) + 1;
     for (let i = 0; i < steps && run.phase === 'flying'; i++) {
-      run.step(s, true, 0.5, 5, DT, false);
+      run.step(s, false, true, 5, 1, DT, false);
     }
     expect(run.phase).toBe('finished');
-    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, touchdown: 0.5 });
-    expect(run.result!.padDistance).toBeCloseTo(5);
+    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1 });
     run.reset();
     expect(run.phase).toBe('ready');
     expect(run.result).toBeNull();
@@ -166,16 +177,16 @@ describe('route', () => {
     const run = new RouteRun(CALM_SKIES);
     const lift = () => {
       run.reset();
-      run.step({ x: 0, y: restingDeck(CALM_SKIES.start) + 1, z: 0, time: 0 }, false, 0, 0, DT, false);
+      run.step({ x: 0, y: restingDeck(CALM_SKIES.start) + 1, z: 0, time: 0 }, false, false, 0, 0, DT, false);
     };
     lift();
-    run.step({ x: 0, y: 125, z: -50, time: 5 }, false, 0, 0, DT, true);
+    run.step({ x: 0, y: 125, z: -50, time: 5 }, false, false, 0, 0, DT, true);
     expect([run.phase, run.lostReason]).toEqual(['lost', 'Ran into an island']);
     lift();
-    run.step({ x: 0, y: 30, z: -50, time: 5 }, false, 0, 0, DT, false);
+    run.step({ x: 0, y: 30, z: -50, time: 5 }, false, false, 0, 0, DT, false);
     expect(run.lostReason).toBe('Sank into the haze');
     lift();
-    run.step({ x: 600, y: 125, z: -50, time: 5 }, false, 0, 0, DT, false);
+    run.step({ x: 600, y: 125, z: -50, time: 5 }, false, false, 0, 0, DT, false);
     expect(run.lostReason).toBe('Drifted off the route');
   });
 

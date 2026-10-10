@@ -253,16 +253,27 @@ export function decodeCrank(view: DataView, out: CrankStatePacket): boolean {
   return true;
 }
 
-/** Host's line state: type(1) time(4) hauled f32(4) speed f32(4) flags u8(1) heaves u16(2). */
-export const ROPE_PACKET_BYTES = 16;
+/**
+ * Host's line state: type(1) time(4) hauled f32(4) speed f32(4) flags u8(1)
+ * heaves u16(2), then the grapple (docking): phase u8(1) throws u8(1).
+ */
+export const ROPE_PACKET_BYTES = 18;
+/** A packet from a version before docking ends after the heaves. */
+const ROPE_PACKET_V1_BYTES = 16;
+/** `grapple` in a packet that didn't say. */
+export const GRAPPLE_UNKNOWN = 255;
 
 export interface RopeStatePacket {
   timeMs: number;
   hauled: number;
   speed: number;
-  /** Bit 0: heave in progress. Bit 1: docked. */
+  /** Bit 0: heave in progress. Bit 1: the whole line is in. */
   flags: number;
   heaves: number;
+  /** What the grapple is doing (an index into GRAPPLE_PHASES in src/sim/docking.ts), or GRAPPLE_UNKNOWN. */
+  grapple: number;
+  /** Throws so far (wrapping at 256), so a page can tell which throw this is about. */
+  throws: number;
 }
 
 export function encodeRope(buffer: ArrayBuffer, state: RopeStatePacket): number {
@@ -273,11 +284,13 @@ export function encodeRope(buffer: ArrayBuffer, state: RopeStatePacket): number 
   view.setFloat32(9, state.speed);
   view.setUint8(13, state.flags & 0xff);
   view.setUint16(14, state.heaves & 0xffff);
+  view.setUint8(16, state.grapple & 0xff);
+  view.setUint8(17, state.throws & 0xff);
   return ROPE_PACKET_BYTES;
 }
 
 export function decodeRope(view: DataView, out: RopeStatePacket): boolean {
-  if (view.byteLength < ROPE_PACKET_BYTES || view.getUint8(0) !== PacketType.Rope) {
+  if (view.byteLength < ROPE_PACKET_V1_BYTES || view.getUint8(0) !== PacketType.Rope) {
     return false;
   }
   out.timeMs = view.getUint32(1);
@@ -285,6 +298,9 @@ export function decodeRope(view: DataView, out: RopeStatePacket): boolean {
   out.speed = view.getFloat32(9);
   out.flags = view.getUint8(13);
   out.heaves = view.getUint16(14);
+  const docking = view.byteLength >= ROPE_PACKET_BYTES;
+  out.grapple = docking ? view.getUint8(16) : GRAPPLE_UNKNOWN;
+  out.throws = docking ? view.getUint8(17) : 0;
   return true;
 }
 

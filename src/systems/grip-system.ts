@@ -39,7 +39,8 @@ export const grip: Record<Side, GripState> = {
 
 /**
  * What each hand is holding at one of the gondola's controls (tiller, vent
- * cord, a sandbag), or null. Loose objects aren't picked up by a hand that
+ * cord, a sandbag, the bell lanyard) or the grapple ('grapple', held by
+ * GrappleSystem), or null. Loose objects aren't picked up by a hand that
  * holds a control.
  */
 export const handUse: Record<Side, string | null> = { left: null, right: null };

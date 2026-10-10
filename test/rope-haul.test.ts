@@ -85,9 +85,9 @@ describe('rope haul', () => {
     expect(sim.heaves).toBe(0);
   });
 
-  it('docks when the whole line is in', () => {
+  it('is all in once the whole line is hauled', () => {
     const { sim } = haul({ players: 2, reach: 0.5, strokeS: 0.5, seconds: 30 });
-    expect(sim.docked).toBe(true);
+    expect(sim.allIn).toBe(true);
     expect(sim.hauled).toBe(sim.params.length);
   });
 });

@@ -139,10 +139,19 @@ describe('rope packets', () => {
   it('round-trip the host line state', async () => {
     const { encodeRope, decodeRope, ROPE_PACKET_BYTES } = await import('../src/net/pose-codec.js');
     const buffer = new ArrayBuffer(ROPE_PACKET_BYTES);
-    expect(encodeRope(buffer, { timeMs: 99.9, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 })).toBe(ROPE_PACKET_BYTES);
-    const out = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0 };
+    expect(encodeRope(buffer, { timeMs: 99.9, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42, grapple: 2, throws: 257 })).toBe(ROPE_PACKET_BYTES);
+    const out = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0, grapple: 0, throws: 0 };
     expect(decodeRope(new DataView(buffer), out)).toBe(true);
-    expect(out).toEqual({ timeMs: 99, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42 });
+    expect(out).toEqual({ timeMs: 99, hauled: 3.25, speed: -0.5, flags: 3, heaves: 42, grapple: 2, throws: 1 });
+  });
+
+  it("read a line state from a page that doesn't know the grapple", async () => {
+    const { encodeRope, decodeRope, ROPE_PACKET_BYTES, GRAPPLE_UNKNOWN } = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(ROPE_PACKET_BYTES);
+    encodeRope(buffer, { timeMs: 5, hauled: 1, speed: 0, flags: 0, heaves: 1, grapple: 3, throws: 4 });
+    const out = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0, grapple: 0, throws: 9 };
+    expect(decodeRope(new DataView(buffer, 0, 16), out)).toBe(true);
+    expect(out).toMatchObject({ hauled: 1, heaves: 1, grapple: GRAPPLE_UNKNOWN, throws: 0 });
   });
 });
 

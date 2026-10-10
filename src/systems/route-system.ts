@@ -2,11 +2,11 @@ import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, SR
 import { createBell, createBellBracket, createBoardFrame } from '../scene-assets/controls.scene-asset.js';
 import { BELL_HOOK } from '../sim/gondola-controls.js';
 import { FLUE_POSITION } from '../sim/gondola-layout.js';
-import { restingDeck } from '../sim/islands.js';
+import { FAIRLEAD, MADE_FAST_HEIGHT, STRAIN_HEIGHT } from '../sim/docking.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
-import { crewReady, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
+import { crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
 const BOARD_SIZE = [0.42, 0.26] as const;
@@ -166,29 +166,33 @@ export class RouteSystem extends createSystem({}) {
           const mark = (ready: boolean) => (ready ? 'READY' : '...');
           return moored()
             ? ['CALM SKIES', 'Moored on island A', 'Ring the bell when ready', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, `Then fly ${ROUTE.rings.length} rings to island B.`, best]
-            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, 'and land on island B.', best];
+            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, "and moor at island B's post.", best];
         }
-        return ['CALM SKIES', 'Waiting on island A', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, 'and land on island B.', best];
+        return ['CALM SKIES', 'Waiting on island A', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, "and moor at island B's post.", best];
       }
       case 'flying': {
+        const top = [`TIME ${clock(route.seconds)}`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
+        const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`;
+        if (docking.phase === 'hooked' || docking.phase === 'fast') {
+          return [...top, docking.phase === 'fast' ? 'MADE FAST' : `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, ringAgain ? 'Ring again to restart' : ''];
+        }
         const next = this.nextTarget();
         return [
-          `TIME ${clock(route.seconds)}`,
-          `RINGS ${route.rings} of ${ROUTE.rings.length}`,
+          ...top,
           `NEXT ${next.name}  ${next.distance} m`,
           `     ${next.bearing}  ${next.height}`,
-          `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`,
+          fuel,
           ringAgain ? 'Ring again to restart' : '',
         ];
       }
       case 'finished': {
         const r = route.result!;
         return [
-          `LANDED!  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
+          `MADE FAST!  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
           `SCORE ${r.score}${this.best > 0 ? `   BEST ${this.best}` : ''}`,
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
-          `Rings ${r.rings}/${r.ringsTotal}   Pad ${r.padDistance.toFixed(1)} m`,
-          `Touchdown ${r.touchdown.toFixed(1)} m/s`,
+          `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
+          '',
           'Ring the bell to fly again',
         ];
       }
@@ -197,19 +201,20 @@ export class RouteSystem extends createSystem({}) {
     }
   }
 
-  /** The first ring not yet flown through, or island B: how far, which way and how much higher. */
+  /** The first ring not yet flown through, or island B's post: how far, which way and how much higher. */
   private nextTarget(): { name: string; distance: number; bearing: string; height: string } {
-    let name = 'Island B';
-    let tx = ROUTE.finish.x;
-    let tz = ROUTE.finish.z;
-    // For a ring, the deck wants to be the ship's middle below the ring's.
-    let ty = restingDeck(ROUTE.finish);
+    let name = 'Post at B';
+    let tx = ROUTE.dock.x;
+    let tz = ROUTE.dock.z;
+    // For the post, the deck wants the line's fairlead level with the post's top.
+    let ty = docking.postTop - FAIRLEAD[1];
     for (let i = 0; i < ROUTE.rings.length; i++) {
       if (!(route.ringMask & (1 << i))) {
         const ring = ROUTE.rings[i];
         name = `Ring ${i + 1}`;
         tx = ring.x;
         tz = ring.z;
+        // For a ring, the deck wants to be the ship's middle below the ring's.
         ty = ring.y - SHIP_MIDDLE;
         break;
       }
@@ -248,6 +253,15 @@ export class RouteSystem extends createSystem({}) {
     });
     texture.needsUpdate = true;
   }
+}
+
+/** On the line to the post: whether the deck is level with it, or which way to go. */
+function heightHint(): string {
+  const off = docking.heightOff;
+  if (Math.abs(off) <= MADE_FAST_HEIGHT) return 'LEVEL WITH POST';
+  const by = `${Math.abs(off).toFixed(1)} m`;
+  const warn = Math.abs(off) > STRAIN_HEIGHT ? '!' : '';
+  return off > 0 ? `HIGH ${by}${warn} VENT` : `LOW ${by}${warn} BURN`;
 }
 
 function clock(seconds: number): string {
