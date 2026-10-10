@@ -1,5 +1,6 @@
 import { PhysicsSystem, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
+import { preferHighPerformanceGpu } from './gpu-preference.js';
 import { PanelSystem } from './panel.js';
 import { ComfortSystem } from './systems/comfort-system.js';
 import { ControlsSystem } from './systems/controls-system.js';
@@ -21,6 +22,9 @@ import { ShipSystem } from './systems/ship-system.js';
 import { SignsSystem } from './systems/signs-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
 import { ThrowablesSystem } from './systems/throwables-system.js';
+
+// On a two-GPU PC, start on the graphics card Link uses (src/gpu-preference.ts).
+preferHighPerformanceGpu();
 
 World.create(
   document.getElementById('scene-container') as HTMLDivElement,
