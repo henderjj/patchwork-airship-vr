@@ -26,7 +26,7 @@ import { HoldKind, LockedHand } from './hand-lock.js';
 import { perf } from './perf-hud-system.js';
 import { describeBrowser } from '../perf/platform-report.js';
 import { vrStartMessage, vrSupportNote } from '../vr-messages.js';
-import { onVrStart, startVr, vrStartState } from '../vr-start.js';
+import { onVrStart, prepareVr, startVr, vrStartState } from '../vr-start.js';
 
 /**
  * Spike S4: two players in one gondola. Sends this player's head and hands
@@ -356,6 +356,9 @@ export class NetSystem extends createSystem({}) {
         .then((supported) => {
           const { button, note } = vrSupportNote(kind, true, supported);
           this.ui?.showEnterVr(button, note);
+          if (supported) {
+            prepareVr(this.world);
+          }
         });
     };
     checkVr();

@@ -10,7 +10,7 @@ export type VrStartState =
   | { phase: 'starting'; sinceMs: number; grantedMs: number | null }
   | { phase: 'in-vr'; tookMs: number }
   | { phase: 'failed'; error: string }
-  | { phase: 'ended-early' };
+  | { phase: 'ended-early'; contextLost: boolean };
 
 /** After this long a start is slow enough to explain; on a PC it is Link's. */
 export const SLOW_START_MS = 8000;
@@ -36,7 +36,9 @@ export function vrStartMessage(state: VrStartState, nowMs: number, kind: Platfor
     case 'failed':
       return `VR didn't start: ${state.error}.${kind === 'pc' ? ` ${LINK_CHECK}` : ''}`;
     case 'ended-early':
-      return "VR started but closed straight away. Try again; the browser console (F12) has the reason.";
+      return state.contextLost
+        ? 'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again; it should start this time.'
+        : 'VR started but closed straight away. Try again; the browser console (F12) has the reason.';
     case 'starting': {
       const elapsed = nowMs - state.sinceMs;
       const seconds = Math.floor(elapsed / 1000);

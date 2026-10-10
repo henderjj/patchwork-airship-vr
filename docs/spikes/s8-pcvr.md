@@ -67,6 +67,28 @@ With the status line live, John's next try (Edge first; on 2026-10-08 he had tri
 
 The line under Enter VR now tells a PC player from the first second to look at the browser window on the PC screen and click Allow if it asks to use virtual reality devices. After 90 s it adds the Unknown Sources check and asks for a picture of `chrome://webxr-internals` (`edge://webxr-internals` in Edge), the browser's own WebXR page, which lists the runtimes it found and each session request.
 
+### Third try: the graphics context was lost (2026-10-10)
+
+In Chrome (before the permission hint was live) the browser asked for the VR permission, John allowed it, and the console showed what happened next:
+
+```
+[VR] Session granted after 83.2 s
+WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost
+[XR] Failed to acquire reference space: InvalidStateError: An attempt was made to use an object that is not, or is no longer, usable.
+THREE.WebGLRenderer: Context Lost.
+[VR] The session ended before its first frame
+Uncaught TypeError: Cannot read properties of null (reading 'cancelAnimationFrame')
+THREE.WebGLRenderer: Context Restored.
+```
+
+So the permission prompt and Link's slow start were both real, and the session did arrive. It then died because three.js calls `gl.makeXRCompatible()` when a session starts, and on a PC whose WebGL context is on a different graphics adapter from the headset's, the browser makes it compatible by losing the context and restoring it on the right adapter. three.js carries straight on and creates the XR layer on the lost context, which throws `InvalidStateError`; IWSDK reports every failure there as "Failed to acquire reference space" and ends the session. The `cancelAnimationFrame` error is three.js tidying up a session that never started, and is harmless. This happens on PCs with two graphics adapters: most laptops, and desktops with the CPU's graphics enabled, where browsers put WebGL on the low-power one by default while Link renders on the card the headset uses.
+
+The fix has three parts:
+
+- **Start on the right card.** `src/gpu-preference.ts` makes WebGL contexts ask for `powerPreference: 'high-performance'` (three.js passes `'default'`, and IWSDK doesn't say), so on a two-GPU PC the game starts on the discrete card, the one Link uses.
+- **Make the context VR-ready early.** As soon as the browser reports a headset, `prepareVr` in `src/vr-start.ts` calls `makeXRCompatible()` in the background, so any move between cards happens at page load, where three.js recovers from it, rather than in the middle of starting a session.
+- **Say so if it still happens.** If the context is lost while a session starts, the line under Enter VR says the graphics moved to the headset's card and to press Enter VR again. The restored context is on the right card, so the second try should start.
+
 ### What to try
 
 1. Start Link or Air Link first, so the Link home shows in the headset, then open the game in Chrome or Edge on the PC (not Firefox, which has no WebXR on Windows).

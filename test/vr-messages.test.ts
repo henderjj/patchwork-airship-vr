@@ -37,6 +37,13 @@ describe('vrStartMessage', () => {
     expect(hung).toContain('chrome://webxr-internals (edge://webxr-internals in Edge)');
   });
 
+  it('asks for a second press when VR stopped because the graphics moved to the headset GPU', () => {
+    expect(vrStartMessage({ phase: 'ended-early', contextLost: true }, 0, 'pc')).toBe(
+      'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again; it should start this time.',
+    );
+    expect(vrStartMessage({ phase: 'ended-early', contextLost: false }, 0, 'pc')).toMatch(/^VR started but closed straight away/);
+  });
+
   it('gives the reason for a failure, with the Link checks on a PC', () => {
     const failed = { phase: 'failed' as const, error: 'the browser found no VR headset' };
     expect(vrStartMessage(failed, 0, 'quest')).toBe("VR didn't start: the browser found no VR headset.");

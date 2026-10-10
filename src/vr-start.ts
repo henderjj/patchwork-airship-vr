@@ -65,6 +65,14 @@ export function startVr(world: World): void {
   }
   const sinceMs = performance.now();
   set({ phase: 'starting', sinceMs, grantedMs: null });
+  // Moving the context to the headset's graphics card loses it, which ends
+  // the session; the restored context is on the right card for a second try.
+  let contextLost = false;
+  const canvas = world.renderer.domElement;
+  const onContextLost = () => {
+    contextLost = true;
+  };
+  canvas.addEventListener('webglcontextlost', onContextLost);
   console.info('[VR] Asked the browser for a VR session');
   request.then(
     (session) => {
@@ -82,15 +90,58 @@ export function startVr(world: World): void {
       });
       session.addEventListener('end', () => {
         stopWatching();
+        canvas.removeEventListener('webglcontextlost', onContextLost);
         if (!shown) {
-          console.warn('[VR] The session ended before its first frame');
+          console.warn(`[VR] The session ended before its first frame${contextLost ? ' (the WebGL context was lost)' : ''}`);
         }
-        set(shown ? { phase: 'idle' } : { phase: 'ended-early' });
+        set(shown ? { phase: 'idle' } : { phase: 'ended-early', contextLost });
       }, { once: true });
     },
     (error: unknown) => {
+      canvas.removeEventListener('webglcontextlost', onContextLost);
       console.warn(`[VR] The browser refused a VR session after ${((performance.now() - sinceMs) / 1000).toFixed(1)} s:`, error);
       set({ phase: 'failed', error: describeVrError(error) });
     },
   );
 }
+
+let prepared = false;
+
+/**
+ * Make the game's WebGL context ready for VR once the browser reports a
+ * headset, before anyone presses Enter VR. If the context is on a different
+ * graphics card from the headset's, the browser moves it now (losing and
+ * restoring it, which three.js recovers from) instead of in the middle of
+ * starting the session, where the loss ends the session. three.js calls
+ * `makeXRCompatible` again when a session starts, which is then a no-op.
+ */
+export function prepareVr(world: World): void {
+  if (prepared) {
+    return;
+  }
+  const gl = world.renderer.getContext() as WebGL2RenderingContext & { makeXRCompatible?: () => Promise<void> };
+  if (typeof gl.makeXRCompatible !== 'function') {
+    return;
+  }
+  prepared = true;
+  const sinceMs = performance.now();
+  let lost = false;
+  const canvas = world.renderer.domElement;
+  const onLost = () => {
+    lost = true;
+  };
+  canvas.addEventListener('webglcontextlost', onLost);
+  gl.makeXRCompatible().then(
+    () => {
+      canvas.removeEventListener('webglcontextlost', onLost);
+      console.info(`[VR] Graphics ready for VR after ${((performance.now() - sinceMs) / 1000).toFixed(1)} s${lost ? ', moved to the headset\'s graphics card' : ''}`);
+    },
+    (error: unknown) => {
+      canvas.removeEventListener('webglcontextlost', onLost);
+      // No headset yet, for example; the session start will try again.
+      prepared = false;
+      console.info('[VR] Graphics not made ready for VR yet:', error);
+    },
+  );
+}
+
