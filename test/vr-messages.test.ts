@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeVrError, HUNG_START_MS, SLOW_START_MS, vrStartMessage, vrSupportNote } from '../src/vr-messages.js';
+import { describeVrError, HUNG_START_MS, SLOW_START_MS, softwareRendererNote, vrStartMessage, vrSupportNote } from '../src/vr-messages.js';
 
 describe('vrStartMessage', () => {
   const starting = (grantedMs: number | null = null) => ({ phase: 'starting' as const, sinceMs: 1000, grantedMs });
@@ -39,7 +39,7 @@ describe('vrStartMessage', () => {
 
   it('asks for a second press when VR stopped because the graphics moved to the headset GPU', () => {
     expect(vrStartMessage({ phase: 'ended-early', contextLost: true }, 0, 'pc')).toBe(
-      'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again; it should start this time.',
+      'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again.',
     );
     expect(vrStartMessage({ phase: 'ended-early', contextLost: false }, 0, 'pc')).toMatch(/^VR started but closed straight away/);
   });
@@ -81,3 +81,16 @@ describe('describeVrError', () => {
     expect(describeVrError('odd')).toBe('odd');
   });
 });
+
+describe('softwareRendererNote', () => {
+  it("flags a PC browser drawing with Windows' software renderer", () => {
+    const gpu = 'ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    expect(softwareRendererNote('pc', gpu)).toMatch(/^The browser is drawing without your graphics card \(software renderer\)\./);
+    expect(softwareRendererNote('quest', gpu)).toBe('');
+  });
+
+  it('stays quiet on a real graphics card', () => {
+    expect(softwareRendererNote('pc', 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)')).toBe('');
+  });
+});
+

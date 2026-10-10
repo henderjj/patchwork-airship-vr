@@ -37,7 +37,7 @@ export function vrStartMessage(state: VrStartState, nowMs: number, kind: Platfor
       return `VR didn't start: ${state.error}.${kind === 'pc' ? ` ${LINK_CHECK}` : ''}`;
     case 'ended-early':
       return state.contextLost
-        ? 'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again; it should start this time.'
+        ? 'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again.'
         : 'VR started but closed straight away. Try again; the browser console (F12) has the reason.';
     case 'starting': {
       const elapsed = nowMs - state.sinceMs;
@@ -96,3 +96,16 @@ export function describeVrError(error: unknown): string {
   }
   return String(error);
 }
+
+/**
+ * A note for a PC whose browser draws with a software renderer instead of a
+ * graphics card ('' otherwise). VR then has to move the graphics to the
+ * headset's card as it starts, and the flat page runs slowly.
+ */
+export function softwareRendererNote(kind: PlatformKind, gpu: string): string {
+  if (kind !== 'pc' || !/Basic Render Driver|SwiftShader|llvmpipe|Software Adapter/i.test(gpu)) {
+    return '';
+  }
+  return "The browser is drawing without your graphics card (software renderer). Turn on \"Use graphics acceleration when available\" in the browser's settings, set the browser to High performance in Windows Settings > System > Display > Graphics, then restart the browser.";
+}
+

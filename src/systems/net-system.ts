@@ -24,8 +24,8 @@ import { crewPresence } from '../net/crew-presence.js';
 import { handCurls, handUse } from './grip-system.js';
 import { HoldKind, type LockBody, LockedHand } from './hand-lock.js';
 import { perf } from './perf-hud-system.js';
-import { describeBrowser } from '../perf/platform-report.js';
-import { vrStartMessage, vrSupportNote } from '../vr-messages.js';
+import { describeBrowser, readGpu } from '../perf/platform-report.js';
+import { softwareRendererNote, vrStartMessage, vrSupportNote } from '../vr-messages.js';
 import { onVrStart, prepareVr, startVr, vrStartState } from '../vr-start.js';
 
 /**
@@ -344,6 +344,12 @@ export class NetSystem extends createSystem({}) {
     // page opened before Link was running, so look again when it reports a
     // device change or the window comes back into focus.
     const kind = describeBrowser(navigator.userAgent).kind;
+    // A PC browser on a software renderer gets a note too. The GPU's name is
+    // read once, and again when the context comes back (perhaps on another card).
+    const canvas = this.world.renderer.domElement;
+    let softwareNote = softwareRendererNote(kind, readGpu(this.world.renderer.getContext()));
+    const notes = (note: string) => [note, softwareNote].filter(Boolean).join(' ');
+    let lastSupported = false;
     const checkVr = () => {
       const xr = navigator.xr;
       if (xr == null) {
@@ -355,14 +361,21 @@ export class NetSystem extends createSystem({}) {
         .isSessionSupported('immersive-vr')
         .catch(() => false)
         .then((supported) => {
+          lastSupported = supported;
           const { button, note } = vrSupportNote(kind, true, supported);
-          this.ui?.showEnterVr(button, note);
+          this.ui?.showEnterVr(button, notes(note));
           if (supported) {
             prepareVr(this.world);
           }
         });
     };
     checkVr();
+    const onContextRestored = () => {
+      softwareNote = softwareRendererNote(kind, readGpu(this.world.renderer.getContext()));
+      const { button, note } = vrSupportNote(kind, navigator.xr != null, lastSupported);
+      this.ui?.showEnterVr(button, notes(note));
+    };
+    canvas.addEventListener('webglcontextrestored', onContextRestored);
     navigator.xr?.addEventListener('devicechange', checkVr);
     window.addEventListener('focus', checkVr);
     // How a press of Enter VR is going, ticking each second while it starts.
@@ -384,6 +397,7 @@ export class NetSystem extends createSystem({}) {
       () => window.removeEventListener('pointerdown', resume),
       () => navigator.xr?.removeEventListener('devicechange', checkVr),
       () => window.removeEventListener('focus', checkVr),
+      () => canvas.removeEventListener('webglcontextrestored', onContextRestored),
       onVrStart(showVrStart),
       () => clearInterval(vrTick),
       () => clearInterval(this.statsTimer),
