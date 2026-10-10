@@ -4,6 +4,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
+  SphereGeometry,
   SRGBColorSpace,
   Vector3,
 } from '@iwsdk/core';
@@ -21,6 +22,7 @@ import {
 } from '../scene-assets/rope.scene-asset.js';
 import { groundBelow } from '../sim/islands.js';
 import { KEEL_DEPTH } from '../sim/gondola-layout.js';
+import { callLampLevel, HaulCall, haulCallFraction, haulCallPhase, lineTension, msToNextHeave, ropeBuzz } from '../sim/crew-sync.js';
 import { createRopeHandInput, ROPE_SLOTS, RopeHaulSim } from '../sim/rope-haul.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
@@ -29,6 +31,8 @@ import { FLAG_LEFT_ROPE, FLAG_LEFT_TRACKED, FLAG_RIGHT_ROPE, FLAG_RIGHT_TRACKED,
 import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
 import { docking, flightInfo, ship } from './ship-system.js';
+import { sounds } from './audio-system.js';
+import { RAIL_HEIGHT } from '../scene-assets/gondola.scene-asset.js';
 
 /**
  * Spike S6, part 2: hauling the mooring line hand over hand. Squeeze the grip
@@ -37,10 +41,18 @@ import { docking, flightInfo, ship } from './ship-system.js';
  * (src/sim/rope-haul.ts) with both players' hands and sends the line's
  * state 45 times a second; the guest predicts and blends, as for the crank.
  *
- * Feedback: a creak in the hand while the line moves, a double pulse on a
- * heave (both players' strokes starting together) and a sharp pulse when the
- * line slips through a hand. A sign at the stern end shows the line out and
- * what the grapple on its end is doing.
+ * Feedback: a buzz in the hand that grows with how hard it pulls on the
+ * line (steeply near the point the line slips, easing when the crewmate
+ * pulls too), a double pulse on a heave (both players' strokes starting
+ * together) and a sharp pulse when the line slips through a hand. A sign at
+ * the stern end shows the line out and what the grapple on its end is
+ * doing.
+ *
+ * The haul call (src/sim/crew-sync.ts): while both players have a hand on
+ * the line, a drum beats "heave" once a second on the shared clock, with a
+ * soft tock on the off-beat to reach forward. Both hear it at the same
+ * moment whatever the network delay, so starting strokes on it heaves. A
+ * lamp on the rail flashes on each heave and the controllers tick with it.
  *
  * The grapple itself (taking it off its hook, throwing it, its flight and
  * what it catches) is GrappleSystem's, which also sets how hard the line
@@ -58,6 +70,11 @@ const TRAIL_PER_SPEED2 = 0.008;
 const TRAIL_MAX = 0.5;
 /** How fast the hanging line swings to a new lean, per second. */
 const OVERSIDE_RATE = 1.5;
+/** Time between the buzzes that make up the line's pull in the hand, ms (each runs a little longer, so they join up). */
+const BUZZ_GAP_MS = 80;
+/** The haul call's lamp: on the rail top halfway along the run, in front of the hauling crew. */
+const LAMP_RADIUS = 0.022;
+const LAMP_AT = [-1.04, RAIL_HEIGHT + 0.03 + LAMP_RADIUS, ROPE_Z0 + ROPE_RUN * 0.55] as const;
 
 type TestHand = (nowMs: number) => number | null;
 
@@ -69,6 +86,8 @@ interface RopeDebug {
   setTestHand(side: Side, hand: TestHand | null): void;
   holding(): Record<Side, boolean>;
   hostError(): number;
+  /** The haul call: whether it is sounding, and the latest heave's number and time since it (ms) on the shared clock (NaN without one). */
+  call(nowMs: number): { running: boolean; index: number; sinceMs: number };
 }
 
 export class RopeSystem extends createSystem({}) {
@@ -95,7 +114,12 @@ export class RopeSystem extends createSystem({}) {
   private hostStateFresh = false;
   private blendError = Number.NaN;
   private wasHeave = false;
-  private lastCreak = 0;
+  private lastBuzz = 0;
+  /** The haul call, and its lamp. */
+  readonly call = new HaulCall();
+  private lamp!: Mesh<SphereGeometry, MeshBasicMaterial>;
+  /** When this player last had a hand on the line, local ms (the call's beat ticks in the controllers while they haul). */
+  private atLineMs = Number.NEGATIVE_INFINITY;
   private sign!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture };
   private lastSignDraw = 0;
 
@@ -107,6 +131,10 @@ export class RopeSystem extends createSystem({}) {
     this.overside = rope.overside;
     this.world.createTransformEntity(rope.overside);
     this.createSign();
+    this.lamp = new Mesh(new SphereGeometry(LAMP_RADIUS, 10, 6), new MeshBasicMaterial({ color: 0x5a4524, toneMapped: false }));
+    this.lamp.name = 'Haul Call Lamp';
+    this.lamp.position.set(LAMP_AT[0], LAMP_AT[1], LAMP_AT[2]);
+    this.world.createTransformEntity(this.lamp);
 
     netLink.handlers.set(PacketType.Rope, (view) => {
       if (decodeRope(view, this.hostState)) {
@@ -119,6 +147,10 @@ export class RopeSystem extends createSystem({}) {
       setTestHand: (side, hand) => this.setScriptedHand(side, hand),
       holding: () => ({ ...this.hold }),
       hostError: () => this.blendError,
+      call: (nowMs) => {
+        const { index, phase } = haulCallPhase(this.sharedClock(nowMs), this.call.periodMs);
+        return { running: this.call.running, index, sinceMs: phase * this.call.periodMs };
+      },
       reset: () => {
         this.sim.reset();
         docking.phase = 'hanging';
@@ -133,6 +165,23 @@ export class RopeSystem extends createSystem({}) {
       axis.set(0, 0, 1);
     });
     this.cleanupFuncs.push(() => lockResolvers.delete(HoldKind.Rope));
+  }
+
+  /**
+   * Time on the clock both players share (the host's), for local time
+   * `nowMs`, or NaN while the guest doesn't yet know the offset to it.
+   */
+  sharedClock(nowMs: number): number {
+    if (!netLink.connected || netLink.isHost) {
+      return nowMs;
+    }
+    return netLink.clockSynced ? nowMs - netLink.toLocal(0) : Number.NaN;
+  }
+
+  /** Local time of the haul call's next heave, ms (NaN without a crewmate to haul with): the practice crewmate strokes on it. */
+  nextHeaveAt(nowMs: number): number {
+    const clock = netLink.connected ? this.sharedClock(nowMs) : Number.NaN;
+    return nowMs + msToNextHeave(clock, this.call.periodMs);
   }
 
   /**
@@ -218,7 +267,8 @@ export class RopeSystem extends createSystem({}) {
 
     setRopeHauled(this.texture, this.sim.hauled);
     this.hangOverside(dt);
-    this.feedback(now);
+    this.haulCall(now);
+    this.feedback(now, me);
     if (now - this.lastSignDraw > 200) {
       this.lastSignDraw = now;
       this.drawSign();
@@ -343,7 +393,37 @@ export class RopeSystem extends createSystem({}) {
     netLink.send(this.sendBuffer, encodeRope(this.sendBuffer, s));
   }
 
-  private feedback(now: number): void {
+  /**
+   * The haul call: sounds while both players have a hand on the line (on
+   * either page, from the hands both simulations see), beats on the shared
+   * clock, and lights its lamp.
+   */
+  private haulCall(now: number): void {
+    const clock = netLink.connected ? this.sharedClock(now) : Number.NaN;
+    if (this.hold.left || this.hold.right) {
+      this.atLineMs = now;
+    }
+    if (Number.isNaN(clock)) {
+      this.call.stop();
+    } else {
+      const h = this.hands;
+      const both = (h[0].holding || h[1].holding) && (h[2].holding || h[3].holding);
+      const beat = this.call.update(now, clock, both);
+      if (beat) {
+        sounds.haulCall(beat);
+        if (now - this.atLineMs < this.call.lingerMs) {
+          for (const side of SIDES) {
+            this.pulse(side, beat === 'heave' ? 0.6 : 0.15, beat === 'heave' ? 35 : 10);
+          }
+        }
+      }
+    }
+    const level = this.call.running ? callLampLevel(haulCallFraction(clock, this.call.periodMs)) : 0;
+    // Dull brass when quiet; a warm flash on each heave.
+    this.lamp.material.color.setRGB(0.35 + 0.65 * level, 0.27 + 0.65 * level, 0.14 + 0.45 * level);
+  }
+
+  private feedback(now: number, me: number): void {
     const heave = this.sim.heave || (!netLink.isHost && (this.hostState.flags & 1) !== 0);
     if (heave && !this.wasHeave) {
       for (const side of SIDES) {
@@ -351,11 +431,12 @@ export class RopeSystem extends createSystem({}) {
       }
     }
     this.wasHeave = heave;
-    const speed = Math.abs(this.sim.speed);
-    if (speed > 0.05 && now - this.lastCreak > 90) {
-      this.lastCreak = now;
+    if (now - this.lastBuzz > BUZZ_GAP_MS) {
+      this.lastBuzz = now;
       for (const side of SIDES) {
-        if (this.hold[side]) this.pulse(side, Math.min(0.5, 0.1 + speed * 0.3), 15);
+        if (!this.hold[side]) continue;
+        const buzz = ropeBuzz(lineTension(this.sim.lead[me * 2 + (side === 'left' ? 0 : 1)], this.sim.params.slipDistance), this.sim.speed);
+        if (buzz > 0) this.pulse(side, buzz, BUZZ_GAP_MS + 15);
       }
     }
   }

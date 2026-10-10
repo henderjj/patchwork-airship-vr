@@ -2,7 +2,7 @@
  * The ship's sounds (Phase 2), made in Web Audio rather than recorded, to
  * keep the download small: the burner's roar, wind that grows with speed,
  * timber creaks, the crank's ratchet, the ship's bell, a chime for a ring
- * flown through and a thump on touchdown.
+ * flown through, a thump on touchdown and the haul call's drum.
  *
  * Sources sit at fixed places in ship space (the gondola doesn't move in
  * the player's tracking space), so only the listener moves each frame.
@@ -33,11 +33,12 @@ export class ShipSounds {
   private windFilter!: BiquadFilterNode;
   private ratchetOut!: AudioNode;
   private bellOut!: AudioNode;
+  private haulOut!: AudioNode;
   /** Sounds played so far, by name (tests and the HUD). */
-  readonly played: Record<string, number> = { ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0 };
+  readonly played: Record<string, number> = { ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0 };
 
   constructor(
-    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3 },
+    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3 },
     readonly enabled = true,
   ) {}
 
@@ -106,6 +107,7 @@ export class ShipSounds {
     ratchetFilter.connect(this.panner(this.places.crank));
     this.ratchetOut = ratchetFilter;
     this.bellOut = this.panner(this.places.bell);
+    this.haulOut = this.panner(this.places.haul);
   }
 
   /** Looped noise into `filter`; returns the filter to connect onwards. */
@@ -243,6 +245,36 @@ export class ShipSounds {
     this.tone(1046.5, 'triangle', 0.16, 0.01, 0.5, this.master, t);
     this.tone(1568, 'triangle', 0.16, 0.01, 0.8, this.master, t + 0.14);
     this.played.chime++;
+  }
+
+  /**
+   * The haul call, at the hauling run: a deep drum beat on the heave (start
+   * the stroke) and a soft wooden tock on the off-beat (reach forward).
+   */
+  haulCall(beat: 'heave' | 'reach'): void {
+    const ctx = this.ctx;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    if (beat === 'reach') {
+      this.tone(660, 'triangle', 0.08, 0.003, 0.06, this.haulOut, t);
+      return;
+    }
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(140, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.18);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.7, t + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.connect(gain).connect(this.haulOut);
+    osc.start(t);
+    osc.stop(t + 0.35);
+    // The skin's slap on top, so the beat is sharp enough to time a pull to.
+    this.tone(330, 'triangle', 0.18, 0.002, 0.05, this.haulOut, t);
+    this.played.heave++;
   }
 
   /** The gondola settling onto the ground, harder with a faster `speed` (m/s). */
