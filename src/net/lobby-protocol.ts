@@ -6,6 +6,13 @@
  */
 
 export const MAX_CREW = 2;
+/** Longest message a client may send; an offer with every codec is a few KB. */
+export const MAX_MESSAGE_LENGTH = 16 * 1024;
+/**
+ * Messages a connection may send per minute. A connection negotiates with a
+ * few dozen candidates and pings twice a minute; anything near this is a flood.
+ */
+export const MAX_MESSAGES_PER_MINUTE = 300;
 
 export interface CrewMember {
   id: string;
@@ -27,7 +34,8 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { t: 'welcome'; you: CrewMember; crew: CrewMember[]; iceServers: RTCIceServerLike[] }
-  | { t: 'joined'; member: CrewMember }
+  /** `iceServers` replaces the ones from `welcome`: TURN is only handed out once there are two players. */
+  | { t: 'joined'; member: CrewMember; iceServers?: RTCIceServerLike[] }
   | { t: 'left'; id: string; newHost: string | null }
   | { t: 'signal'; from: string; data: SignalData }
   | { t: 'full' }
@@ -42,6 +50,9 @@ export interface RTCIceServerLike {
   username?: string;
   credential?: string;
 }
+
+/** Free STUN only; TURN is added by the deployed lobby when configured. */
+export const DEFAULT_ICE_SERVERS: RTCIceServerLike[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 /** Room codes: four letters without easily confused ones (no I, L, O). */
 const CODE_LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -84,24 +95,42 @@ export interface Outbox {
 }
 
 /**
+ * The ICE servers for a crew of two, asked for when the second player joins.
+ * `connectionId` is the player who just joined.
+ */
+export type IceServersSource = (connectionId: string) => Promise<RTCIceServerLike[]> | RTCIceServerLike[];
+
+/**
  * The lobby's rules for one room, independent of transport: at most two crew,
  * the first to arrive hosts, the host role passes on if the host leaves, and
- * signals are only relayed between members of the same room.
+ * signals are only relayed between members of the same room. A player alone
+ * in a room gets free STUN only; relay (TURN) servers, which cost money per
+ * gigabyte, are asked for once a crewmate is there to connect to. Oversized
+ * messages and floods close the connection.
  */
 export class LobbyRoom {
   readonly members = new Map<string, CrewMember>();
   private order: string[] = [];
   /** Connection id of each member's player key. */
   private players = new Map<string, string>();
+  /** Messages each connection sent in its current one-minute window. */
+  private traffic = new Map<string, { since: number; count: number }>();
   private readonly outbox: Outbox;
-  private readonly iceServers: () => Promise<RTCIceServerLike[]> | RTCIceServerLike[];
+  private readonly iceServers: IceServersSource;
+  private readonly now: () => number;
 
-  constructor(outbox: Outbox, iceServers: () => Promise<RTCIceServerLike[]> | RTCIceServerLike[]) {
+  constructor(outbox: Outbox, iceServers: IceServersSource, now: () => number = Date.now) {
     this.outbox = outbox;
     this.iceServers = iceServers;
+    this.now = now;
   }
 
   async onMessage(connectionId: string, raw: string): Promise<void> {
+    if (this.overLimit(connectionId, raw)) {
+      this.onClose(connectionId);
+      this.outbox.close(connectionId);
+      return;
+    }
     const message = parseClientMessage(raw);
     if (!message) {
       this.outbox.send(connectionId, { t: 'error', message: 'bad message' });
@@ -115,6 +144,19 @@ export class LobbyRoom {
     } else if (this.members.has(connectionId) && this.members.has(message.to)) {
       this.outbox.send(message.to, { t: 'signal', from: connectionId, data: message.data });
     }
+  }
+
+  private overLimit(connectionId: string, raw: string): boolean {
+    if (raw.length > MAX_MESSAGE_LENGTH) {
+      return true;
+    }
+    const now = this.now();
+    let window = this.traffic.get(connectionId);
+    if (!window || now - window.since >= 60_000) {
+      window = { since: now, count: 0 };
+      this.traffic.set(connectionId, window);
+    }
+    return ++window.count > MAX_MESSAGES_PER_MINUTE;
   }
 
   private async join(id: string, name: string, color: number, player?: string): Promise<void> {
@@ -139,13 +181,20 @@ export class LobbyRoom {
     if (player !== undefined) {
       this.players.set(player, id);
     }
-    this.outbox.send(id, { t: 'welcome', you: member, crew, iceServers: await this.iceServers() });
-    for (const other of crew) {
-      this.outbox.send(other.id, { t: 'joined', member });
+    const iceServers = crew.length > 0 ? await this.iceServers(id) : DEFAULT_ICE_SERVERS;
+    if (this.members.get(id) !== member) {
+      return; // left while the servers were being fetched
+    }
+    // The crewmate may have left meanwhile; tell the newcomer who is here now.
+    const others = [...this.members.values()].filter((m) => m.id !== id);
+    this.outbox.send(id, { t: 'welcome', you: member, crew: others, iceServers });
+    for (const other of others) {
+      this.outbox.send(other.id, { t: 'joined', member, iceServers });
     }
   }
 
   onClose(connectionId: string): void {
+    this.traffic.delete(connectionId);
     const member = this.members.get(connectionId);
     if (!member) {
       return;
@@ -169,5 +218,3 @@ export class LobbyRoom {
   }
 }
 
-/** Free STUN only; TURN is added by the deployed lobby when configured. */
-export const DEFAULT_ICE_SERVERS: RTCIceServerLike[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];

@@ -1,5 +1,6 @@
 import { type BufferGeometry, createSystem, Euler, InputComponent, Mesh, Object3D, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
 import { LobbyUi } from '../net/lobby-ui.js';
+import { normaliseRoomCode } from '../net/lobby-protocol.js';
 import { NetSession } from '../net/net-session.js';
 import { createAvatarPose, decodePose, encodePose, type AvatarPose, type PoseHeader, type PoseSample, POSE_PACKET_BYTES, seqNewer } from '../net/pose-codec.js';
 import { copyAvatar, copyPose, PoseBuffer } from '../net/pose-buffer.js';
@@ -411,8 +412,10 @@ export class NetSystem extends createSystem({}) {
     netLink.events.set('presence', (event) => {
       this.crewAway = event.away === true;
     });
-    if (settings.room) {
-      this.ui.join(settings.room.toUpperCase());
+    // The lobby only knows four-letter codes; anything else in the link is ignored.
+    const code = settings.room ? normaliseRoomCode(settings.room) : null;
+    if (code) {
+      this.ui.join(code);
     }
   }
 

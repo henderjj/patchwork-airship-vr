@@ -276,6 +276,9 @@ export class NetSession {
         break;
       case 'joined':
         this.peer = message.member;
+        if (message.iceServers) {
+          this.iceServers = message.iceServers;
+        }
         this.createPeerConnection();
         if (this.isHost) {
           await this.makeOffer();

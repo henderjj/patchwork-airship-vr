@@ -4,10 +4,22 @@
   "main": "worker.ts",
   "compatibility_date": "2026-10-01",
   "durable_objects": {
-    "bindings": [{ "name": "Lobby", "class_name": "Lobby" }]
+    "bindings": [
+      { "name": "Lobby", "class_name": "Lobby" },
+      { "name": "TurnBudget", "class_name": "TurnBudget" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Lobby"] },
+    { "tag": "v2", "new_sqlite_classes": ["TurnBudget"] }
+  ],
   "vars": {
-    "ALLOWED_ORIGINS": "https://henderjj.github.io"
+    "ALLOWED_ORIGINS": "https://henderjj.github.io",
+    // TURN relay is billed per gigabyte: at most this many sets of TURN
+    // credentials are made per UTC day, in total and for one IP address.
+    // Past that, players get free STUN only. Set the first to "0" to switch
+    // TURN off without touching the Cloudflare dashboard.
+    "TURN_CREDENTIALS_PER_DAY": "30",
+    "TURN_CREDENTIALS_PER_IP_PER_DAY": "8"
   }
 }
