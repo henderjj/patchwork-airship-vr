@@ -24,10 +24,11 @@ import { KEEL_DEPTH } from '../sim/gondola-layout.js';
 import { createRopeHandInput, ROPE_SLOTS, RopeHaulSim } from '../sim/rope-haul.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
+import { GRAPPLE_PHASES, STRAIN_HEIGHT } from '../sim/docking.js';
 import { FLAG_LEFT_ROPE, FLAG_LEFT_TRACKED, FLAG_RIGHT_ROPE, FLAG_RIGHT_TRACKED, netLink } from './net-system.js';
-import { grip } from './grip-system.js';
+import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
-import { flightInfo, ship } from './ship-system.js';
+import { docking, flightInfo, ship } from './ship-system.js';
 
 /**
  * Spike S6, part 2: hauling the mooring line hand over hand. Squeeze the grip
@@ -38,7 +39,14 @@ import { flightInfo, ship } from './ship-system.js';
  *
  * Feedback: a creak in the hand while the line moves, a double pulse on a
  * heave (both players' strokes starting together) and a sharp pulse when the
- * line slips through a hand. A sign at the stern end shows metres hauled.
+ * line slips through a hand. A sign at the stern end shows the line out and
+ * what the grapple on its end is doing.
+ *
+ * The grapple itself (taking it off its hook, throwing it, its flight and
+ * what it catches) is GrappleSystem's, which also sets how hard the line
+ * pulls back (`sim.load`) for what is on its end. The line's state packet
+ * carries the grapple's phase too, so the guest learns what the host
+ * decided it caught.
  */
 
 const SIDES = ['left', 'right'] as const;
@@ -55,17 +63,19 @@ type TestHand = (nowMs: number) => number | null;
 
 interface RopeDebug {
   sim: RopeHaulSim;
+  /** All the line out, with the grapple hanging over the side (for haul tests). */
+  reset(): void;
   /** Hold the line with this player's `side` hand at a scripted position along it (m), or let go with null. */
   setTestHand(side: Side, hand: TestHand | null): void;
   holding(): Record<Side, boolean>;
   hostError(): number;
-  reset(): void;
 }
 
 export class RopeSystem extends createSystem({}) {
   readonly sim = new RopeHaulSim();
   private texture!: CanvasTexture;
-  private overside!: Mesh;
+  /** The line hanging over the side, while the grapple hangs on it (GrappleSystem draws the grapple at its end). */
+  overside!: Mesh;
   private lean = { x: 0, z: 0 };
   private hands = Array.from({ length: ROPE_SLOTS }, () => createRopeHandInput());
   private hold: Record<Side, boolean> = { left: false, right: false };
@@ -79,8 +89,9 @@ export class RopeSystem extends createSystem({}) {
   };
   private sendBuffer = new ArrayBuffer(ROPE_PACKET_BYTES);
   private sendAccumulator = 0;
-  private outState: RopeStatePacket = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0 };
-  private hostState: RopeStatePacket = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0 };
+  private outState: RopeStatePacket = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0, grapple: 0, throws: 0 };
+  /** The host's line state as last heard (the guest's GrappleSystem reads its grapple phase). */
+  readonly hostState: RopeStatePacket = { timeMs: 0, hauled: 0, speed: 0, flags: 0, heaves: 0, grapple: 0, throws: 0 };
   private hostStateFresh = false;
   private blendError = Number.NaN;
   private wasHeave = false;
@@ -110,6 +121,7 @@ export class RopeSystem extends createSystem({}) {
       hostError: () => this.blendError,
       reset: () => {
         this.sim.reset();
+        docking.phase = 'hanging';
         this.hostStateFresh = false;
       },
     };
@@ -193,7 +205,7 @@ export class RopeSystem extends createSystem({}) {
       this.blendError = target - this.sim.hauled;
       this.sim.blendToward(target, h.speed, BLEND_RATE);
       this.sim.heaves = h.heaves;
-      this.sim.docked = (h.flags & 2) !== 0;
+      this.sim.allIn = (h.flags & 2) !== 0;
     }
 
     for (const side of SIDES) {
@@ -214,10 +226,35 @@ export class RopeSystem extends createSystem({}) {
   }
 
   /**
-   * The line still out hangs over the side along the felt gravity, trailing
-   * aft with speed, and stops where it reaches an island below the ship.
+   * Swing the hanging line to point along ship-space direction (x, y, z)
+   * (towards a grapple that has just fallen or been torn off its post);
+   * from there it swings down to hang.
+   */
+  pointOverside(x: number, y: number, z: number): void {
+    const length = Math.hypot(x, y, z);
+    if (length < 1e-6) {
+      return;
+    }
+    // The line's end is at (sin lz, -cos lz cos lx, -cos lz sin lx); it never points above the rail.
+    const dx = x / length;
+    const dy = Math.min(-0.05, y / length);
+    const dz = z / length;
+    this.lean.z = Math.asin(Math.max(-1, Math.min(1, dx)));
+    this.lean.x = Math.atan2(-dz, -dy);
+    this.overside.rotation.set(this.lean.x, 0, this.lean.z);
+  }
+
+  /**
+   * The line out hangs over the side along the felt gravity, trailing aft
+   * with speed, and stops where it reaches an island below the ship. Only
+   * while the grapple hangs on it: otherwise the line out runs to the
+   * grapple (GrappleSystem).
    */
   private hangOverside(dt: number): void {
+    if (docking.phase !== 'hanging') {
+      this.overside.visible = false;
+      return;
+    }
     let length = this.sim.params.length - this.sim.hauled;
     if (flightInfo.flying) {
       const ground = Math.max(
@@ -255,7 +292,7 @@ export class RopeSystem extends createSystem({}) {
         }
         continue;
       }
-      if (!grip[side].down) {
+      if (!grip[side].down || handUse[side]) {
         continue;
       }
       this.player.gripSpaces[side].getWorldPosition(this.handPos);
@@ -299,8 +336,10 @@ export class RopeSystem extends createSystem({}) {
     s.timeMs = now;
     s.hauled = this.sim.hauled;
     s.speed = this.sim.speed;
-    s.flags = (this.sim.heave ? 1 : 0) | (this.sim.docked ? 2 : 0);
+    s.flags = (this.sim.heave ? 1 : 0) | (this.sim.allIn ? 2 : 0);
     s.heaves = this.sim.heaves;
+    s.grapple = GRAPPLE_PHASES.indexOf(docking.phase);
+    s.throws = docking.throws;
     netLink.send(this.sendBuffer, encodeRope(this.sendBuffer, s));
   }
 
@@ -356,18 +395,21 @@ export class RopeSystem extends createSystem({}) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#f3e3c3';
     ctx.font = 'bold 28px sans-serif';
-    ctx.fillText(`line in ${s.hauled.toFixed(1)} / ${s.params.length} m`, 128, 40);
+    const phase = docking.phase;
+    const out = s.params.length - s.hauled;
+    ctx.fillText(phase === 'stowed' ? 'grapple on hook' : `line out ${out.toFixed(1)} m`, 128, 40);
     ctx.font = 'bold 24px sans-serif';
-    if (s.docked) {
-      ctx.fillStyle = '#7fd17f';
-      ctx.fillText('ALL IN!', 128, 78);
-    } else if (this.wasHeave) {
-      ctx.fillStyle = '#f4c542';
-      ctx.fillText('HEAVE!', 128, 78);
-    } else {
-      ctx.fillStyle = '#a89878';
-      ctx.fillText(s.heaves > 0 ? `${s.heaves} heaves` : 'haul together', 128, 78);
-    }
+    const off = docking.heightOff;
+    const [text, colour] =
+      phase === 'fast' ? ['MADE FAST!', '#7fd17f']
+      : phase === 'hooked' && Math.abs(off) > STRAIN_HEIGHT ? [off > 0 ? 'HIGH! vent' : 'LOW! burn', '#f08a5d']
+      : this.wasHeave ? ['HEAVE!', '#f4c542']
+      : phase === 'hooked' ? [docking.tight ? 'on the post: haul!' : 'on the post', '#a8d08a']
+      : phase === 'flying' ? ['...', '#a89878']
+      : phase === 'hanging' ? ['haul it back in', '#a89878']
+      : ['throw it at the post', '#a89878'];
+    ctx.fillStyle = colour;
+    ctx.fillText(text, 128, 78);
     texture.needsUpdate = true;
   }
 }

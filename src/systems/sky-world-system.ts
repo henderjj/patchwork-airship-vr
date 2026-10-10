@@ -26,8 +26,9 @@ import {
 import { ISLAND_VARIANTS, islandVariantSeed } from '../sim/islands.js';
 import { rng } from '../sim/random.js';
 import { wrapNear } from '../sim/world-tile.js';
-import { createBeaconLampGeometry, createBeaconMastGeometry, createLandingIslandGeometry, createRingGeometry } from '../world/route-assets.js';
+import { createBeaconLampGeometry, createBeaconMastGeometry, createJettyGeometry, createLandingIslandGeometry, createRingGeometry } from '../world/route-assets.js';
 import { ROUTE, sceneryIslands } from '../world/route-world.js';
+import { jettyRoot } from '../sim/route.js';
 import { flightInfo, route, ship } from './ship-system.js';
 
 const CLOUD_VARIANTS = 3;
@@ -179,6 +180,14 @@ export class SkyWorldSystem extends createSystem({}) {
     lamp.position.copy(mast.position);
     lamp.position.y += BEACON_HEIGHT + 1.4;
     this.route.add(mast, lamp);
+    // Island B's jetty and mooring post, out from its rim towards the way in (docking).
+    const dock = ROUTE.dock;
+    const root = jettyRoot(ROUTE);
+    const jetty = new Mesh(createJettyGeometry(Math.hypot(root.x - dock.x, root.z - dock.z), dock.height), material);
+    jetty.name = 'Mooring Post';
+    jetty.position.set(dock.x, dock.y, dock.z);
+    jetty.rotation.y = Math.atan2(root.x - dock.x, root.z - dock.z);
+    this.route.add(jetty);
     this.route.visible = false;
   }
 

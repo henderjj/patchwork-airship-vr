@@ -291,6 +291,10 @@ export class ControlsSystem extends createSystem({}) {
       const g = grip[side];
       this.player.gripSpaces[side].getWorldPosition(this.handPos);
       const p = this.handPos;
+      if (held === 'grapple') {
+        // GrappleSystem's: it takes and lets go of the grapple itself.
+        continue;
+      }
       if (held) {
         if (!g.pressed) {
           this.release(side, held, p);

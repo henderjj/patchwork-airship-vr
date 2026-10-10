@@ -583,22 +583,68 @@ async function shipSyncChecks(host, guest) {
     const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
     return h.phase === 'ready' && g.phase === 'ready' ? h : null;
   }, 5000).catch(() => null);
-  // Off island A (which starts the clock), then down onto island B.
+  // Off island A (which starts the clock), then alongside island B's mooring
+  // post: the guest throws the grapple, both see it catch, the host hauls the
+  // line in, and both see the run finish when the ship is made fast.
   await host.page.evaluate(() => window.__ship.place(0, 126, -40));
   await host.page.waitForTimeout(500);
   await host.page.evaluate(() => {
-    const b = window.__route.run.route.finish;
-    window.__ship.place(b.x + 1, b.y + 1.2, b.z - 2);
-    window.__ship.flight.heat = 40;
+    const route = window.__route.run.route;
+    const dock = route.dock;
+    const FAIRLEAD = [-1.04, 1.04, -1.35];
+    const d = Math.hypot(dock.x - route.finish.x, dock.z - route.finish.z);
+    const out = [(dock.x - route.finish.x) / d, (dock.z - route.finish.z) / d];
+    const yaw = Math.atan2(-out[1], out[0]);
+    const fx = FAIRLEAD[0] * Math.cos(yaw) + FAIRLEAD[2] * Math.sin(yaw);
+    const fz = -FAIRLEAD[0] * Math.sin(yaw) + FAIRLEAD[2] * Math.cos(yaw);
+    window.__ship.place(dock.x + out[0] * 5 - fx, dock.y + dock.height - FAIRLEAD[1], dock.z + out[1] * 5 - fz, yaw);
+    const f = window.__ship.flight;
+    f.airspeed = 0;
+    f.climb = 0;
+    window.__ship.info.burnLeft = 0;
+    clearInterval(window.__holdHeat);
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb *= 0.5; }, 50);
   });
-  const landed = await waitFor('both to see the landing scored', async () => {
+  const dockState = (page) => page.evaluate(() => window.__dock.state());
+  // Give the guest's ship time to follow the host's alongside.
+  await guest.page.waitForTimeout(1500);
+  const thrown = await guest.page.evaluate(() => window.__dock.throwAt(0.8));
+  const caught = await waitFor('both to see the grapple catch', async () => {
+    const [h, g] = await Promise.all([dockState(host.page), dockState(guest.page)]);
+    return h.phase === 'hooked' && g.phase === 'hooked' ? { h, g } : null;
+  }, 8000).catch(() => null);
+  check('The guest throws the grapple and both see it catch on the post',
+    thrown && caught !== null && caught.h.throws === caught.g.throws && Math.abs(caught.h.lineOut - caught.g.lineOut) < 0.3,
+    caught ? `host ${caught.h.lineOut.toFixed(2)} m out, guest ${caught.g.lineOut.toFixed(2)} m, throw ${caught.h.throws}`
+      : `${thrown ? 'thrown' : 'not thrown'}; host ${JSON.stringify(await dockState(host.page))}, guest ${JSON.stringify(await dockState(guest.page))}`);
+  // Haul in at 1 m/s (the line itself, not scripted hands: the haul is checked elsewhere).
+  await host.page.evaluate(() => {
+    clearInterval(window.__haulIn);
+    window.__haulIn = setInterval(() => {
+      const sim = window.__rope.sim;
+      sim.setOut(Math.max(1.2, sim.params.length - sim.hauled - 0.05));
+    }, 50);
+  });
+  const midHaul = await waitFor('the line to come in', async () => {
+    const [h, g] = await Promise.all([dockState(host.page), dockState(guest.page)]);
+    return h.lineOut < 3 ? { h, g } : null;
+  }, 8000).catch(() => null);
+  const docked = await waitFor('both to see the run finish made fast', async () => {
     const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
-    return h.result && g.result && g.board[0].startsWith('LANDED') ? { h, g } : null;
+    return h.result && g.result && g.board[0].startsWith('MADE FAST') ? { h, g } : null;
   }, 20000).catch(() => null);
+  await host.page.evaluate(() => {
+    clearInterval(window.__haulIn);
+    clearInterval(window.__holdHeat);
+  });
+  check('Hauling in draws the ship to the post on both pages, and both see the run finish',
+    midHaul !== null && Math.abs(midHaul.h.lineOut - midHaul.g.lineOut) < 0.5 && Math.abs(midHaul.h.across - midHaul.g.across) < 0.5 && docked !== null,
+    `${midHaul ? `mid-haul line out ${midHaul.h.lineOut.toFixed(2)} / ${midHaul.g.lineOut.toFixed(2)} m, from the post ${midHaul.h.across.toFixed(2)} / ${midHaul.g.across.toFixed(2)} m` : 'line never came in'}, ` +
+      `${docked ? `${docked.g.board[0]}` : `not finished: ${JSON.stringify(await dockState(host.page))}`}`);
   check('The guest sees the host\'s run, rings the bell for both, and sees the same score',
-    guestFlying !== null && restarted !== null && landed !== null && landed.g.result.score === landed.h.result.score,
+    guestFlying !== null && restarted !== null && docked !== null && docked.g.result.score === docked.h.result.score,
     `${guestFlying ? `guest clock ${guestFlying.seconds.toFixed(1)} s` : 'guest never saw the run start'}, ` +
-      `${restarted ? 'restarted' : 'bell ignored'}, ${landed ? `scores ${landed.h.result.score} / ${landed.g.result.score}` : 'landing not seen'}`);
+      `${restarted ? 'restarted' : 'bell ignored'}, ${docked ? `scores ${docked.h.result.score} / ${docked.g.result.score}` : 'finish not seen'}`);
 
   // Back to a ship standing still for the checks that follow.
   await host.page.evaluate(() => {

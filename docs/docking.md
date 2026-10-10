@@ -1,0 +1,52 @@
+# Docking at island B (Phase 3)
+
+From the concept: "One throws the grapple onto a dock post while the other holds altitude steady with small vent and burner taps. Then both haul the line in, hand over hand, in rhythm." The route ([route.md](route.md)) now ends this way: the run finishes when the ship is made fast to the mooring post at the end of island B's jetty, not by landing on B.
+
+## How it plays
+
+1. **Coming in.** Island B has a short plank jetty out from its rim on the side facing the way in (towards ring 2), with a red and white mooring post at its end, 2.2 m tall with an iron cap. Once both rings are flown, the route board's NEXT line points at "Post at B" and says how far above or below the right height the deck is: the right height puts the fairlead (where the line goes over the port rail at the bow) level with the post's top.
+2. **The grapple.** A small four-pronged iron grapple on the end of the mooring line hangs on a hook on the inside of the bow rail, just starboard of the fairlead. Squeeze the grip with a hand on its shank (the band of rope colour) to take it. Throw it overhand at the post: let go with the hand moving briskly (over 2 m/s) and it flies, paying line out through the fairlead behind it (10 m of line in all). Let go gently and it goes back on its hook.
+3. **A catch.** If it passes within 45 cm of the post's top part (from 90 cm below its top to just above it), it catches round the post and the line is made fast there: a thump and a pulse in both controllers. If it misses, it falls until the line runs out or it lands on the island, then hangs over the side; haul it back in and it goes back on its hook to throw again. Thrown up and back into the gondola, it goes back on its hook.
+4. **Hauling in.** Once it has caught, the ship can't get further from the post (across the ground) than the line that is out: pushing away with the crank, or the breeze, just pulls the line tight. Hauling shortens the line and draws the ship in. The line is belayed between pulls, so it doesn't run back out. Slack line comes in easily; a tight line pulls the whole ship, so it is slow for one and much faster for two heaving together (the S6 haul, [spikes/s6-rope.md](spikes/s6-rope.md)). The mooring sign at the stern end of the hauling run says "on the post: haul!" while the line is tight.
+5. **Holding height.** While the line is fast to the post, the ship must stay level with it. More than 1.5 m above or below the post's top and the line creaks, both controllers buzz, and the sign says HIGH! or LOW!; more than 2.5 m for over a second and the grapple is torn off the post and the line hangs over the side again. The board's height line says HIGH or LOW by how much, with VENT or BURN.
+6. **Made fast.** When the line is down to 1.3 m, with the ship drawn in to within half a metre of that and the deck within 1 m of the right height, the ship is made fast: it holds there whatever the crank, wind or burner do, and after 3 s the run is finished and scored.
+
+## Score
+
+1000 points, less 2 per second, 15 per fuel brick, 150 per missed ring, and 100 each time the grapple was torn off the post. The pad-distance and touchdown terms are gone, since the ship no longer lands on B. Three stars from 600, two from 450, one from 250 (`scoreRun()` in `src/sim/route.ts`).
+
+## Under the hood
+
+- **`src/sim/docking.ts`** (engine-free, like the flight model): the grapple's flight in world space from a throw (where and how fast it left the hand, and the ship time it did; gravity only, so every page flies it the same way), the catch test against the post, the line out during flight, the tether, the height strain and tear-off, making fast, and stowing a hanging grapple that is hauled back in.
+- **The tether.** After each flight step, while the grapple is on the post, the line aims to cancel the ship's speed away from the post and take up any distance past the line's length (over about 0.6 s, at most 2.5 m/s), easing its pull up and down at up to 3 m/s², so the ship neither jolts to a halt when the line comes tight nor lurches in with each stroke. Only the ship's position and velocity change: the flight model keeps its own velocity for the felt gravity, so loose bricks don't slide when the line takes the ship. More than 1.2 m past the line's length (say, cranking hard away) yanks the grapple off.
+- **The haul.** The S6 rope haul (`src/sim/rope-haul.ts`) still says how fast the crew can pull line in. GrappleSystem sets what it pulls against: a hanging grapple's weight (load 0.3, so an untended line runs back out), the whole ship while the line is tight (0.6, as in S6), and very little (0.12) while it is slack. While the grapple is on the post the line is belayed (`ratchet`), and it can't be hauled shorter than 0.8 m.
+- **World and ship space.** The gondola stays at the origin and the world moves round it, so the flying grapple is simulated in world space and drawn in ship space each frame (`shipToWorld`, `worldToShip`).
+- **Systems.** `src/systems/grapple-system.ts` takes the grapple off its hook, throws it, flies it, sets the haul's load, and draws the grapple and the straight line out to it (or on the end of the line hanging over the side, which RopeSystem draws). ShipSystem holds the ship on the line after each flight step. RouteSystem's board and RopeSystem's sign show what is going on.
+- **Network.** Whoever throws sends the throw as a reliable event (`grapple-throw`), and both pages fly the grapple from it. The host decides catches, misses, tear-offs and making fast, and its line packet (now 18 bytes) carries the grapple's phase and a throw count, which the guest takes when the counts match (a page that joined late takes the host's phase and count as they stand). A crewmate holding the grapple is drawn holding it: one more hold kind (6) in the pose packet's holds byte. If both players take it at once, the host keeps it.
+- **Practice crewmate.** It hauls with you whenever you haul, as before; throwing and holding height are yours.
+
+## Cost
+
+Two more draw calls on deck: the grapple (288 triangles) and the line out to it (12). One more in the world: the jetty and post, merged into one mesh (544 triangles). Nothing is allocated per frame.
+
+## Tests
+
+- Unit tests (`test/docking.test.ts`): a throw at the post catches with the line paid out; one wide of it runs the line out and hangs, and goes back on its hook once hauled in; a gentle lob back aboard goes back on its hook; the line stops the ship pulling away with the felt gravity under 1 m/s²; hauling in draws the ship to the post and makes it fast, and it is then held still; a deck too high doesn't make fast and tears off after a second; a ship made fast at the post, even low, is clear of island B's rock. `test/route.test.ts` covers the new score and that making fast (not landing) finishes the run.
+- Emulated headset (`npm run test:xr`): the board points to the post when the ship comes alongside; squeezing on the grapple's shank takes it; a scripted throw catches on the post with 4–6 m of line out; scripted hands haul until the ship is made fast; the run finishes with "MADE FAST!" on the board.
+- Two players (`npm run test:net`): the guest throws, both pages see the catch with the same throw count and line out; while the host hauls, both pages agree on the line out and the ship's distance from the post, and both see the run finish with the same score.
+
+## Tuning knobs
+
+- `src/sim/docking.ts`: `CATCH_RADIUS` (0.45 m) and `CATCH_BELOW_TOP` (0.9 m) for how forgiving a catch is; `THROW_SPEED` (2 m/s) for how brisk a throw must be; `STRAIN_HEIGHT` (1.5 m), `TEAR_HEIGHT` (2.5 m) and `TEAR_SECONDS` (1 s) for how hard holding height is; `MADE_FAST_LINE` (1.3 m) and `MADE_FAST_HEIGHT` (1 m); `TETHER_ACCEL`, `TETHER_TIME` and `TETHER_MAX_SPEED` for how the line takes the ship; `YANK_STRETCH` (1.2 m).
+- `src/systems/grapple-system.ts`: `LOAD_HANGING`, `LOAD_SLACK` and `LOAD_TIGHT` for how heavy the haul is.
+- `src/sim/route.ts`: `CALM_SKIES.dock` for where the post is and how tall.
+
+## Headset check
+
+1. Fly the route to island B. Once both rings are flown, the board says NEXT Post at B, with how far, which way and how much higher or lower.
+2. Come alongside the post with it off the port bow, a few metres out, and use the board's height line to get level (LEVEL WITH POST).
+3. Take the grapple off its hook at the port bow corner (low on the inside of the bow rail, just right of where the line comes aboard) and throw it overhand at the post.
+4. If it catches, haul the line in along the port rail. Watch the board and the mooring sign for HIGH or LOW, and vent or burn to stay level. With the line down to 1.3 m and the deck level, the ship is made fast; 3 s later the board shows the score.
+5. Throw one wide on purpose: it should hang over the side, and haul back in onto its hook.
+
+What would help: whether the throw is easy to judge, how far out is fair, whether holding height while hauling feels like a job for two, and how long it takes alone and with the practice crewmate.

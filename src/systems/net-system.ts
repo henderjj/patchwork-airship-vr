@@ -104,7 +104,7 @@ export const FLAG_RIGHT_ROPE = 32;
 export function holdKindOf(side: 'left' | 'right', flags: number, use: string | null): number {
   if (flags & (side === 'left' ? FLAG_LEFT_CRANK : FLAG_RIGHT_CRANK)) return HoldKind.Crank;
   if (flags & (side === 'left' ? FLAG_LEFT_ROPE : FLAG_RIGHT_ROPE)) return HoldKind.Rope;
-  return use === 'tiller' ? HoldKind.Tiller : use === 'vent' ? HoldKind.Vent : use === 'bell' ? HoldKind.Bell : HoldKind.None;
+  return use === 'tiller' ? HoldKind.Tiller : use === 'vent' ? HoldKind.Vent : use === 'bell' ? HoldKind.Bell : use === 'grapple' ? HoldKind.Grapple : HoldKind.None;
 }
 
 /**

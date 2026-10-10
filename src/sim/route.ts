@@ -1,9 +1,11 @@
+import type { DockPost } from './docking.js';
 import { KEEL_DEPTH } from './gondola-layout.js';
 import { type Island, restingDeck, SHIP_HEIGHT } from './islands.js';
 
 /**
  * Phase 2's route ("Calm skies"): lift off from island A, fly through two
- * marker rings, and land on island B. Engine-free: the host steps a
+ * marker rings, and make fast to the mooring post on island B's jetty
+ * (docking, Phase 3). Engine-free: the host steps a
  * `RouteRun` with the ship's state, and everyone draws the same layout.
  *
  * World space: the ship starts on island A facing -Z (yaw 0); yaw turns to
@@ -30,6 +32,8 @@ export interface Route {
   start: LandingIsland;
   rings: RouteRing[];
   finish: LandingIsland;
+  /** The mooring post at the end of the finish island's jetty. */
+  dock: DockPost;
 }
 
 const DEG = Math.PI / 180;
@@ -42,14 +46,27 @@ export const CALM_SKIES: Route = {
     { x: -115, y: 128, z: -330, yaw: 33 * DEG, radius: 14 },
   ],
   finish: { name: 'B', x: -195, y: 108, z: -475, radius: 20, depth: 24, padRadius: 5 },
+  // 27 m out from island B's middle, towards ring 2 (the way in), at the end of a
+  // 7 m jetty: a ship made fast there has its keel above the island's top and
+  // clear of its rock.
+  dock: { x: -181.96, y: 108, z: -451.36, height: 2.2 },
 };
+
+/** Where the jetty leaves the island's rim, along the way from the island's middle to the post. */
+export function jettyRoot(route: Route): { x: number; z: number } {
+  const dx = route.dock.x - route.finish.x;
+  const dz = route.dock.z - route.finish.z;
+  const d = Math.hypot(dx, dz);
+  const r = route.finish.radius - 1;
+  return { x: route.finish.x + (dx / d) * r, z: route.finish.z + (dz / d) * r };
+}
 
 /** The ring is passed when the middle of the ship crosses it this far inside its rim, m. */
 export const RING_MARGIN = 4;
 /** Height of the middle of the ship (keel to envelope top) above its deck, m. */
 export const SHIP_MIDDLE = SHIP_HEIGHT / 2 - KEEL_DEPTH;
-/** Resting on island B this long finishes the route, s. */
-export const LAND_HOLD_SECONDS = 3;
+/** Made fast to island B's post this long finishes the route, s. */
+export const FAST_HOLD_SECONDS = 3;
 /** The run is lost below this height (the haze under the islands), m. */
 export const HAZE_HEIGHT = 40;
 /** The run is lost this far from the route, m. */
@@ -105,19 +122,16 @@ export interface RouteResult {
   bricks: number;
   rings: number;
   ringsTotal: number;
-  /** From the middle of island B's pad, m. */
-  padDistance: number;
-  /** Descent rate at touchdown, m/s. */
-  touchdown: number;
+  /** Times the grapple was torn or yanked off the post. */
+  tears: number;
   score: number;
   stars: number;
 }
 
-/** Points: 1000, less time, fuel, missed rings, distance from the pad, and a hard landing. */
+/** Points: 1000, less time, fuel, missed rings, and the grapple torn off the post. */
 export function scoreRun(r: Omit<RouteResult, 'score' | 'stars'>): { score: number; stars: number } {
   const missed = r.ringsTotal - r.rings;
-  const hard = Math.max(0, r.touchdown - 0.6);
-  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 10 * r.padDistance - 200 * hard));
+  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears));
   const stars = score >= 600 ? 3 : score >= 450 ? 2 : score >= 250 ? 1 : 0;
   return { score, stars };
 }
@@ -133,7 +147,8 @@ export interface RouteShip {
 
 /**
  * One attempt at the route. The timer starts when the ship lifts off island
- * A; the run finishes after resting on island B for `LAND_HOLD_SECONDS`, and
+ * A; the run finishes after the ship has been made fast to island B's
+ * mooring post for `FAST_HOLD_SECONDS` (src/sim/docking.ts), and
  * is lost if the ship hits an island's rock, sinks into the haze, or strays
  * far from the route. Rings may be flown in any order; each missed one
  * costs points.
@@ -149,9 +164,8 @@ export class RouteRun {
   /** Why the run was lost. */
   lostReason = '';
   result: RouteResult | null = null;
-  /** Resting on island B for this long, s. */
-  private landedFor = 0;
-  private touchdown = 0;
+  /** Made fast at island B for this long, s. */
+  private fastFor = 0;
   private prev = { x: 0, y: 0, z: 0, set: false };
 
   constructor(readonly route: Route) {}
@@ -163,8 +177,7 @@ export class RouteRun {
     this.ringMask = 0;
     this.lostReason = '';
     this.result = null;
-    this.landedFor = 0;
-    this.touchdown = 0;
+    this.fastFor = 0;
     this.prev.set = false;
   }
 
@@ -181,12 +194,12 @@ export class RouteRun {
 
   /**
    * Advance the run after the ship has moved. `grounded` is whether it rests
-   * on an island's top, `touchdown` its descent rate when it
-   * last landed, and `crashed` whether it has run into an island's rock
-   * (src/sim/islands.ts). Returns true if anything the crew should see
-   * changed (phase or rings).
+   * on an island's top, `fast` whether it is made fast to island B's post,
+   * `tears` how often the grapple has been torn off it, and `crashed`
+   * whether it has run into an island's rock (src/sim/islands.ts). Returns
+   * true if anything the crew should see changed (phase or rings).
    */
-  step(s: RouteShip, grounded: boolean, touchdown: number, bricks: number, dt: number, crashed: boolean): boolean {
+  step(s: RouteShip, grounded: boolean, fast: boolean, bricks: number, tears: number, dt: number, crashed: boolean): boolean {
     const route = this.route;
     let changed = false;
     if (this.phase === 'ready') {
@@ -214,19 +227,15 @@ export class RouteRun {
     }
     this.remember(s);
 
-    // Landing on island B.
-    const onFinish = grounded && Math.abs(s.y - restingDeck(route.finish)) < 0.01 && Math.hypot(s.x - route.finish.x, s.z - route.finish.z) < route.finish.radius;
-    if (onFinish) {
-      if (this.landedFor === 0) {
-        this.touchdown = touchdown;
-      }
-      this.landedFor += dt;
-      if (this.landedFor >= LAND_HOLD_SECONDS) {
-        this.finish(s, bricks);
+    // Made fast to island B's post.
+    if (fast) {
+      this.fastFor += dt;
+      if (this.fastFor >= FAST_HOLD_SECONDS) {
+        this.finish(bricks, tears);
         return true;
       }
     } else {
-      this.landedFor = 0;
+      this.fastFor = 0;
     }
 
     // Ways to lose.
@@ -246,14 +255,13 @@ export class RouteRun {
     return changed;
   }
 
-  private finish(s: RouteShip, bricks: number): void {
+  private finish(bricks: number, tears: number): void {
     const base = {
       seconds: this.seconds,
       bricks,
       rings: this.rings,
       ringsTotal: this.route.rings.length,
-      padDistance: Math.hypot(s.x - this.route.finish.x, s.z - this.route.finish.z),
-      touchdown: this.touchdown,
+      tears,
     };
     this.result = { ...base, ...scoreRun(base) };
     this.phase = 'finished';
