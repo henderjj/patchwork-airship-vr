@@ -90,6 +90,18 @@ const WRIST_IN_GRIP = new Matrix4().fromArray([
 ]);
 const MIRROR_X = new Matrix4().makeScale(-1, 1, 1);
 
+/**
+ * The closed fist in a right hand's grip space, for drawing it round a
+ * handle (grip locking): the axis of the hole the curled fingers make, from
+ * the little finger towards the thumb (the wrist's -X, about which the
+ * fingers bend), the way the forearm leaves the wrist (the wrist's +Z), and
+ * the middle of the hole, measured from the fingers' joints in a fist. The
+ * hole runs 47° off the grip space's -Z. A left hand's are these mirrored in X.
+ */
+export const FIST_AXIS: readonly [number, number, number] = [0.19326625764369965, 0.700115978717804, -0.6873756647109985];
+export const FOREARM: readonly [number, number, number] = [-0.009290123358368874, 0.7018587589263916, 0.7122553586959839];
+export const FIST_CENTRE: readonly [number, number, number] = [0.016, -0.019, 0.011];
+
 const xAxis = new Vector3();
 const yAxis = new Vector3();
 const zAxis = new Vector3();
@@ -311,6 +323,18 @@ export class PosedHand {
   setCoat(coat: number): void {
     this.mesh.geometry.dispose();
     this.mesh.geometry = handGeometry(coat, this.side);
+  }
+
+  /** The middle of the closed fist, where a held handle runs, in the mesh's parent's space. */
+  fistCentre(out: Vector3): Vector3 {
+    out.set(FIST_CENTRE[0] * (this.side === 'left' ? -1 : 1), FIST_CENTRE[1], FIST_CENTRE[2]);
+    return out.applyQuaternion(this.mesh.quaternion).add(this.mesh.position);
+  }
+
+  /** Which way the forearm leaves the wrist, in the mesh's parent's space. */
+  forearm(out: Vector3): Vector3 {
+    out.set(FOREARM[0] * (this.side === 'left' ? -1 : 1), FOREARM[1], FOREARM[2]);
+    return out.applyQuaternion(this.mesh.quaternion);
   }
 
   /** Where a bone is, in the mesh's space, for tests. */
