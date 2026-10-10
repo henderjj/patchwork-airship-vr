@@ -22,7 +22,7 @@ import { copyCurls, createFingerCurls, type FingerCurls, setCurls } from '../sim
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import { handCurls, handUse } from './grip-system.js';
-import { HoldKind, LockedHand } from './hand-lock.js';
+import { HoldKind, type LockBody, LockedHand } from './hand-lock.js';
 import { perf } from './perf-hud-system.js';
 import { describeBrowser } from '../perf/platform-report.js';
 import { vrStartMessage, vrSupportNote } from '../vr-messages.js';
@@ -182,7 +182,7 @@ interface NetDebug {
   setTestPose(pose: AvatarPose | ((nowMs: number) => AvatarPose) | null): void;
   /** The crewmate's pose as currently drawn, or null before any packets. */
   remotePose(): AvatarPose | null;
-  /** Where the crewmate's hands are drawn (on what they hold, with grip locking), ship space. */
+  /** The middle of the crewmate's drawn fists (on what they hold, with grip locking), ship space. */
   crewHands(): { left: number[]; right: number[] };
   /** This player's coat colour, and the crewmate's as last told. */
   color: number;
@@ -227,7 +227,8 @@ export class NetSystem extends createSystem({}) {
   private leftHand!: PosedHand;
   private rightHand!: PosedHand;
   /** Grip locking for the crewmate's hands, and their curls as drawn. */
-  private crewLocks = { left: new LockedHand(), right: new LockedHand() };
+  private crewLocks = { left: new LockedHand('left'), right: new LockedHand('right') };
+  private crewBody: LockBody = { head: new Vector3(), yaw: 0 };
   private crewCurls = { left: createFingerCurls(), right: createFingerCurls() };
   private tmpPos = new Vector3();
   private tmpQuat = new Quaternion();
@@ -312,7 +313,7 @@ export class NetSystem extends createSystem({}) {
       get lateFrames() { return self.buffer.late; },
       setTestPose: (pose) => { this.testPose = pose; },
       remotePose: () => (this.haveRemote ? this.remote : null),
-      crewHands: () => ({ left: this.leftHand.mesh.position.toArray(), right: this.rightHand.mesh.position.toArray() }),
+      crewHands: () => ({ left: this.leftHand.fistCentre(new Vector3()).toArray(), right: this.rightHand.fistCentre(new Vector3()).toArray() }),
       get color() { return self.color; },
       get remoteColor() { return self.remoteColor; },
       join: (room) => this.join(room),
@@ -701,6 +702,10 @@ export class NetSystem extends createSystem({}) {
       return;
     }
     const r = this.remote;
+    // Their arms reach from their shoulders, which turn with their head's heading as the torso does.
+    this.crewBody.head.set(r.head.px, r.head.py, r.head.pz);
+    this.tmpQuat.set(r.head.qx, r.head.qy, r.head.qz, r.head.qw);
+    this.crewBody.yaw = this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ').y;
     for (const side of ['left', 'right'] as const) {
       const hand = side === 'left' ? this.leftHand : this.rightHand;
       if (!hand.mesh.visible) {
@@ -713,7 +718,7 @@ export class NetSystem extends createSystem({}) {
       this.tmpPos.set(p.px, p.py, p.pz);
       this.tmpQuat.set(p.qx, p.qy, p.qz, p.qw);
       const curls = copyCurls(side === 'left' ? r.leftFingers : r.rightFingers, this.crewCurls[side]);
-      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls);
+      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls, this.crewBody);
       hand.pose(curls);
     }
   }

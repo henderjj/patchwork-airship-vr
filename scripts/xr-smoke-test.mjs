@@ -420,7 +420,7 @@ async function main() {
   const stillHeld = evalInApp('window.__crank.holders().local[1]');
   check('Turning the hand turns the crank', crankTurned > 1.5 * Math.PI && stillHeld === 'right', `turned ${(crankTurned / (2 * Math.PI)).toFixed(2)} turns, held by ${stillHeld}`);
   // Grip locking: the drawn hand sits on the handle, not at the controller.
-  const lockedOn = evalInApp('({ blend: window.__ownHands.locked("right"), hand: window.__ownHands.position("right"), handle: window.__crank.handle(1) })');
+  const lockedOn = evalInApp('({ blend: window.__ownHands.locked("right"), hand: window.__ownHands.fist("right"), handle: window.__crank.handle(1) })');
   const lockGap = Math.hypot(...lockedOn.hand.map((v, i) => v - lockedOn.handle[i]));
   check('The drawn hand locks onto the crank handle it holds', lockedOn.blend === 1 && lockGap < 0.005,
     `eased ${lockedOn.blend.toFixed(2)} onto it, ${(lockGap * 100).toFixed(1)} cm from the handle`);
@@ -642,6 +642,14 @@ async function main() {
   await move([0, 0.9, 0.75]);
   await squeeze(1);
   const tillerHeld = controlHeld();
+  // Grip locking: the arm on the tiller comes in from the player, inside the gondola.
+  const tillerArm = evalInApp('({ arm: window.__ownHands.forearm("right"), hand: window.__ownHands.fist("right"), head: window.__debug.world.player.head.getWorldPosition(new window.__debug.world.player.head.position.constructor()).toArray() })');
+  // The bar runs fore and aft through the fist, so the forearm can only turn about it (Z) towards the player.
+  const toHead = [tillerArm.head[0] - tillerArm.hand[0], tillerArm.head[1] - tillerArm.hand[1]];
+  const armAcross = [tillerArm.arm[0], tillerArm.arm[1]];
+  const armToHead = (armAcross[0] * toHead[0] + armAcross[1] * toHead[1]) / (Math.hypot(...armAcross) * Math.hypot(...toHead) || 1);
+  check('The arm on the tiller comes in from the player holding it', armToHead > 0.7 && Math.abs(tillerArm.arm[2]) < 0.05,
+    `forearm ${fmt(tillerArm.arm)}, head at ${fmt(tillerArm.head)}, ${((Math.acos(Math.min(1, armToHead)) * 180) / Math.PI).toFixed(0)}° off the way to the player about the bar`);
   await move([0.28, 0.9, 0.8], 0.6);
   const steered = evalInApp('window.__ship.controls.rudder');
   await squeeze(0);
