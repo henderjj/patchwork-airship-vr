@@ -10,9 +10,10 @@ describe('vrStartMessage', () => {
   });
 
   it('explains a slow start through Link on a PC, counting the seconds', () => {
-    expect(vrStartMessage(starting(), 1000 + 2000, 'pc')).toBe('Starting VR...');
+    expect(vrStartMessage(starting(), 1000 + 2000, 'quest')).toBe('Starting VR...');
     expect(vrStartMessage(starting(), 1000 + SLOW_START_MS + 12500, 'pc')).toBe(
-      'Starting VR (20 s). Through Link this can take about a minute; put the headset on and wait.',
+      'Starting VR (20 s). Check the browser window on the PC screen: if it asks to use your virtual reality devices, click Allow. ' +
+        'Through Link the start can also take about a minute.',
     );
     expect(vrStartMessage(starting(), 1000 + SLOW_START_MS + 12500, 'quest')).toBe('Starting VR (20 s)...');
   });
@@ -23,8 +24,17 @@ describe('vrStartMessage', () => {
     );
   });
 
-  it('suggests restarting the browser when the start hangs on a PC', () => {
-    expect(vrStartMessage(starting(), 1000 + HUNG_START_MS, 'pc')).toMatch(/^VR still hasn't started after 90 s\. Close every browser window/);
+  it("points a PC player at the browser's VR permission prompt from the start", () => {
+    expect(vrStartMessage(starting(), 1000 + 2000, 'pc')).toBe(
+      'Starting VR... Check the browser window on the PC screen: if it asks to use your virtual reality devices, click Allow.',
+    );
+  });
+
+  it('asks for the WebXR internals page when the start hangs on a PC', () => {
+    const hung = vrStartMessage(starting(), 1000 + HUNG_START_MS, 'pc');
+    expect(hung).toMatch(/^VR still hasn't started after 90 s\. Check the browser window on the PC screen/);
+    expect(hung).toContain('Unknown Sources');
+    expect(hung).toContain('chrome://webxr-internals (edge://webxr-internals in Edge)');
   });
 
   it('gives the reason for a failure, with the Link checks on a PC', () => {

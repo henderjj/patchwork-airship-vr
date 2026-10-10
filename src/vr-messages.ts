@@ -20,6 +20,13 @@ export const HUNG_START_MS = 90000;
 const LINK_CHECK =
   'Check that the headset is connected through Link or Air Link (the Link home shows in the headset) and that Meta Horizon Link is the active OpenXR runtime.';
 
+/**
+ * Chrome and Edge on a PC ask before a site may use VR devices, in a bubble
+ * on the PC's browser window that someone wearing the headset can't see, and
+ * the session request waits until it is answered.
+ */
+const ALLOW_PROMPT = 'Check the browser window on the PC screen: if it asks to use your virtual reality devices, click Allow.';
+
 /** The line under the Enter VR button for `state`, or '' when there is nothing to say. */
 export function vrStartMessage(state: VrStartState, nowMs: number, kind: PlatformKind): string {
   switch (state.phase) {
@@ -35,17 +42,17 @@ export function vrStartMessage(state: VrStartState, nowMs: number, kind: Platfor
       const seconds = Math.floor(elapsed / 1000);
       if (elapsed >= HUNG_START_MS) {
         return kind === 'pc'
-          ? `VR still hasn't started after ${seconds} s. Close every browser window, start the browser again with Link already running, and retry.`
+          ? `VR still hasn't started after ${seconds} s. ${ALLOW_PROMPT} Also check that Unknown Sources is on in the Link app (Settings, General). If neither helps, open chrome://webxr-internals (edge://webxr-internals in Edge) in a new tab and send a picture of it.`
           : `VR still hasn't started after ${seconds} s. Reload the page and retry.`;
       }
       if (state.grantedMs !== null) {
         return `Starting VR (${seconds} s): the headset accepted, waiting for the first picture...`;
       }
       if (elapsed < SLOW_START_MS) {
-        return 'Starting VR...';
+        return kind === 'pc' ? `Starting VR... ${ALLOW_PROMPT}` : 'Starting VR...';
       }
       return kind === 'pc'
-        ? `Starting VR (${seconds} s). Through Link this can take about a minute; put the headset on and wait.`
+        ? `Starting VR (${seconds} s). ${ALLOW_PROMPT} Through Link the start can also take about a minute.`
         : `Starting VR (${seconds} s)...`;
     }
   }

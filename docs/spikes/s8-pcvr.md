@@ -58,11 +58,20 @@ John's first Air Link try (Meta Horizon Link set as the OpenXR runtime) didn't e
 
 The crew panel now says what is happening under Enter VR (`src/vr-start.ts`, `src/vr-messages.ts`): "Starting VR..." with the seconds counting, an explanation after 8 s that Link can take about a minute, "the headset accepted, waiting for the first picture" once the browser hands over a session, a suggestion to restart the browser after 90 s, and the browser's reason if it refuses, with the Link checks on a PC. On a PC the button stays even when the browser reports no headset, with a note to start Link first, and the check is repeated when the browser reports a device change or the window regains focus. A PC browser without WebXR (Firefox, Safari) is told to use Chrome or Edge. The console gets `[VR]` lines with the time to the session and to the first frame.
 
+### Second try: still waiting after 90 s (2026-10-10)
+
+With the status line live, John's next try (Edge first; on 2026-10-08 he had tried Edge and Firefox) counted past 90 seconds and still didn't start, also after closing every browser window. A request that never settles, rather than one refused at once, fits two causes:
+
+- **The browser's VR permission prompt.** Chrome and Edge have a per-site **Virtual reality** permission (Chrome help: [site settings](https://support.google.com/chrome/answer/114662)). On a PC the request shows as a bubble on the browser window on the monitor, which someone already wearing the headset can't see, and the session request waits until it is answered. A site that was set to "Never allow" would be refused at once instead, which the line would show as a reason.
+- **Meta's runtime holding the session.** Unknown Sources being off in the Link app, or the Link 207 sandbox bug above failing for good rather than after 55 s.
+
+The line under Enter VR now tells a PC player from the first second to look at the browser window on the PC screen and click Allow if it asks to use virtual reality devices. After 90 s it adds the Unknown Sources check and asks for a picture of `chrome://webxr-internals` (`edge://webxr-internals` in Edge), the browser's own WebXR page, which lists the runtimes it found and each session request.
+
 ### What to try
 
 1. Start Link or Air Link first, so the Link home shows in the headset, then open the game in Chrome or Edge on the PC (not Firefox, which has no WebXR on Windows).
-2. Press **Enter VR** on the crew panel and keep the headset on for up to a minute. The line under the button counts the seconds.
+2. Press **Enter VR** on the crew panel, then look at the browser window on the PC screen (lift the headset, or use the desktop view in the Link home): if it asks to use your virtual reality devices, click **Allow while visiting the site**. Then keep the headset on for up to a minute. The line under the button counts the seconds.
 3. If the line shows a reason instead, send it. If it says the browser sees no VR headset, check that Meta Horizon Link is still the active OpenXR runtime (Link app → Settings → General); another VR app such as SteamVR or Virtual Desktop can take it over.
 4. If the Link app shows a screen about content from unknown sources, turn on **Settings → General → Unknown Sources** in the Link app.
 5. If VR started once and won't start again, close every browser window and start the browser again; a second session over Link has hung in other WebXR apps until the browser restarted.
-
+6. If it still hangs, open `chrome://webxr-internals` (or `edge://webxr-internals`) in a new tab on the PC and send a picture of it. It shows whether the browser found the OpenXR runtime and what happened to each session request.
