@@ -41,8 +41,8 @@ import { onVrStart, prepareVr, startVr, vrStartState } from '../vr-start.js';
  *
  * Spike S5 adds voice on the same connection (see src/net/voice.ts): the
  * crewmate's voice is placed at their mouth and heard from this player's
- * head. The Y button (left controller) or the game menu mutes this player;
- * the menu can also turn the crewmate's voice off.
+ * head. The game menu (Y on the left controller) mutes this player, and can
+ * also turn the crewmate's voice off.
  */
 
 const SEND_HZ = 45;
@@ -616,9 +616,6 @@ export class NetSystem extends createSystem({}) {
     }
     const stats = session.clock.stats;
     perf.rttMs = stats.srtt;
-    if (this.input.xr.gamepads.left?.getButtonDown(InputComponent.Y_Button)) {
-      this.toggleMute();
-    }
 
     // Send this player's pose at 45 Hz.
     this.sendAccumulator += delta;

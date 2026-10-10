@@ -123,7 +123,7 @@
         <ButtonLabelSubtext class="choice-subtext">Type your friend's code.</ButtonLabelSubtext>
       </ButtonLabel>
     </Button>
-    <div id="start-home-hint" class="hint">The menu button on the left controller opens Settings while you play.</div>
+    <div id="start-home-hint" class="hint">Y on the left controller opens Settings while you play.</div>
   </div>
 
   <div id="start-join-page" class="page" style="display: none">

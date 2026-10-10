@@ -114,8 +114,8 @@ export class LobbyUi {
       ? `Microphone unavailable (${mic.error}); you can still hear your crewmate.`
       : mic.on
         ? mic.muted
-          ? 'Microphone muted (Y in VR, or the game menu).'
-          : 'Microphone on (Y in VR, or the game menu, mutes).'
+          ? 'Microphone muted (in the game menu).'
+          : 'Microphone on (the game menu mutes it).'
         : mic.permitted
           ? 'Microphone allowed; it turns on in a crew.'
           : 'Voice chat needs the microphone:';

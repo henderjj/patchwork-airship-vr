@@ -22,14 +22,13 @@ interface GameMenuDebug {
 }
 
 /**
- * The game menu, opened and closed with the menu button on the left
- * controller (≡; the left thumbstick press does it too, for a browser that
- * keeps the menu button to itself), or M or the panel's Game menu button on
- * the flat page. Nothing pauses while it is open. It stands in front of the
+ * The game menu, opened and closed with Y on the left controller (the menu
+ * button, ≡, does it too where the browser passes it on; SteamVR and others
+ * often keep it), or M or the panel's Game menu button on the flat page. Nothing pauses while it is open. It stands in front of the
  * player where they were looking when they opened it, and holds:
  *
  * - in a crew, the crew's state, buttons to mute this player's microphone
- *   (Y does it too) or the crewmate's voice, and nothing else crew-only:
+ *   or the crewmate's voice, and nothing else crew-only:
  *   leaving is "Back to start screen";
  * - the coat colour and the settings that apply straight away
  *   (LIVE_ITEMS, src/live-settings.ts), each a button that steps through
@@ -117,7 +116,7 @@ export class GameMenuSystem extends createSystem({}) {
 
   update(): void {
     const left = this.input.xr.gamepads.left;
-    if (left && (left.getButtonDown(InputComponent.Menu) || left.getButtonDown(InputComponent.Thumbstick))) {
+    if (left && (left.getButtonDown(InputComponent.Y_Button) || left.getButtonDown(InputComponent.Menu))) {
       this.setOpen(!this.open);
     }
   }

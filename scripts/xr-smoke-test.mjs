@@ -178,8 +178,8 @@ async function rayClick(target) {
 /**
  * 0. The start screen stands in front of the player as VR starts, and a
  *    controller ray picks Play solo on it, after which nothing is left in
- *    front of them. The left thumbstick press (the fallback for the menu
- *    button) opens the game menu in front of them, the ray turns the ship's
+ *    front of them. Y on the left controller opens the game menu in front
+ *    of them, the ray turns the ship's
  *    sounds off and on again, and another press closes it.
  */
 async function startScreenAndMenu() {
@@ -195,9 +195,9 @@ async function startScreenAndMenu() {
     `shown ${start.page} at ${fmt(start.at)}, then ${after.page ?? 'closed'} (${after.mode})`);
 
   const menuButton = async () => {
-    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 2, value: 1 }] });
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 4, value: 1 }] });
     await sleep(300);
-    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 2, value: 0 }] });
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 4, value: 0 }] });
     await sleep(300);
   };
   await menuButton();
@@ -210,7 +210,7 @@ async function startScreenAndMenu() {
   const on = audio();
   await menuButton();
   const closed = evalInApp('window.__gameMenu.open');
-  check('The left controller opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
+  check('Y opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
     opened.open && opened.at[2] < -0.5 && opened.exit && off.shown === 'Off' && !off.on && on.shown === 'On' && on.on && !closed,
     `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.shown} then ${on.shown}, closed ${!closed}`);
   iwsdk(['xr', 'set-device-state'], {});

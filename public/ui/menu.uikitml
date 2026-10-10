@@ -1,6 +1,7 @@
 <!--
-  The in-game menu (src/systems/game-menu-system.ts), opened with the menu
-  button on the left controller (M or the Game menu button on the flat page).
+  The in-game menu (src/systems/game-menu-system.ts), opened with Y (or the
+  menu button) on the left controller, or M or the Game menu button on the
+  flat page.
   The crew section shows only in a crew. The setting rows are filled from
   LIVE_ITEMS (src/live-settings.ts); rows it doesn't use are hidden.
 -->
@@ -145,5 +146,5 @@
     <Button id="menu-start" class="wide" variant="secondary">Back to start screen</Button>
     <Button id="menu-exit" class="wide" variant="negative">Exit VR</Button>
   </div>
-  <div id="menu-hint" class="hint">Menu button: close. Y: mute or unmute your microphone. X: perf HUD.</div>
+  <div id="menu-hint" class="hint">Y or the menu button: close. X: perf HUD. B: stop or start the ship.</div>
 </Panel>
