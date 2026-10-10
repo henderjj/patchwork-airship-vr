@@ -9,6 +9,7 @@ import {
   VisibilityState,
 } from '@iwsdk/core';
 import { PerfRecorder } from '../perf/perf-recorder.js';
+import { changeSetting, LIVE_ITEMS, onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
 import { estimateRefreshHz } from '../perf/refresh-rate.js';
 import { platformInfo, summarize } from '../perf/platform-report.js';
@@ -106,12 +107,19 @@ export class PerfHudSystem extends createSystem({}) {
     this.cleanupFuncs.push(() => this.overlay?.remove());
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'h' || event.key === 'H') {
-        this.visible = !this.visible;
+      if ((event.key === 'h' || event.key === 'H') && !event.repeat) {
+        toggleHud();
       }
     };
     window.addEventListener('keydown', onKey);
-    this.cleanupFuncs.push(() => window.removeEventListener('keydown', onKey));
+    this.cleanupFuncs.push(
+      () => window.removeEventListener('keydown', onKey),
+      onSettingChange((key) => {
+        if (key === 'hud') {
+          this.visible = settings.hud;
+        }
+      }),
+    );
 
     perf.label = settings.label.replace(/[,\n]/g, ' ');
     (window as PerfWindow).__perf = {
@@ -151,7 +159,7 @@ export class PerfHudSystem extends createSystem({}) {
       this.immersiveFrames++;
       frameRateInfo.actual = this.world.session.frameRate ?? frameRateInfo.actual;
       if (this.input.xr.gamepads.left?.getButtonDown(InputComponent.X_Button)) {
-        this.visible = !this.visible;
+        toggleHud();
       }
     } else {
       this.immersiveFrames = 0;
@@ -290,4 +298,12 @@ function downloadCsv(text: string): void {
   link.download = `patchwork-perf-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Show or hide the HUD through its setting, so the game menu agrees and the choice is kept. */
+function toggleHud(): void {
+  const item = LIVE_ITEMS.find((i) => i.key === 'hud');
+  if (item) {
+    changeSetting(item, settings.hud ? '0' : '1');
+  }
 }

@@ -1,7 +1,6 @@
 import { PhysicsSystem, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { preferHighPerformanceGpu } from './gpu-preference.js';
-import { PanelSystem } from './panel.js';
 import { ComfortSystem } from './systems/comfort-system.js';
 import { ControlsSystem } from './systems/controls-system.js';
 import { RouteSystem } from './systems/route-system.js';
@@ -11,6 +10,7 @@ import { CrewBotSystem } from './systems/crew-bot-system.js';
 import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { DeckWalkSystem } from './systems/deck-walk-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
+import { GameMenuSystem } from './systems/game-menu-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
 import { GrappleSystem } from './systems/grapple-system.js';
 import { GripSystem } from './systems/grip-system.js';
@@ -22,6 +22,7 @@ import { RopeSystem } from './systems/rope-system.js';
 import { ShipSystem } from './systems/ship-system.js';
 import { SignsSystem } from './systems/signs-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
+import { StartScreenSystem } from './systems/start-screen-system.js';
 import { ThrowablesSystem } from './systems/throwables-system.js';
 
 // On a two-GPU PC, start on the graphics card Link uses (src/gpu-preference.ts).
@@ -62,7 +63,9 @@ World.create(
   world.registerSystem(CrewBotSystem);
   // After the crank, rope and controls have moved, so hands drawn on them (grip locking) sit on them this frame.
   world.registerSystem(OwnHandsSystem);
-  world.registerSystem(PanelSystem);
+  // After NetSystem, which may have joined a crew from the page's link.
+  world.registerSystem(StartScreenSystem);
+  world.registerSystem(GameMenuSystem);
   world.registerSystem(PlatformSystem);
   // Handles for the automated XR tests.
   (window as unknown as { __debug: unknown }).__debug = { world, PhysicsSystem };

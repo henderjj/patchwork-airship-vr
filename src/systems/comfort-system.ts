@@ -1,5 +1,6 @@
 import { createSystem, InputComponent, VisibilityState } from '@iwsdk/core';
 import { clampRating, ComfortLog, RATING_MAX } from '../sim/comfort-log.js';
+import { onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
 import { drawSignBackground, FloatingSign } from './floating-sign.js';
 import { ship, shipInfo } from './ship-system.js';
@@ -51,21 +52,18 @@ export class ComfortSystem extends createSystem({}) {
       get value() { return self.value; },
     };
     (window as { __comfort?: ComfortDebug }).__comfort = debug;
+    this.cleanupFuncs.push(
+      onSettingChange((key) => {
+        if (key === 'comfort') {
+          // Changed in the game menu: the next question comes a full interval from now.
+          this.nextAskS = this.immersiveS + settings.comfort;
+          this.showCsvLink();
+        }
+      }),
+    );
 
-    if (settings.comfort > 0) {
-      const link = document.createElement('a');
-      link.textContent = 'Comfort CSV';
-      link.href = '#';
-      link.style.cssText =
-        'position:fixed;left:8px;bottom:8px;z-index:10;font:12px monospace;background:rgba(10,14,20,.8);color:#93c5fd;padding:6px 8px;border-radius:6px';
-      link.onclick = (event) => {
-        event.preventDefault();
-        this.download();
-      };
-      document.body.appendChild(link);
-      this.link = link;
-      this.cleanupFuncs.push(() => this.link?.remove());
-    }
+    this.showCsvLink();
+    this.cleanupFuncs.push(() => this.link?.remove());
   }
 
   update(delta: number): void {
@@ -99,6 +97,24 @@ export class ComfortSystem extends createSystem({}) {
     } else {
       this.sign.follow(this.player.head, delta);
     }
+  }
+
+  /** A link on the flat page for the comfort log, once questions are being asked. */
+  private showCsvLink(): void {
+    if (settings.comfort <= 0 || this.link) {
+      return;
+    }
+    const link = document.createElement('a');
+    link.textContent = 'Comfort CSV';
+    link.href = '#';
+    link.style.cssText =
+      'position:fixed;left:8px;bottom:8px;z-index:10;font:12px monospace;background:rgba(10,14,20,.8);color:#93c5fd;padding:6px 8px;border-radius:6px';
+    link.onclick = (event) => {
+      event.preventDefault();
+      this.download();
+    };
+    document.body.appendChild(link);
+    this.link = link;
   }
 
   private ask(): void {

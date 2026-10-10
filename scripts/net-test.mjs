@@ -662,8 +662,9 @@ async function lobbyChecks(browser, host, guest) {
   // Coat colours: each player's pick, told on connecting and on changing.
   const colors = async () => Promise.all([host, guest].map((p) => p.page.evaluate(() => ({ mine: window.__net.color, theirs: window.__net.remoteColor }))));
   const [h0, g0] = await colors();
-  const pick = (g0.mine + 3) % 8;
-  await guest.page.evaluate((i) => document.getElementById(`crew-color-${i}`).click(), pick);
+  // The game menu's coat button steps to the next colour.
+  const pick = (g0.mine + 1) % 8;
+  await guest.page.evaluate(() => window.__gameMenu.click('menu-coat'));
   const recolored = await waitFor('the host to see the new coat', async () => {
     const [h] = await colors();
     return h.theirs === pick ? h : null;
@@ -737,8 +738,20 @@ async function lobbyChecks(browser, host, guest) {
     return b !== null && getComputedStyle(b).display !== 'none';
   });
   const shownSolo = await waitFor('the Enter VR button', enterVr, 5000).catch(() => false);
-  await solo.page.evaluate(() => window.__net.join('SOLO'));
-  await waitFor('Di waiting in the lobby', async () => (await state(solo.page)) === 'waiting', 10000).catch(() => null);
+  // Di joins a crew of her own by typing its code on the start screen's keypad.
+  await solo.page.evaluate(() => {
+    const s = window.__startScreen;
+    s.click('start-join');
+    for (const key of ['S', 'V', 'del', 'W', 'R', 'T']) {
+      s.click(`key-${key}`);
+    }
+    s.click('start-join-go');
+  });
+  const typed = await waitFor('Di waiting in the lobby', async () => ((await state(solo.page)) === 'waiting'
+    ? solo.page.evaluate(() => ({ page: window.__startScreen.page, status: window.__startScreen.text('start-crew-status'), title: window.__startScreen.text('start-crew-title'), url: location.search }))
+    : null), 10000).catch(() => null);
+  check('The start screen joins a crew typed on its keypad', typed !== null && typed.page === 'crew' && typed.title === 'Crew SWRT' &&
+    typed.status === 'Waiting for your crewmate.' && typed.url.includes('room=SWRT'), JSON.stringify(typed));
   const shownInCrew = await enterVr();
   await solo.page.evaluate(() => document.getElementById('crew-enter-vr').click());
   const requests = await waitFor('a VR session request', () => solo.page.evaluate(() => window.__vrRequests), 3000).catch(() => 0);
@@ -755,23 +768,35 @@ async function lobbyChecks(browser, host, guest) {
     vrNote !== null && vrNote.text.includes('No headset in this test') && !vrNote.disabled,
     vrNote ? `"${vrNote.text}", button ${vrNote.disabled ? 'disabled' : 'ready'}` : 'no reason shown');
 
-  // The Settings menu on the crew panel: turning the ship's sounds off saves
-  // the choice in the browser and reloads the page with it.
+  // The game menu turns the ship's sounds off straight away, and keeps the choice.
+  const sounds = await solo.page.evaluate(() => {
+    const m = window.__gameMenu;
+    m.toggle(true);
+    const before = m.text('menu-row-0-value');
+    m.click('menu-row-0-value');
+    return { label: m.text('menu-row-0-label'), before, after: m.text('menu-row-0-value'), audio: window.__settings.audio,
+      stored: localStorage.getItem('patchwork-airship.settings') };
+  });
+  check('The game menu turns the ship\'s sounds off straight away',
+    sounds.label === 'Ship sounds' && sounds.before === 'On' && sounds.after === 'Off' && sounds.audio === false && sounds.stored === 'audio=0',
+    JSON.stringify(sounds));
+
+  // The start-up settings on the page's panel: turning the rain on saves the
+  // choice in the browser and reloads the page with it.
   await solo.page.evaluate(() => {
     document.getElementById('settings-menu').open = true;
-    const audio = document.getElementById('setting-audio');
-    audio.value = '0';
+    document.getElementById('setting-rain').value = '1';
   });
   await Promise.all([
     solo.page.waitForNavigation({ waitUntil: 'load' }),
     solo.page.evaluate(() => document.getElementById('settings-save').click()),
   ]);
   await waitFor('the game to reload', async () => (await state(solo.page).catch(() => 'loading')) !== 'loading', 60000);
-  const saved = await solo.page.evaluate(() => ({ audio: window.__settings.audio, motion: window.__settings.motion, url: location.search,
-    stored: localStorage.getItem('patchwork-airship.settings'), shown: document.getElementById('setting-audio').value }));
-  check('The Settings menu saves a choice and reloads the game with it',
-    saved.audio === false && saved.shown === '0' && saved.motion === 'still' && !saved.url.includes('audio') && saved.url.includes('name=Di'),
-    `sounds ${saved.audio ? 'on' : 'off'} (menu shows ${saved.shown}), ship ${saved.motion}, URL ${saved.url}, saved ${saved.stored}`);
+  const saved = await solo.page.evaluate(() => ({ rain: window.__settings.rain, audio: window.__settings.audio, motion: window.__settings.motion, url: location.search,
+    stored: localStorage.getItem('patchwork-airship.settings'), shown: document.getElementById('setting-rain').value }));
+  check('The start-up settings save a choice and reload the game with it, keeping the game menu\'s',
+    saved.rain === true && saved.shown === '1' && saved.audio === false && saved.motion === 'still' && !saved.url.includes('rain') && saved.url.includes('name=Di'),
+    `rain ${saved.rain ? 'on' : 'off'} (menu shows ${saved.shown}), sounds ${saved.audio ? 'on' : 'off'}, ship ${saved.motion}, URL ${saved.url}, saved ${saved.stored}`);
   await solo.context.close();
 }
 
@@ -1064,6 +1089,15 @@ async function main() {
     const b = await openPlayer(browser, `room=${room}&name=Bo${quickLag}`);
     await waitFor('both connected', async () => (await state(a.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('Two players connect over WebRTC', true);
+    // Opened from a link with the crew code, each page's start screen shows
+    // the crew and gets out of the way once the crewmate is aboard.
+    const startScreens = () => Promise.all([a, b].map((p) => p.page.evaluate(() => ({ page: window.__startScreen.page, mode: window.__startScreen.mode, visible: window.__startScreen.visible }))));
+    const stepped = await waitFor('the start screens to step aside', async () => {
+      const s = await startScreens();
+      return s.every((x) => x.page === null && !x.visible) ? s : null;
+    }, 5000).catch(() => null);
+    check('A crew link\'s start screen steps aside once the crewmate is aboard', stepped !== null && stepped.every((x) => x.mode === 'link'),
+      JSON.stringify(stepped ?? await startScreens()));
     if (process.env.ONLY_LIFECYCLE) {
       // Quick loop for spike S10: just pausing and reconnecting.
       await lifecycleChecks(a, b);
@@ -1149,11 +1183,21 @@ async function main() {
     // Voice: the fake microphone beeps about once a second.
     const voicePeak = await peakVoiceLevel(b.page, 2500);
     check('Crewmate voice arrives', voicePeak > 0.01, `peak level ${voicePeak.toFixed(3)}`);
-    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+    // The game menu's mute buttons: Ann mutes her microphone, then Bo turns Ann's voice off.
+    await a.page.evaluate(() => window.__gameMenu.click('menu-mute-me'));
     await new Promise((r) => setTimeout(r, 500));
     const mutedPeak = await peakVoiceLevel(b.page, 2500);
-    check('Mute silences the microphone', mutedPeak < 0.002, `peak level ${mutedPeak.toFixed(4)}`);
-    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+    const mutedLabel = await a.page.evaluate(() => window.__gameMenu.text('menu-mute-me'));
+    check('Mute silences the microphone', mutedPeak < 0.002 && mutedLabel === 'My mic: muted', `peak level ${mutedPeak.toFixed(4)}, menu says "${mutedLabel}"`);
+    await a.page.evaluate(() => window.__gameMenu.click('menu-mute-me'));
+    await b.page.evaluate(() => window.__gameMenu.click('menu-mute-crew'));
+    await new Promise((r) => setTimeout(r, 500));
+    const crewMutedPeak = await peakVoiceLevel(b.page, 2500);
+    await b.page.evaluate(() => window.__gameMenu.click('menu-mute-crew'));
+    await new Promise((r) => setTimeout(r, 500));
+    const crewBackPeak = await peakVoiceLevel(b.page, 2500);
+    check('Muting the crewmate silences their voice, and unmuting brings it back', crewMutedPeak < 0.002 && crewBackPeak > 0.01,
+      `peak level muted ${crewMutedPeak.toFixed(4)}, unmuted ${crewBackPeak.toFixed(3)}`);
 
     // Spike S8: each player sees the other's platform report, with the microphone named.
     const crews = await waitFor('platform reports', async () => {
