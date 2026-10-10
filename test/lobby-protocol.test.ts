@@ -1,14 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { LobbyRoom, makeRoomCode, normaliseRoomCode, type ServerMessage } from '../src/net/lobby-protocol.js';
+import {
+  DEFAULT_ICE_SERVERS,
+  LobbyRoom,
+  makeRoomCode,
+  MAX_MESSAGE_LENGTH,
+  MAX_MESSAGES_PER_MINUTE,
+  normaliseRoomCode,
+  type ServerMessage,
+} from '../src/net/lobby-protocol.js';
 
 function harness() {
   const sent: [string, ServerMessage][] = [];
   const closed: string[] = [];
+  const asked: string[] = [];
+  const clock = { now: 0 };
   const room = new LobbyRoom(
     { send: (id, m) => sent.push([id, m]), close: (id) => closed.push(id) },
-    () => [{ urls: 'stun:example' }],
+    (id) => {
+      asked.push(id);
+      return [{ urls: 'turn:example' }];
+    },
+    () => clock.now,
   );
-  return { room, sent, closed };
+  return { room, sent, closed, asked, clock };
 }
 
 const hello = (name: string) => JSON.stringify({ t: 'hello', name, color: 1 });
@@ -21,8 +35,50 @@ describe('lobby room', () => {
     const welcomeB = sent.find(([id, m]) => id === 'b' && m.t === 'welcome')![1] as Extract<ServerMessage, { t: 'welcome' }>;
     expect(welcomeB.you.host).toBe(false);
     expect(welcomeB.crew.map((m) => m.id)).toEqual(['a']);
-    expect(welcomeB.iceServers[0].urls).toBe('stun:example');
+    expect(welcomeB.iceServers[0].urls).toBe('turn:example');
     expect(sent.some(([id, m]) => id === 'a' && m.t === 'joined' && m.member.id === 'b')).toBe(true);
+  });
+
+  it('hands out relay servers only once a crewmate is there to connect to', async () => {
+    const { room, sent, asked } = harness();
+    await room.onMessage('a', hello('Ann'));
+    const welcomeA = sent.find(([id, m]) => id === 'a' && m.t === 'welcome')![1] as Extract<ServerMessage, { t: 'welcome' }>;
+    expect(welcomeA.iceServers).toEqual(DEFAULT_ICE_SERVERS);
+    expect(asked).toEqual([]);
+    await room.onMessage('b', hello('Bo'));
+    expect(asked).toEqual(['b']);
+    const joined = sent.find(([id, m]) => id === 'a' && m.t === 'joined')![1] as Extract<ServerMessage, { t: 'joined' }>;
+    expect(joined.iceServers).toEqual([{ urls: 'turn:example' }]);
+  });
+
+  it('closes a connection that sends an oversized message', async () => {
+    const { room, sent, closed } = harness();
+    await room.onMessage('a', hello('Ann'));
+    await room.onMessage('b', hello('Bo'));
+    const data = { kind: 'offer', sdp: 'x'.repeat(MAX_MESSAGE_LENGTH) };
+    await room.onMessage('a', JSON.stringify({ t: 'signal', to: 'b', data }));
+    expect(closed).toEqual(['a']);
+    expect(sent.some(([, m]) => m.t === 'signal')).toBe(false);
+    expect(sent.at(-1)).toEqual(['b', { t: 'left', id: 'a', newHost: 'b' }]);
+  });
+
+  it('closes a connection that floods the lobby, but not one that keeps a steady pace', async () => {
+    const { room, closed, clock } = harness();
+    await room.onMessage('a', hello('Ann'));
+    await room.onMessage('b', hello('Bo'));
+    const ping = JSON.stringify({ t: 'ping' });
+    // A minute's allowance, then a new minute starts afresh.
+    for (let i = 1; i < MAX_MESSAGES_PER_MINUTE; i++) {
+      await room.onMessage('b', ping);
+    }
+    clock.now = 60_000;
+    for (let i = 0; i < MAX_MESSAGES_PER_MINUTE; i++) {
+      await room.onMessage('b', ping);
+    }
+    expect(closed).toEqual([]);
+    await room.onMessage('b', ping);
+    expect(closed).toEqual(['b']);
+    expect(room.members.has('b')).toBe(false);
   });
 
   it('turns away a third member', async () => {

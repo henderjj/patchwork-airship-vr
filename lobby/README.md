@@ -47,7 +47,16 @@ In this folder run `npm install`, `npx wrangler login` and `npm run deploy`.
 
 ## TURN (for players behind strict networks)
 
-Most home connections can talk directly once STUN tells each browser its public address. Some networks (mobile hotspots, some corporate or university Wi-Fi) need a relay, and Cloudflare's TURN service provides one. With the `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` secrets set, the lobby hands each player short-lived TURN credentials (six hours) in its welcome message. Without them it hands out Cloudflare's public STUN server only. To set them by hand instead of through CI: `npx wrangler secret put TURN_KEY_ID` and `npx wrangler secret put TURN_KEY_API_TOKEN`.
+Most home connections can talk directly once STUN tells each browser its public address. Some networks (mobile hotspots, some corporate or university Wi-Fi) need a relay, and Cloudflare's TURN service provides one. With the `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` secrets set, the lobby hands each crew of two short-lived TURN credentials (six hours; a relayed connection is cut when they expire) once the second player joins. Without them it hands out Cloudflare's public STUN server only. To set them by hand instead of through CI: `npx wrangler secret put TURN_KEY_ID` and `npx wrangler secret put TURN_KEY_API_TOKEN`.
+
+## Keeping the bill at zero
+
+Anyone can open the lobby's address, so it is built to cost nothing when misused:
+
+- Workers and Durable Objects on the free Workers plan are never billed. When a daily allowance runs out (100,000 requests, or 13,000 GB-seconds of Durable Object time) the lobby stops answering until 00:00 UTC; nothing is charged. Staying on the free plan is what keeps this part free.
+- TURN is the only part billed by use: $0.05 per GB relayed after the first 1,000 GB. The lobby only makes TURN credentials for a room with two players, reuses a room's credentials for an hour, and makes at most `TURN_CREDENTIALS_PER_DAY` sets per UTC day in total and `TURN_CREDENTIALS_PER_IP_PER_DAY` for one IP address (both in `wrangler.jsonc`, counted by the `TurnBudget` Durable Object). Past the limit players get STUN only. Setting `TURN_CREDENTIALS_PER_DAY` to `"0"` switches TURN off.
+- The Worker turns away anything but a WebSocket to `/parties/lobby/<four letters>` from an origin in `ALLOWED_ORIGINS` before it wakes a Durable Object, and a room closes a connection that sends a message over 16 KB or more than 300 messages a minute. A script can fake its origin, so the origin check only stops other web pages; the limits are what cap the cost.
+- Deleting the TURN key in the Cloudflare dashboard stops every credential at once. Removing the GitHub secrets alone does not: CI only ever adds Worker secrets, so the old ones stay on the Worker until removed with `npx wrangler secret delete` or in the dashboard (Workers & Pages → patchwork-lobby → Settings → Variables and Secrets).
 
 ## Local check against Cloudflare's runtime
 
