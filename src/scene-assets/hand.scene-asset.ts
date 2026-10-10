@@ -25,7 +25,7 @@ import { mergeParts, type Part, shade } from './lowpoly.js';
  *
  * Built in the WebXR hand-joint frame of a right wrist: origin at the
  * wrist, fingers towards -Z, back of the hand +Y, thumb on the -X side,
- * forearm back along +Z. The mesh is drawn at a controller's (or tracked
+ * cuff back along +Z. The mesh is drawn at a controller's (or tracked
  * hand's) grip pose: the root bone carries the wrist's place in grip space,
  * and a left hand is the right one mirrored, as the grip spaces are.
  */
@@ -79,7 +79,7 @@ const OVERLAP = 0.008;
  * Where a right wrist sits in its controller's grip space, from IWSDK's
  * controller-hand pose for a squeezed grip (AnimatedControllerHand). The grip
  * space has its origin in the middle of the fist, -Z along the handle
- * towards the thumb and +X out of the back of a right hand, so the forearm
+ * towards the thumb and +X out of the back of a right hand, so the cuff
  * leaves the fist up and back along +Y and +Z rather than straight back.
  */
 const WRIST_IN_GRIP = new Matrix4().fromArray([
@@ -94,12 +94,11 @@ const MIRROR_X = new Matrix4().makeScale(-1, 1, 1);
  * The closed fist in a right hand's grip space, for drawing it round a
  * handle (grip locking): the axis of the hole the curled fingers make, from
  * the little finger towards the thumb (the wrist's -X, about which the
- * fingers bend), the way the forearm leaves the wrist (the wrist's +Z), and
- * the middle of the hole, measured from the fingers' joints in a fist. The
- * hole runs 47° off the grip space's -Z. A left hand's are these mirrored in X.
+ * fingers bend), and the middle of the hole, measured from the fingers'
+ * joints in a fist. The hole runs 47° off the grip space's -Z. A left
+ * hand's are these mirrored in X.
  */
 export const FIST_AXIS: readonly [number, number, number] = [0.19326625764369965, 0.700115978717804, -0.6873756647109985];
-export const FOREARM: readonly [number, number, number] = [-0.009290123358368874, 0.7018587589263916, 0.7122553586959839];
 export const FIST_CENTRE: readonly [number, number, number] = [0.016, -0.019, 0.011];
 
 const xAxis = new Vector3();
@@ -200,10 +199,11 @@ function boneParts(coat: number): Part[][] {
     { geometry: new BoxGeometry(0.084, 0.03, 0.085), color: LEATHER, position: [0, -0.008, -0.05] },
     { geometry: new BoxGeometry(0.088, 0.022, 0.02), color: shade(LEATHER, 0.85), position: [0, -0.004, -0.088] },
     { geometry: new BoxGeometry(0.03, 0.028, 0.05), color: LEATHER, position: [-0.026, -0.024, -0.035], rotation: [0, 0.35, 0] },
-    // Gauntlet cuff, then the forearm in its sleeve back towards the elbow,
-    // which suggests an arm without needing to work out where the elbow is.
+    // Gauntlet cuff, closed at the back, with a band of coat colour round
+    // its open end so each crew member's hands show whose they are. No arm:
+    // hands alone (John, 2026-10-10, after the arm angles never looked right).
     { geometry: new CylinderGeometry(0.05, 0.042, 0.05, 7), color: LEATHER, position: [0, -0.005, 0.02], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.8] },
-    { geometry: new CylinderGeometry(0.052, 0.042, 0.2, 7), color: coat, position: [0, -0.005, 0.14], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.85] },
+    { geometry: new CylinderGeometry(0.053, 0.051, 0.018, 7), color: coat, position: [0, -0.005, 0.052], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.8] },
   ]);
   for (const finger of FINGERS) {
     for (let s = 0; s < 3; s++) {
@@ -277,7 +277,7 @@ function posedGeometry(coat: number, side: 'left' | 'right', pose: FingerCurls):
   return geometry;
 }
 
-/** A gloved hand and sleeve for drawing at a grip pose, in coat colour `coat` (hex), built open. */
+/** A gloved hand with a coat-coloured cuff band for drawing at a grip pose, in coat colour `coat` (hex), built open. */
 export function handGeometry(coat: number, side: 'left' | 'right'): BufferGeometry {
   return posedGeometry(coat, side, BIND_POSE);
 }
@@ -319,7 +319,7 @@ export class PosedHand {
     poseBones(this.bones, curls);
   }
 
-  /** Dress the sleeve in another coat colour (hex). */
+  /** Dress the cuff band in another coat colour (hex). */
   setCoat(coat: number): void {
     this.mesh.geometry.dispose();
     this.mesh.geometry = handGeometry(coat, this.side);
@@ -329,12 +329,6 @@ export class PosedHand {
   fistCentre(out: Vector3): Vector3 {
     out.set(FIST_CENTRE[0] * (this.side === 'left' ? -1 : 1), FIST_CENTRE[1], FIST_CENTRE[2]);
     return out.applyQuaternion(this.mesh.quaternion).add(this.mesh.position);
-  }
-
-  /** Which way the forearm leaves the wrist, in the mesh's parent's space. */
-  forearm(out: Vector3): Vector3 {
-    out.set(FOREARM[0] * (this.side === 'left' ? -1 : 1), FOREARM[1], FOREARM[2]);
-    return out.applyQuaternion(this.mesh.quaternion);
   }
 
   /** Where a bone is, in the mesh's space, for tests. */
