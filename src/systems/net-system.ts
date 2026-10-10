@@ -22,7 +22,7 @@ import { copyCurls, createFingerCurls, type FingerCurls, setCurls } from '../sim
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import { handCurls, handUse } from './grip-system.js';
-import { HoldKind, type LockBody, LockedHand } from './hand-lock.js';
+import { HoldKind, LockedHand } from './hand-lock.js';
 import { perf } from './perf-hud-system.js';
 import { describeBrowser, readGpu } from '../perf/platform-report.js';
 import { softwareRendererNote, vrStartMessage, vrSupportNote } from '../vr-messages.js';
@@ -48,8 +48,8 @@ import { onVrStart, prepareVr, startVr, vrStartState } from '../vr-start.js';
 const SEND_HZ = 45;
 /**
  * How far a scripted hand's grip is pitched back from level, rad: with the
- * controller's handle tilted forward like this, the glove's forearm lies
- * level (see the grip space in avatar.scene-asset.ts).
+ * controller's handle tilted forward like this, the glove's cuff lies
+ * level (see the grip space in hand.scene-asset.ts).
  */
 const SCRIPTED_GRIP_PITCH = 0.9;
 const STATS_LOG_MS = 5000;
@@ -232,7 +232,6 @@ export class NetSystem extends createSystem({}) {
   private rightHand!: PosedHand;
   /** Grip locking for the crewmate's hands, and their curls as drawn. */
   private crewLocks = { left: new LockedHand('left'), right: new LockedHand('right') };
-  private crewBody: LockBody = { head: new Vector3(), yaw: 0 };
   private crewCurls = { left: createFingerCurls(), right: createFingerCurls() };
   private tmpPos = new Vector3();
   private tmpQuat = new Quaternion();
@@ -751,10 +750,6 @@ export class NetSystem extends createSystem({}) {
       return;
     }
     const r = this.remote;
-    // Their arms reach from their shoulders, which turn with their head's heading as the torso does.
-    this.crewBody.head.set(r.head.px, r.head.py, r.head.pz);
-    this.tmpQuat.set(r.head.qx, r.head.qy, r.head.qz, r.head.qw);
-    this.crewBody.yaw = this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ').y;
     for (const side of ['left', 'right'] as const) {
       const hand = side === 'left' ? this.leftHand : this.rightHand;
       if (!hand.mesh.visible) {
@@ -767,7 +762,7 @@ export class NetSystem extends createSystem({}) {
       this.tmpPos.set(p.px, p.py, p.pz);
       this.tmpQuat.set(p.qx, p.qy, p.qz, p.qw);
       const curls = copyCurls(side === 'left' ? r.leftFingers : r.rightFingers, this.crewCurls[side]);
-      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls, this.crewBody);
+      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls);
       hand.pose(curls);
     }
   }
