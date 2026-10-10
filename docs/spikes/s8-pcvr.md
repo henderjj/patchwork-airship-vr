@@ -39,7 +39,7 @@ Status: built and tested in the cloud with the emulated headset, including a run
 
 ### Tests
 
-1. **Solo on PC (wired Link).** Connect the Quest with a USB-C cable and accept **Enable Link** in the headset. From the Link home, open the desktop view, start Chrome on the PC, open `https://henderjj.github.io/patchwork-airship-vr/` and click **Enter XR**. Press **X** for the wrist HUD. Note its `me` line (for example `PC Chrome 141, ~90 Hz, no multiview`) and whether fps keeps up with the Hz. Pick up and throw a brick, turn the crank and haul the line. Press **Y** and check the mute indicator on the crew panel.
+1. **Solo on PC (wired Link).** Connect the Quest with a USB-C cable and accept **Enable Link** in the headset. From the Link home, open the desktop view, start Chrome on the PC, open `https://henderjj.github.io/patchwork-airship-vr/` and click **Enter XR**. Press **X** for the wrist HUD. Note its `me` line (for example `PC Chrome 141, ~90 Hz, no multiview`) and whether fps keeps up with the Hz. Pick up and throw a brick, turn the crank and haul the line. Press **Y** and check **My mic** in the game menu (left menu button) says muted.
 2. **Hands on PC.** Put the controllers down and look at your hands. Say whether the hands appear, and whether `hands` shows on the HUD's `me` line.
 3. **Cross-play.** On the PC, add `?room=TEST` to the URL (any four letters). A second player in the Quest Browser opens the same URL with the same room code. Each HUD's `crew` line should show the other player's platform. Talk both ways, crank together and throw a brick to each other.
 4. **Air Link.** Repeat test 1 over Air Link (Quest **Settings → Link**, the PC wired to the router, the Quest on 5 GHz or 6 GHz Wi-Fi).
