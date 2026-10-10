@@ -7,16 +7,18 @@ import {
   SRGBColorSpace,
   TorusGeometry,
 } from '@iwsdk/core';
+import { FAIRLEAD } from '../sim/docking.js';
 import { beam, mergeParts, type Part, shade } from './lowpoly.js';
 
 /**
  * The mooring line for the hand-over-hand haul (spike S6, part 2). It comes
  * aboard over the port rail at the bow, through a brass fairlead, and runs
  * along the inside of the rail towards the stern, where it drops to a coil
- * on the deck. Outboard, the line still out hangs over the side; hauling
- * shortens it. (Throwing it to a dock post comes with docking, Phase 3.)
- * Players stand on the port side facing the rail and haul it towards the
- * stern (+Z).
+ * on the deck. Its outboard end carries a small iron grapple, which hangs
+ * on a hook on the bow rail beside the fairlead until it is thrown at a
+ * mooring post (docking, Phase 3). Outboard, the line out hangs over the
+ * side or runs to the grapple; hauling shortens it. Players stand on the
+ * port side facing the rail and haul it towards the stern (+Z).
  *
  * The inboard run is one cylinder with a striped texture; sliding the
  * texture shows the line moving without moving any geometry.
@@ -45,11 +47,20 @@ const COIL_RISE = 0.03;
 const COIL_STEP = [0.01, -0.008] as const;
 /** Height of the top turn, where the dropping line meets the coil. */
 const COIL_TOP = 0.02 + (COIL_TURNS.length - 1) * COIL_RISE;
-/** Where the outboard line goes over the rail top and hangs down from. */
-export const ROPE_OVERSIDE = [-1.04, 1.04, ROPE_Z0] as const;
+/** Where the outboard line goes over the rail top and hangs down from (the docking fairlead). */
+export const ROPE_OVERSIDE = FAIRLEAD;
+/** Where the grapple's eye hangs on its hook, on the inside of the bow rail by the fairlead. */
+export const GRAPPLE_HOOK = [-0.66, 0.93, -1.41] as const;
+/** The grapple is held by its shank this far below its eye, m... */
+export const GRAPPLE_GRIP = 0.12;
+/** ...and taken by a hand within this of that point, m. */
+export const GRAPPLE_REACH = 0.15;
+/** The grapple's shank, from its eye to the prongs' crown, m. */
+const SHANK = 0.32;
 
 const ROPE_COLOR = 0xd8c39a;
 const BRASS = 0xc9a03a;
+const IRON = 0x4c525c;
 
 /** Distance from a ship-space point to the inboard run, and its position along it. */
 export function nearestOnRope(x: number, y: number, z: number): { distance: number; along: number } {
@@ -104,6 +115,9 @@ export function createRope(): RopeMeshes {
     beam([ox + 0.06, oy + 0.01, oz], [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
     // Fairlead ring on the rail.
     { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] },
+    // The grapple's hook: an iron peg out of the bow rail's inside face, turned up at its end.
+    beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] - 0.05], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] + 0.02], 0.008, IRON, 5),
+    beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.008, GRAPPLE_HOOK[2] + 0.02], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.04, GRAPPLE_HOOK[2] + 0.025], 0.007, IRON, 5),
     // Line dropping from the end of the run onto the top turn of the coil.
     {
       geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, ROPE_Y - COIL_TOP, 6, 1, true),
@@ -130,6 +144,44 @@ export function createRope(): RopeMeshes {
   return { run, fittings, overside, texture };
 }
 
+/**
+ * The grapple on the line's outboard end: an eye at the origin, an iron
+ * shank down -Y and four prongs curving back up from its crown, about 25 cm
+ * across. Held by the shank (`GRAPPLE_GRIP` below the eye); its line ties
+ * to the eye.
+ */
+export function createGrapple(): Mesh {
+  const parts: Part[] = [
+    { geometry: new TorusGeometry(0.028, 0.008, 4, 10), color: IRON, position: [0, 0, 0] },
+    beam([0, -0.02, 0], [0, -SHANK, 0], 0.013, IRON, 6),
+    // A band of the line's colour where it is held, so it reads as the handle.
+    beam([0, -GRAPPLE_GRIP + 0.05, 0], [0, -GRAPPLE_GRIP - 0.05, 0], 0.017, shade(ROPE_COLOR, 0.8), 6),
+  ];
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2 + Math.PI / 4;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const elbow: [number, number, number] = [0.09 * c, -SHANK - 0.02, 0.09 * s];
+    const tip: [number, number, number] = [0.12 * c, -SHANK + 0.09, 0.12 * s];
+    parts.push(beam([0, -SHANK, 0], elbow, 0.011, IRON, 5));
+    parts.push(beam(elbow, tip, 0.009, IRON, 5));
+  }
+  const mesh = new Mesh(mergeParts(parts), new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  mesh.name = 'Grapple';
+  return mesh;
+}
+
+/** A straight length of line 1 m long up +Y from its origin: point it from one end to the other and scale Y to the length. */
+export function createLineSpan(): Mesh {
+  const mesh = new Mesh(
+    mergeParts([{ geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, 1, 6, 1, true), color: ROPE_COLOR, position: [0, 0.5, 0] }]),
+    new MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+  );
+  mesh.name = 'Mooring Line Out';
+  // It reaches tens of metres out to the post; its bounds would need refitting each frame.
+  mesh.frustumCulled = false;
+  return mesh;
+}
 
 /** Slide the stripes so the line appears to have moved `hauled` metres inboard. */
 export function setRopeHauled(texture: CanvasTexture, hauled: number): void {

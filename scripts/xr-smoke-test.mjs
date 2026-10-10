@@ -449,7 +449,9 @@ async function main() {
   await sleep(200);
   iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: { x: 0.3, y: 1.0, z: 0.2 }, duration: 0.4 });
 
-  // 5c. Take the mooring line along the port rail with the left hand and haul it in.
+  // 5c. Take the mooring line along the port rail with the left hand and haul
+  //     it in (with all of it out first: it starts all in, its grapple on its hook).
+  evalInApp('window.__rope.reset()');
   const ROPE = { x: -0.85, y: 0.95, z0: -1.35 };
   const onRope = (along) => [ROPE.x, ROPE.y, ROPE.z0 + along];
   iwsdk(['xr', 'animate-to'], { device: 'controller-left', position: toOrigin(onRope(0.3)), duration: 0.5 });
@@ -696,8 +698,8 @@ async function main() {
   evalInApp('window.__ship.clearFixedTilt()');
   check('The lantern swings towards the low side of the deck', swing.z > 0.03, `swung ${((swing.z * 180) / Math.PI).toFixed(1)}° to starboard with the deck 4° starboard-down`);
 
-  // 6d. Phase 2 route: rest on island A, lift off, fly through a ring, land
-  //     on island B for a score, ring the bell to start again, and lose a run.
+  // 6d. Phase 2 route: rest on island A, lift off, fly through a ring, make
+  //     fast at island B (6e) for a score, ring the bell to start again, and lose a run.
   //     The ship is moved between the route's points to keep the test short.
   evalInApp('window.__ship.fly()');
   const route = evalInApp('window.__route.run.route');
@@ -727,12 +729,98 @@ async function main() {
   const flyingBoard = evalInApp('window.__route.boardText()');
   check('Flying through a ring counts it, and the board points to the next', passed === 1 && flyingBoard[1] === 'RINGS 1 of 2' && flyingBoard[2].startsWith('NEXT Ring 2'),
     flyingBoard.join(' | '));
-  const b = route.finish;
-  evalInApp(`(window.__ship.place(${b.x + 2}, ${b.y + 1.2}, ${b.z + 3}), window.__ship.flight.heat = 40, window.__ship.info.burnLeft = 0)`);
-  const finished = await waitFor('landing on island B', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 30000).catch(() => null);
+  // 6e. Docking at island B: take the grapple off its hook, throw it at the
+  //     mooring post on the jetty, then haul the ship in until it is made
+  //     fast, which finishes the run. The ship is put 5 m off the post,
+  //     its port side (the fairlead) to it, level with the post's top, and
+  //     the envelope is kept at floating heat meanwhile.
+  const dock = route.dock;
+  const FAIRLEAD = [-1.04, 1.04, -1.35];
+  const outward = (() => {
+    const dx = dock.x - route.finish.x;
+    const dz = dock.z - route.finish.z;
+    const d = Math.hypot(dx, dz);
+    return [dx / d, dz / d];
+  })();
+  const dockYaw = Math.atan2(-outward[1], outward[0]);
+  // The fairlead's offset from the deck's middle, in world space, at that heading.
+  const fairleadOffset = [
+    FAIRLEAD[0] * Math.cos(dockYaw) + FAIRLEAD[2] * Math.sin(dockYaw),
+    FAIRLEAD[1],
+    -FAIRLEAD[0] * Math.sin(dockYaw) + FAIRLEAD[2] * Math.cos(dockYaw),
+  ];
+  const postTop = dock.y + dock.height;
+  const shipAt = [dock.x + outward[0] * 5 - fairleadOffset[0], postTop - FAIRLEAD[1], dock.z + outward[1] * 5 - fairleadOffset[2]];
+  // Ring 2 is taken as flown (to keep the test short), and the breeze is
+  // stilled so the ship stays put while the emulator's hand moves.
+  const placeAlongside = `(() => {
+    window.__ship.place(${shipAt[0]}, ${shipAt[1]}, ${shipAt[2]}, ${dockYaw});
+    const f = window.__ship.flight;
+    f.airspeed = 0;
+    f.climb = 0;
+  })()`;
+  evalInApp(`(() => {
+    window.__route.run.ringMask |= 2;
+    const f = window.__ship.flight;
+    window.__wind = [f.params.windSpeed, f.params.windVariation];
+    f.params.windSpeed = 0;
+    f.params.windVariation = 0;
+    window.__ship.info.burnLeft = 0;
+    clearInterval(window.__holdHeat);
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb *= 0.5; }, 50);
+  })()`);
+  evalInApp(placeAlongside);
+  await sleep(500);
+  const approach = evalInApp('window.__route.boardText()');
+  check('Coming in to island B, the board points to the post and says how high it is',
+    approach[2].startsWith('NEXT Post at B') && /LEVEL/.test(approach[3]), approach.join(' | '));
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.4, 1.6, -0.6]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.66, y: 0.75, z: -1.41 } });
+  const grabAt = evalInApp('window.__dock.grabPoint()');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(grabAt), duration: 0.5 });
+  await sleep(700);
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 1 }] });
+  await sleep(300);
+  const tookGrapple = evalInApp('window.__dock.state()');
+  check('Squeeze takes the grapple off its hook', tookGrapple.held === 'right' && tookGrapple.phase === 'stowed', JSON.stringify(tookGrapple));
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([-0.75, 1.5, -1.0]), duration: 0.5 });
+  await sleep(700);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-grapple-held.png'], {});
+  // The throw itself is scripted: the emulator's controller can't swing an arm reliably at CI frame rates.
+  evalInApp(placeAlongside);
+  evalInApp('window.__dock.throwAt(0.8)');
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
+  const caught = await waitFor('the grapple to catch on the post', () => evalInApp("window.__dock.state().phase === 'hooked' ? window.__dock.state() : null"), 10000).catch(() => null);
+  check('A grapple thrown at the post catches round it, with the line paid out', caught !== null && caught.lineOut > 4 && caught.lineOut < 6,
+    JSON.stringify(caught ?? evalInApp('window.__dock.state()')));
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.6, 1.6, -0.9]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -6, y: 0.9, z: -1.35 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-grapple-on-post.png'], {});
+  // Haul in hand over hand with scripted hands: 0.4 m strokes, 0.5 s each, hands taking turns.
+  evalInApp(`(() => {
+    const start = Date.now() + 200;
+    ['left', 'right'].forEach((side, sideIndex) => {
+      window.__rope.setTestHand(side, () => {
+        const tt = (Date.now() - start) / 1000;
+        if (tt < 0) return null;
+        const n = Math.floor(tt / 0.5);
+        if (n % 2 !== sideIndex) return null;
+        const phase = tt / 0.5 - n;
+        return 0.4 + (0.4 * (1 - Math.cos(Math.PI * phase))) / 2;
+      });
+    });
+  })()`);
+  const fast = await waitFor('the ship to be made fast', () => evalInApp("window.__dock.state().phase === 'fast' ? window.__dock.state() : null"), 90000, 1000).catch(() => null);
+  const dockedState = evalInApp('window.__dock.state()');
+  check('Hauling in draws the ship to the post until it is made fast', fast !== null && fast.lineOut <= 1.3 && Math.abs(fast.heightOff) <= 1,
+    JSON.stringify(fast ?? dockedState));
+  evalInApp("(window.__rope.setTestHand('left', null), window.__rope.setTestHand('right', null))");
+  const finished = await waitFor('the run to finish', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 10000).catch(() => null);
   const scoreBoard = evalInApp('window.__route.boardText()');
-  check('Resting on island B finishes the run with a score', finished !== null && finished.rings === 1 && finished.score > 0 && scoreBoard[0].startsWith('LANDED'),
+  check('Made fast at island B finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 && scoreBoard[0].startsWith('MADE FAST'),
     scoreBoard.join(' | '));
+  evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__wind)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.45, 1.55, -0.55]) });
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.5, z: -0.05 } });
   await sleep(800);

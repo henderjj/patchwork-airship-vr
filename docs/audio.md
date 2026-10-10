@@ -29,6 +29,6 @@ On a headset:
 1. Drop a brick in the hopper: the burner roars, and goes quiet when its time runs out.
 2. Turn the crank: the ratchet clicks at the bow, faster as you crank faster. Turn your head: the clicks stay at the crank.
 3. Fly at speed and swing the tiller: the wind rises a little and swells and fades, and the timbers creak as the deck leans into the turn and again as it comes out, but not all the way round a steady turn.
-4. Fly through a ring for the chime, land on island B for the thump, and ring the bell.
+4. Fly through a ring for the chime, set down on an island (or catch the grapple on island B's post) for the thump, and ring the bell.
 
 What would help most from a headset run: whether any sound is too loud or tiring over a few minutes (the burner and wind especially), and whether the creaks sound like wood.

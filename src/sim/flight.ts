@@ -154,6 +154,13 @@ export class FlightSim {
   grounded = false;
   /** Descent rate when the ship last touched down, m/s. */
   touchdownSpeed = 0;
+  /**
+   * The velocity this model gave the ship last step. Its acceleration (and
+   * so the felt gravity) comes from this rather than the ship state's, so
+   * a mooring line holding or drawing the ship (src/sim/docking.ts) moves
+   * it without jolting the felt gravity.
+   */
+  private lastV = { x: 0, y: 0, z: 0 };
 
   constructor(
     readonly params: FlightParams = DEFAULT_FLIGHT,
@@ -183,6 +190,7 @@ export class FlightSim {
     this.time = 0;
     this.grounded = false;
     this.touchdownSpeed = 0;
+    this.lastV.x = this.lastV.y = this.lastV.z = 0;
     state.time = 0;
     state.x = x;
     state.y = y;
@@ -263,9 +271,13 @@ export class FlightSim {
     }
 
     const k = Math.min(1, dt * 6);
-    state.ax += ((vx - state.vx) / dt - state.ax) * k;
-    state.ay += ((vy - state.vy) / dt - state.ay) * k;
-    state.az += ((vz - state.vz) / dt - state.az) * k;
+    const last = this.lastV;
+    state.ax += ((vx - last.x) / dt - state.ax) * k;
+    state.ay += ((vy - last.y) / dt - state.ay) * k;
+    state.az += ((vz - last.z) / dt - state.az) * k;
+    last.x = vx;
+    last.y = vy;
+    last.z = vz;
     state.vx = vx;
     state.vy = vy;
     state.vz = vz;

@@ -1,6 +1,6 @@
 # The route: "Calm skies" (Phase 2)
 
-The ship starts resting on island A, and the crew flies a short route: lift off, fly through two marker rings, and land on island B. The run is timed, and the board on deck shows a score at the end. The layout and rules are in `src/sim/route.ts` and `src/sim/islands.ts`; like the flight model, they have no rendering code.
+The ship starts resting on island A, and the crew flies a short route: lift off, fly through two marker rings, and make the ship fast to the mooring post at the end of island B's jetty (docking, Phase 3: [docking.md](docking.md)). The run is timed, and the board on deck shows a score at the end. The layout and rules are in `src/sim/route.ts`, `src/sim/islands.ts` and `src/sim/docking.ts`; like the flight model, they have no rendering code.
 
 ## The course
 
@@ -9,7 +9,7 @@ The ship starts resting on island A, and the crew flies a short route: lift off,
 | Island A | The start, 120 m up | The ship rests on a plank pad with a green flag. While it waits there, the ground crew keeps the envelope just below floating heat, so one or two bricks lift it off within a few seconds |
 | Ring 1 | 165 m ahead, 16 m higher | Red and cream stripes, 28 m across. It turns green once flown through |
 | Ring 2 | 200 m on, about 35° to port, a little lower | |
-| Island B | 170 m on, about 30° to port, below the start | A plank pad with a red flag, and a beacon mast whose lamp shows through the haze |
+| Island B | 170 m on, about 30° to port, below the start | A plank pad with a red flag, a beacon mast whose lamp shows through the haze, and a jetty out towards ring 2 with a red and white mooring post at its end |
 
 About 550 m in all: roughly three minutes with one player cranking, under two with both. Scenery islands are kept at least 45 m (plus their size) from the path.
 
@@ -18,7 +18,7 @@ About 550 m in all: roughly three minutes with one player cranking, under two wi
 - **Ready check:** with a crewmate, the ship stays moored to island A, however hot the envelope, until both players have rung the bell there. The board shows who is ready, then "CAST OFF!". Solo, the ship casts off as soon as it has lift.
 - **The clock starts** when the ship lifts off island A.
 - **A ring counts** when the middle of the ship passes through it at least 4 m inside the rim, in either direction. Rings can be flown in any order.
-- **The run finishes** after the ship has rested on island B for 3 seconds.
+- **The run finishes** after the ship has been made fast to island B's mooring post for 3 seconds: throw the grapple onto the post, hold the deck level with the post's top, and haul the line in ([docking.md](docking.md)). Landing on island B no longer finishes it.
 - **The run is lost** if the ship runs into an island's rock (resting on any island's top is fine), sinks below 40 m into the haze, or strays more than 450 m from the route. The ship stops where it is.
 - **Restart** by ringing the ship's bell, on a bracket over the port bow corner. Like a real ship's bell, the bell stays still and its clapper swings: the lanyard is tied to the clapper's tail below the bell's lip, so taking the wooden toggle at its end and tugging it to one side swings the clapper's iron ball against that side of the bell. Tug it from side to side and it rings on each side in turn; a harder tug rings louder, and a very slow pull just leans the ball against the bell without a sound. Let go and the clapper swings back to hang straight. Each strike is a ring. Mid-run it takes two rings within 3 seconds, so a knock doesn't throw a good run away, and with a crewmate, ringing on from the ready check as the ship casts off doesn't count mid-run until the bell has been quiet for 3 seconds. On a keyboard, **N** rings the bell.
 
@@ -26,13 +26,13 @@ The ship can now rest on any island: its keel settles on the grass, and while it
 
 ## Score
 
-1000 points, less 2 per second, 15 per fuel brick, 150 per missed ring, 10 per metre the ship stops from the middle of island B's pad, and 200 per m/s of touchdown faster than 0.6 m/s. Three stars from 600, two from 450, one from 250. The best score is kept in the browser.
+1000 points, less 2 per second, 15 per fuel brick, 150 per missed ring, and 100 each time the grapple is torn off the post. Three stars from 600, two from 450, one from 250. The best score is kept in the browser.
 
 These weights are a first guess, in `scoreRun()` in `src/sim/route.ts`.
 
 ## The board
 
-The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference, and the fuel used; at the end it shows the score or why the run was lost.
+The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference (for the post, from the deck height that puts the fairlead level with the post's top), and the fuel used; once the grapple is on the post, the line out and whether the deck is level with the post, or HIGH or LOW by how much; at the end it shows the score or why the run was lost.
 
 ## Cost
 
@@ -49,7 +49,7 @@ On a headset, open the game:
 1. Look over the side: the gondola rests on island A's pad. The route board (walk to the bow side of the burner) says "Waiting on island A" (with a crewmate, "Moored on island A": both ring the bell at the bow to cast off).
 2. Drop a brick in the hopper. Within a few seconds the ship lifts off and the board's clock starts.
 3. Crank and steer for ring 1 straight ahead. Fly through it and watch it turn green; the board then points to ring 2.
-4. Fly through ring 2, then find island B by its beacon. Vent to come down onto it and wait 3 seconds: the board shows the score.
+4. Fly through ring 2, then find island B by its beacon and its jetty. Come alongside the post, throw the grapple onto it and haul in until the ship is made fast ([docking.md](docking.md)); 3 seconds later the board shows the score.
 5. Ring the bell at the bow to fly again. Try running into an island's side, or venting down into the haze, to see a run lost.
 
-What would help most from a headset run: whether the rings and island B are easy to find, whether the bell is easy to reach, whether landing feels gentle enough, and how long a run takes with one and two players.
+What would help most from a headset run: whether the rings and island B are easy to find, whether the bell is easy to reach, how docking goes (see [docking.md](docking.md)), and how long a run takes with one and two players.

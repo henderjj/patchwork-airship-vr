@@ -89,3 +89,39 @@ export function createBeaconMastGeometry(height: number): BufferGeometry {
 export function createBeaconLampGeometry(): BufferGeometry {
   return mergeParts([{ geometry: new IcosahedronGeometry(1.4, 1), color: 0xffb648 }]);
 }
+
+const IRON = 0x3a3f47;
+const POST_RED = 0xc8402c;
+
+/**
+ * Island B's jetty and mooring post (docking, Phase 3): the post at the
+ * origin, standing `postHeight` on the jetty's end, and the jetty running
+ * `length` towards +Z back to the island, on struts down to the rock. The
+ * post is banded red and white so it reads from a distance, with an iron cap
+ * for the grapple to bite under.
+ */
+export function createJettyGeometry(length: number, postHeight: number): BufferGeometry {
+  const parts: Part[] = [];
+  const width = 1.6;
+  // Planks across, on two stringers.
+  const planks = Math.round(length / 0.4);
+  for (let i = 0; i < planks; i++) {
+    const z = -0.3 + i * (length + 0.3) / planks;
+    parts.push({ geometry: new BoxGeometry(width, 0.08, 0.36), position: [0, -0.04, z + 0.18], color: i % 3 === 0 ? PLANK_DARK : PLANK });
+  }
+  for (const x of [-width / 2 + 0.15, width / 2 - 0.15]) {
+    parts.push({ geometry: new BoxGeometry(0.14, 0.2, length + 0.3), position: [x, -0.18, length / 2 - 0.15], color: PLANK_DARK });
+    // Struts from under the jetty's outer half back down to the island's rock.
+    parts.push(beam([x, -0.25, 0.2], [x * 0.6, -3.2, length + 2.5], 0.08, POLE, 5));
+    parts.push(beam([x, -0.25, length * 0.45], [x * 0.6, -2.2, length + 1.6], 0.07, POLE, 5));
+  }
+  // The post, in red and white bands, with an iron cap and collar.
+  const bands = 5;
+  for (let i = 0; i < bands; i++) {
+    const h = postHeight / bands;
+    parts.push({ geometry: new CylinderGeometry(0.16, 0.17, h, 8), position: [0, h * (i + 0.5), 0], color: i % 2 === 0 ? POST_RED : PAINT });
+  }
+  parts.push({ geometry: new CylinderGeometry(0.24, 0.2, 0.12, 8), position: [0, postHeight + 0.06, 0], color: IRON });
+  parts.push({ geometry: new CylinderGeometry(0.2, 0.2, 0.06, 8), position: [0, postHeight - 0.25, 0], color: IRON });
+  return mergeParts(parts);
+}

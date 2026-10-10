@@ -17,6 +17,7 @@ import {
   updateFeltGravity,
   updateQuaternion,
 } from '../sim/ship-motion.js';
+import { DockingSim } from '../sim/docking.js';
 import { createFlightControls, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
 import { groundBelow, islandHit, restingDeck } from '../sim/islands.js';
@@ -85,6 +86,13 @@ export const flightInfo = {
 
 /** Phase 2's route: the host's run, or on the guest, the host's run as last heard. */
 export const route = new RouteRun(ROUTE);
+
+/**
+ * Docking at island B's post (Phase 3): the grapple and the line's hold on
+ * the ship. RopeSystem throws and hauls; on the host (or solo) this system
+ * keeps the ship on the line after each flight step.
+ */
+export const docking = new DockingSim(ROUTE.dock);
 
 /**
  * Phase 2 ready check: with a crewmate, the ship stays moored to island A
@@ -353,6 +361,7 @@ export class ShipSystem extends createSystem({
     flightInfo.bricksBurned = 0;
     setBallast(0);
     route.reset();
+    docking.reset();
     crewReady.host = crewReady.guest = false;
     this.sendRoute();
   }
@@ -430,9 +439,16 @@ export class ShipSystem extends createSystem({
             groundBelow(sceneryIslands, ship.x, ship.z, ship.y, wrapNear),
           );
           flight.step(ship, c, dt, ground, moored());
+          // On the line to island B's post: held in by it, and held still once made fast.
+          docking.constrain(ship, docking.lineOut, dt);
+          if (docking.phase === 'fast') {
+            flight.airspeed = 0;
+            flight.climb = 0;
+            flight.yawRate = 0;
+          }
         }
         const crashed = islandHit(ROUTE_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
-        if (route.step(ship, flight.grounded, flight.touchdownSpeed, flightInfo.bricksBurned, dt, crashed)) {
+        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed)) {
           this.sendRoute();
         }
         flightInfo.heat = flight.heat;

@@ -12,6 +12,7 @@ import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { DeckWalkSystem } from './systems/deck-walk-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
 import { GondolaSystem } from './systems/gondola-system.js';
+import { GrappleSystem } from './systems/grapple-system.js';
 import { GripSystem } from './systems/grip-system.js';
 import { NetSystem } from './systems/net-system.js';
 import { OwnHandsSystem } from './systems/own-hands-system.js';
@@ -46,6 +47,8 @@ World.create(
   // After NetSystem, so it sees the crewmate's pose drawn this frame.
   world.registerSystem(CrankSystem);
   world.registerSystem(RopeSystem);
+  // After the rope: it sets what the line pulls against for the next haul step, and draws the grapple on the line's end.
+  world.registerSystem(GrappleSystem);
   // After the crank and rope, so it knows which hands they hold; it also
   // sees the crewmate's pose for trim.
   world.registerSystem(ControlsSystem);

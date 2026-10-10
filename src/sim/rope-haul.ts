@@ -4,7 +4,10 @@
  *
  * The line runs inboard through a fairlead along the port rail. It is a
  * one-dimensional object: `hauled` is how many metres have been pulled in.
- * The dock pulls it back out with a steady load. A hand that grabs the line
+ * Whatever is on the far end pulls it back out with a steady load: the
+ * grapple's weight while it hangs over the side, or the whole ship while
+ * the grapple is on a mooring post and the line is tight (the docking
+ * system sets `load` to suit). A hand that grabs the line
  * holds the bit of rope under it, and pulls that bit towards where the hand
  * is now, like a stiff spring. Each player can only pull so hard in total
  * (both hands together), and a hand that gets too far from its bit of rope
@@ -30,7 +33,7 @@ export interface RopeParams {
   handDamping: number;
   /** Strongest total pull of one player. */
   maxPlayerForce: number;
-  /** Steady pull of the dock on the line. */
+  /** Steady pull on the line from what it hauls (a tight line hauling the ship in). */
   load: number;
   /** Friction of the line through the fairlead (force per m/s). */
   damping: number;
@@ -43,7 +46,7 @@ export interface RopeParams {
   syncWindowMs: number;
   /** Pull multiplier during a heave. */
   heaveBoost: number;
-  /** Metres of line to haul in before the ship is docked. */
+  /** Metres of line in all: hauled in, it is all in. */
   length: number;
 }
 
@@ -60,7 +63,8 @@ export const DEFAULT_ROPE: RopeParams = {
   strokeEndSpeed: 0.1,
   syncWindowMs: 150,
   heaveBoost: 1.6,
-  length: 8,
+  // The mooring line with its grapple (docking, src/sim/docking.ts).
+  length: 10,
 };
 
 /** Hand slots: player 0 left, player 0 right, player 1 left, player 1 right. */
@@ -86,6 +90,10 @@ const STROKE_GRAB_MS = 300;
 
 export class RopeHaulSim {
   readonly params: RopeParams;
+  /** Steady pull on the line out (starts at the params' `load`; what it pulls on can change it). */
+  load: number;
+  /** The line never runs back out on its own (it is belayed between pulls). */
+  ratchet = false;
   /** Metres hauled in. */
   hauled = 0;
   /** Line speed, m/s (positive is inboard). */
@@ -94,7 +102,8 @@ export class RopeHaulSim {
   heave = false;
   /** Number of heaves so far. */
   heaves = 0;
-  docked = false;
+  /** The whole line is in (nothing to haul). */
+  allIn = false;
   /** Per slot: whether the hand slipped off this step, and how far it is from its bit of rope (m). */
   readonly slipped = [false, false, false, false];
   readonly lead = [0, 0, 0, 0];
@@ -117,6 +126,17 @@ export class RopeHaulSim {
 
   constructor(params: RopeParams = DEFAULT_ROPE) {
     this.params = params;
+    this.load = params.load;
+  }
+
+  /** Set how much line is out (it was paid out or hauled by other means), m. */
+  setOut(out: number): void {
+    const hauled = Math.max(0, Math.min(this.params.length, this.params.length - out));
+    this.allIn = hauled >= this.params.length;
+    if (hauled !== this.hauled) {
+      this.hauled = hauled;
+      this.speed = 0;
+    }
   }
 
   /** Where the line was at local time `ms`. */
@@ -210,9 +230,12 @@ export class RopeHaulSim {
     }
     this.heave = together;
 
-    if (!this.docked) {
-      const net = force - p.load - p.damping * this.speed;
+    if (!this.allIn) {
+      const net = force - this.load - p.damping * this.speed;
       this.speed += (net / p.mass) * dt;
+      if (this.ratchet && this.speed < 0) {
+        this.speed = 0;
+      }
       this.hauled += this.speed * dt;
       if (this.hauled <= 0) {
         this.hauled = 0;
@@ -221,7 +244,7 @@ export class RopeHaulSim {
       if (this.hauled >= p.length) {
         this.hauled = p.length;
         this.speed = 0;
-        this.docked = true;
+        this.allIn = true;
       }
     }
 
@@ -248,7 +271,7 @@ export class RopeHaulSim {
     this.speed = 0;
     this.heave = false;
     this.heaves = 0;
-    this.docked = false;
+    this.allIn = false;
     this.count = 0;
     this.next = 0;
     this.stroking = [false, false];

@@ -22,6 +22,8 @@ export const HoldKind = {
   Tiller: 3,
   Vent: 4,
   Bell: 5,
+  /** The grapple (docking): it is drawn in the hand, so the hand isn't locked to anything. */
+  Grapple: 6,
 } as const;
 
 /**
