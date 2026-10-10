@@ -10,6 +10,7 @@ Every sound is made in the browser with Web Audio rather than recorded, so the d
 | Crank ratchet | One click per eighth of a turn, matching the haptic clicks | A 25 ms burst of high-passed noise at the crank |
 | Ship's bell | Each strike of its clapper against the bell, from the lanyard tugged to one side (or N), louder the harder it strikes; the crewmate's strikes too | Four out-of-tune sine partials, each dying away at its own rate, like struck brass |
 | Ring chime | A ring flown through | Two rising notes |
+| Haul call | While both players hold the mooring line: a heave once a second on the shared clock, and a reach on the off-beat ([crew-sync.md](crew-sync.md)) | A falling low sine drum with a short slap on the heave; a soft high tock on the reach; at the hauling run |
 | Touchdown | The ship settling onto an island | A falling low thump, harder with a faster descent |
 
 The gondola doesn't move in the player's tracking space, so each source stays where it is on deck and only the listener (the player's head) moves. Panning is equal-power rather than HRTF, which costs less on a headset and suits sounds this broad. Each player hears their own copy, driven by the ship state both already share, so nothing extra goes over the network, except the bell: each strike is sent to the crewmate so they hear it too.
