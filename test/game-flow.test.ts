@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codeShown, crewScreen, menuCrewLine, typeCode } from '../src/game-flow.js';
+import { codeShown, crewScreen, heightShown, menuCrewLine, stepHeight, typeCode } from '../src/game-flow.js';
 
 describe('start screen', () => {
   it('types a four-letter crew code', () => {
@@ -42,5 +42,29 @@ describe('game menu', () => {
   it('names the crew and the crewmate', () => {
     expect(menuCrewLine('connected', 'QRST', 'Ann', false)).toBe('Crew QRST: playing with Ann.');
     expect(menuCrewLine('waiting', 'QRST', '', true)).toBe('Crew QRST: waiting for the practice crewmate.');
+  });
+});
+
+describe('character height in the game menu', () => {
+  const step = (height: number, own: number, direction: 1 | -1) => stepHeight(height, own, direction, 1.4, 2.0, 1.75);
+
+  it('steps 5 cm at a time and stays in range', () => {
+    expect(step(1.75, Number.NaN, 1)).toBe(1.8);
+    expect(step(1.75, Number.NaN, -1)).toBe(1.7);
+    expect(step(2.0, Number.NaN, 1)).toBe(2.0);
+    expect(step(1.4, Number.NaN, -1)).toBe(1.4);
+  });
+
+  it('steps from the player\'s own height to the next step either side', () => {
+    expect(step(0, 1.78, 1)).toBe(1.8);
+    expect(step(0, 1.78, -1)).toBe(1.75);
+    expect(step(0, 1.8, 1)).toBe(1.85);
+    expect(step(0, Number.NaN, 1)).toBe(1.8);
+  });
+
+  it('shows the height, or the player\'s own once measured', () => {
+    expect(heightShown(1.85, 1.7)).toBe('1.85 m');
+    expect(heightShown(0, 1.776)).toBe('1.78 m');
+    expect(heightShown(0, Number.NaN)).toBe('-');
   });
 });

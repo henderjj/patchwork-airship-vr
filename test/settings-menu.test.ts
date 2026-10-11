@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { LIVE_ITEMS, MENU_ROWS, nextOption, optionLabel, withSetting } from '../src/live-settings.js';
+import { LIVE_ITEMS, MAX_OPTIONS, withSetting } from '../src/live-settings.js';
 import { MENU_ITEMS, menuQuery } from '../src/settings-menu.js';
-import { mergeSettings, parseSettings } from '../src/settings.js';
+import { DEFAULT_SETTINGS, mergeSettings, parseSettings } from '../src/settings.js';
 
 describe('start-up settings', () => {
   it('saves only the choices that differ from the defaults', () => {
@@ -28,22 +28,11 @@ describe('start-up settings', () => {
 });
 
 describe('in-game settings', () => {
-  const audio = LIVE_ITEMS.find((item) => item.key === 'audio')!;
-  const hz = LIVE_ITEMS.find((item) => item.key === 'hz')!;
-
-  it('fit the menu', () => {
-    expect(LIVE_ITEMS.length).toBeLessThanOrEqual(MENU_ROWS);
-  });
-
-  it('step through their choices and wrap round', () => {
-    expect(nextOption(audio, '1')).toBe('0');
-    expect(nextOption(audio, '0')).toBe('1');
-    expect(nextOption(hz, '90')).toBe('120');
-    expect(nextOption(hz, '120')).toBe('72');
-    // A value from a link that isn't offered steps to the first choice.
-    expect(nextOption(hz, '60')).toBe('72');
-    expect(optionLabel(hz, '60')).toBe('60');
-    expect(optionLabel(hz, '90')).toBe('90 Hz');
+  it('fit a row of the menu', () => {
+    for (const item of LIVE_ITEMS) {
+      expect(item.options.length).toBeLessThanOrEqual(MAX_OPTIONS);
+      expect(item.options.map(([value]) => value)).toContain(item.current(DEFAULT_SETTINGS));
+    }
   });
 
   it('are saved with the others, and dropped when back to the default', () => {

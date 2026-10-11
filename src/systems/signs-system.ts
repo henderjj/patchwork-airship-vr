@@ -1,7 +1,8 @@
-import { BufferAttribute, BufferGeometry, CanvasTexture, createSystem, Mesh, MeshBasicMaterial, SRGBColorSpace, Vector3 } from '@iwsdk/core';
+import { BufferAttribute, BufferGeometry, CanvasTexture, createSystem, InputComponent, Mesh, MeshBasicMaterial, SRGBColorSpace, Vector3 } from '@iwsdk/core';
 import { CRANK_POSITION, FUEL_CRATE_POSITION, FUEL_CRATE_SIZE, RAIL_HEIGHT } from '../scene-assets/gondola.scene-asset.js';
 import { TILLER_PIVOT, VENT_TOGGLE } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, BURNER_SIZE, DECK_WIDTH } from '../sim/gondola-layout.js';
+import { settings } from '../settings.js';
 
 /** Each sign's size, m, and its cell in the shared canvas, px (two columns of four). */
 const SIGN_SIZE = [0.24, 0.12] as const;
@@ -66,8 +67,15 @@ const SIGNS: readonly Sign[] = [
  * use it, after a playtest found the burner and the cords hard to read. All
  * of them are one mesh with one canvas texture (one draw call). They don't
  * change, so the canvas is drawn once.
+ *
+ * They are hidden unless A on the right controller (or L on the keyboard)
+ * is held, since a later playtest found them in the way once the controls
+ * are known; the game menu's Control labels: Always keeps them shown.
  */
 export class SignsSystem extends createSystem({}) {
+  private mesh: Mesh | null = null;
+  private keyHeld = false;
+
   init(): void {
     const canvas = document.createElement('canvas');
     canvas.width = CANVAS[0];
@@ -133,8 +141,34 @@ export class SignsSystem extends createSystem({}) {
     geometry.computeBoundingSphere();
     const mesh = new Mesh(geometry, new MeshBasicMaterial({ map: texture, toneMapped: false }));
     mesh.name = 'Control Signs';
+    mesh.visible = settings.labels;
+    this.mesh = mesh;
     this.world.createTransformEntity(mesh);
-    (window as { __signs?: unknown }).__signs = { titles: () => SIGNS.map((s) => s.title) };
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'l' || event.key === 'L') {
+        this.keyHeld = event.type === 'keydown' && !(event.target as Element | null)?.closest?.('input, textarea');
+      }
+    };
+    const onBlur = () => {
+      this.keyHeld = false;
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    window.addEventListener('blur', onBlur);
+    this.cleanupFuncs.push(
+      () => window.removeEventListener('keydown', onKey),
+      () => window.removeEventListener('keyup', onKey),
+      () => window.removeEventListener('blur', onBlur),
+    );
+    (window as { __signs?: unknown }).__signs = { titles: () => SIGNS.map((s) => s.title), shown: () => mesh.visible };
+  }
+
+  update(): void {
+    const mesh = this.mesh;
+    if (mesh) {
+      mesh.visible = settings.labels || this.keyHeld || !!this.input.xr.gamepads.right?.getButtonPressed(InputComponent.A_Button);
+    }
   }
 }
 

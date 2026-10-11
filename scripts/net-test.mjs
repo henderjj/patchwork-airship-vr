@@ -663,9 +663,9 @@ async function lobbyChecks(browser, host, guest) {
   // Coat colours: each player's pick, told on connecting and on changing.
   const colors = async () => Promise.all([host, guest].map((p) => p.page.evaluate(() => ({ mine: window.__net.color, theirs: window.__net.remoteColor }))));
   const [h0, g0] = await colors();
-  // The game menu's coat button steps to the next colour.
+  // The game menu's coat swatches pick a colour.
   const pick = (g0.mine + 1) % 8;
-  await guest.page.evaluate(() => window.__gameMenu.click('menu-coat'));
+  await guest.page.evaluate((i) => window.__gameMenu.click(`coat-${i}`), pick);
   const recolored = await waitFor('the host to see the new coat', async () => {
     const [h] = await colors();
     return h.theirs === pick ? h : null;
@@ -773,25 +773,29 @@ async function lobbyChecks(browser, host, guest) {
   const sounds = await solo.page.evaluate(() => {
     const m = window.__gameMenu;
     m.toggle(true);
-    const before = m.text('menu-row-2-value');
-    m.click('menu-row-2-value');
-    return { label: m.text('menu-row-2-label'), before, after: m.text('menu-row-2-value'), audio: window.__settings.audio,
+    const before = m.selected('row-audio-0');
+    m.click('row-audio-1');
+    return { label: m.text('row-audio-label'), onLitBefore: before, offLit: m.selected('row-audio-1'), audio: window.__settings.audio,
       stored: localStorage.getItem('patchwork-airship.settings') };
   });
   check('The game menu turns the ship\'s sounds off straight away',
-    sounds.label === 'Ship sounds' && sounds.before === 'On' && sounds.after === 'Off' && sounds.audio === false && sounds.stored === 'audio=0',
+    sounds.label === 'Ship sounds' && sounds.onLitBefore && sounds.offLit && sounds.audio === false && sounds.stored === 'audio=0',
     JSON.stringify(sounds));
   const height = await solo.page.evaluate(() => {
     const m = window.__gameMenu;
-    m.click('menu-row-1-value');
-    const result = { label: m.text('menu-row-1-label'), shown: m.text('menu-row-1-value'), height: window.__body.state.choice.height,
+    m.click('height-up');
+    m.click('height-up');
+    m.click('height-down');
+    const result = { shown: m.text('height-value'), height: window.__body.state.choice.height, ownLit: m.selected('height-own'),
       stored: localStorage.getItem('patchwork-airship.settings') };
-    window.__body.choose({ height: 0, seated: false });
+    m.click('height-own');
+    result.backToOwn = window.__body.state.choice.height === 0 && m.selected('height-own');
     m.toggle(false);
     return result;
   });
-  check('The game menu sets the character height straight away, and keeps it',
-    height.label === 'Character height' && height.shown === '1.50 m' && height.height === 1.5 && height.stored === 'audio=0&height=1.5',
+  // Not in VR, the player's own height isn't measured: steps go from 1.75 m.
+  check('The game menu steps the character height 5 cm at a time, keeps it, and goes back to the player\'s own',
+    height.shown === '1.80 m' && height.height === 1.8 && !height.ownLit && height.stored === 'audio=0&height=1.8' && height.backToOwn,
     JSON.stringify(height));
 
   // The start-up settings on the page's panel: turning the rain on saves the
@@ -1195,16 +1199,16 @@ async function main() {
     const voicePeak = await peakVoiceLevel(b.page, 2500);
     check('Crewmate voice arrives', voicePeak > 0.01, `peak level ${voicePeak.toFixed(3)}`);
     // The game menu's mute buttons: Ann mutes her microphone, then Bo turns Ann's voice off.
-    await a.page.evaluate(() => window.__gameMenu.click('menu-mute-me'));
+    await a.page.evaluate(() => window.__gameMenu.click('row-mic-1'));
     await new Promise((r) => setTimeout(r, 500));
     const mutedPeak = await peakVoiceLevel(b.page, 2500);
-    const mutedLabel = await a.page.evaluate(() => window.__gameMenu.text('menu-mute-me'));
-    check('Mute silences the microphone', mutedPeak < 0.002 && mutedLabel === 'My mic: muted', `peak level ${mutedPeak.toFixed(4)}, menu says "${mutedLabel}"`);
-    await a.page.evaluate(() => window.__gameMenu.click('menu-mute-me'));
-    await b.page.evaluate(() => window.__gameMenu.click('menu-mute-crew'));
+    const mutedLit = await a.page.evaluate(() => window.__gameMenu.selected('row-mic-1'));
+    check('Mute silences the microphone', mutedPeak < 0.002 && mutedLit, `peak level ${mutedPeak.toFixed(4)}, Muted ${mutedLit ? '' : 'not '}highlighted`);
+    await a.page.evaluate(() => window.__gameMenu.click('row-mic-0'));
+    await b.page.evaluate(() => window.__gameMenu.click('row-crew-1'));
     await new Promise((r) => setTimeout(r, 500));
     const crewMutedPeak = await peakVoiceLevel(b.page, 2500);
-    await b.page.evaluate(() => window.__gameMenu.click('menu-mute-crew'));
+    await b.page.evaluate(() => window.__gameMenu.click('row-crew-0'));
     await new Promise((r) => setTimeout(r, 500));
     const crewBackPeak = await peakVoiceLevel(b.page, 2500);
     check('Muting the crewmate silences their voice, and unmuting brings it back', crewMutedPeak < 0.002 && crewBackPeak > 0.01,
