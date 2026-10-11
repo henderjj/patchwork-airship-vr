@@ -24,10 +24,11 @@ In a crew the crew page says what is happening (joining, waiting, connecting, fu
 John's first headset try (2026-10-11) found the menu worked but was hard to use: every setting was one button that stepped through its choices, so you couldn't see the choices, the coat colour was a name rather than a colour, and getting to a height meant pressing round a loop. The redesign follows a few rules:
 
 - **See every choice, pick it in one press.** A controller ray is less precise and slower than a mouse, so each press should land where the player wants. Every setting with up to four choices shows them all as a row of buttons with the one in effect filled in. Nothing in the menu needs more than four, so there are no drop-down lists: a list needs two accurate presses, opens over the rows below it and can be left hanging open in VR.
-- **Show things as what they are.** Coat colours are swatches of the colour, with a ring round the one you wear.
+- **Show things as what they are.** Coat colours are round swatches of the colour, with a dark ring round the one you wear. They have no hover outline: in John's headset try the ray's hover outline stayed on every swatch it had touched, which read as several selected.
 - **Numbers step.** Character height is **−** and **+** in 5 cm steps (1.40 to 2.00 m) with the height between them, and a **Your own** button that goes back to your real height. From your own height the first press goes to the next 5 cm either side of it, and the box shows your measured height so you know where you are starting from.
 - **Short labels, grouped.** Rows sit under three headings, **Crew** (only in a crew), **You** and **Sound and view**, with a label on the left and the choices in a column on the right, so the eye runs straight down the choices.
 - **Changes apply at once and are kept.** There is no Save or Apply; each press takes effect while you watch and is kept in the browser for next time. Settings that need a reload stay on the page's **Start-up settings**.
+- **Far enough to take in at a glance.** The menu opens 1.3 m in front of you (it was 0.9 m, which John found too close to see the whole panel), 0.2 m below eye level.
 - **One panel, no pages.** All of it fits on one panel about as tall as the old one, so nothing is hidden behind a tab. If it grows past about a dozen rows, the next step is tabs along the top for the three groups.
 
 The rows:

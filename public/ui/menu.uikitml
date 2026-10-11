@@ -94,25 +94,32 @@
     padding-right: 4px;
   }
 
+  .swatches {
+    flex-direction: row;
+    align-items: center;
+    width: 320px;
+    gap: 4px;
+  }
+
   .swatch {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
     padding-top: 2px;
     padding-bottom: 2px;
     padding-left: 2px;
     padding-right: 2px;
-    border-radius: 19px;
+    border-radius: 18px;
     border-width: 2px;
     border-color: rgba(0, 0, 0, 0);
     cursor: pointer;
   }
 
-  .swatch:hover {
-    border-color: rgba(120, 120, 120, 0.7);
-  }
-
   .dot {
-    width: 30px;
-    height: 30px;
-    border-radius: 15px;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
   }
 
   .stepper {
@@ -193,7 +200,7 @@
     <div class="section-title">YOU</div>
     <div class="setting">
       <div class="label">Coat colour</div>
-      <div class="choices">
+      <div class="swatches">
         <div id="coat-0" class="swatch"><div id="coat-0-dot" class="dot"></div></div>
         <div id="coat-1" class="swatch"><div id="coat-1-dot" class="dot"></div></div>
         <div id="coat-2" class="swatch"><div id="coat-2-dot" class="dot"></div></div>
