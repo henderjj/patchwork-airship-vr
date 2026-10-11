@@ -1,6 +1,7 @@
 import {
   createSystem,
   Grabbed,
+  PhysicsBody,
   PhysicsManipulation,
   PhysicsSystem,
   Quaternion,
@@ -53,6 +54,12 @@ import { feedBurner } from './ship-system.js';
  * the hand's velocity instead. While held, the body is also moved to the hand
  * outright each frame, so that velocity never builds up and can't knock
  * neighbouring bricks out of a pile.
+ *
+ * An object's speed (which decides whether it is flying, so can be caught)
+ * is Havok's own velocity for a body simulated here and not held. Measuring
+ * it from the drawn position instead misread bricks dropping down a pile at
+ * about 1 m/s as 7 to 15 m/s: after a slow frame the worker's results for
+ * several fixed steps arrive at once, often in a frame only 3 ms long.
  *
  * With a crewmate, ownership follows the hand (src/net/ownership.ts): the
  * owner simulates the object and sends its pose 45 times a second while it
@@ -133,6 +140,7 @@ interface Throwable {
   /** Count this hand-over's jump in the stats (not ones from joining a crew). */
   measureBlend: boolean;
   prev: Vector3;
+  /** m/s: Havok's velocity when simulated here and not held, else from the drawn position. */
   speed: number;
   /** Recent simulated poses, for drawing a thrown object a little in the past. */
   history: ObjectBuffer;
@@ -340,8 +348,13 @@ export class ThrowablesSystem extends createSystem({}) {
     this.drawRemote(now, dt);
 
     for (const o of this.objects) {
-      const p = o.entity.object3D!.position;
-      o.speed = dt > 0 ? o.prev.distanceTo(p) / dt : 0;
+      if (o.remote || o.heldBy) {
+        const p = o.entity.object3D!.position;
+        o.speed = dt > 0 ? o.prev.distanceTo(p) / dt : 0;
+      } else {
+        const v = o.entity.getVectorView(PhysicsBody, '_linearVelocity');
+        o.speed = Math.hypot(v[0], v[1], v[2]);
+      }
     }
 
     const busy = (netLink.extraFlags.crank ?? 0) | (netLink.extraFlags.rope ?? 0);
@@ -672,6 +685,9 @@ export class ThrowablesSystem extends createSystem({}) {
       v[1] = -1e-4;
     }
     o.entity.addComponent(PhysicsManipulation, { linearVelocity: v, angularVelocity: [0, 0, 1e-4] });
+    // Havok reports the new velocity a frame or two later; until then the
+    // object's speed reads the throw (so it counts as flying at once).
+    o.entity.getVectorView(PhysicsBody, '_linearVelocity').set(v);
     const speed = Math.hypot(v[0], v[1], v[2]);
     if (speed > FLYING_SPEED) {
       this.stats.throws++;
