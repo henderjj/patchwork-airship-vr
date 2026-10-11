@@ -1,3 +1,5 @@
+import { clampCharacterHeight } from './sim/body-height.js';
+
 /**
  * Runtime settings, read once when the page loads: first the ones saved from
  * the Settings menu on the crew panel (src/settings-menu.ts), then any in the
@@ -66,6 +68,10 @@ export interface Settings {
    * the second player so one person can test the two-player parts.
    */
   bot: boolean;
+  /** Character height, m: the player's eyes are put at this height less 0.13 m when upright; 0 keeps their own (src/sim/body-height.ts). */
+  height: number;
+  /** Playing seated: the view is raised to standing eye height. */
+  seated: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -100,6 +106,8 @@ export const DEFAULT_SETTINGS: Settings = {
   comfort: 0,
   label: '',
   bot: false,
+  height: 0,
+  seated: false,
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -158,6 +166,8 @@ export function parseSettings(search: string): Settings {
     comfort: num(params, 'comfort', d.comfort, 0, 600),
     label: (params.get('label') ?? d.label).slice(0, 40),
     bot: bool(params, 'bot', d.bot),
+    height: clampCharacterHeight(num(params, 'height', d.height, 0, 3)),
+    seated: bool(params, 'seated', d.seated),
   };
 }
 
@@ -169,6 +179,26 @@ export function mergeSettings(saved: string, search: string): string {
   const params = new URLSearchParams(saved);
   new URLSearchParams(search).forEach((value, key) => params.set(key, value));
   return params.toString();
+}
+
+/**
+ * Keep settings chosen while playing (null drops one, back to its default)
+ * for the next load, as the Settings menu would. The URL still wins.
+ */
+export function saveSettings(changes: Readonly<Record<string, string | null>>): void {
+  try {
+    const params = new URLSearchParams(savedSettings());
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    localStorage.setItem(SAVED_SETTINGS_KEY, params.toString());
+  } catch {
+    // Private browsing: the choice lasts until the page is closed.
+  }
 }
 
 function savedSettings(): string {

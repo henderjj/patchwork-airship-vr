@@ -13,6 +13,7 @@ import { changeSetting, LIVE_ITEMS, onSettingChange } from '../live-settings.js'
 import { settings } from '../settings.js';
 import { estimateRefreshHz } from '../perf/refresh-rate.js';
 import { platformInfo, summarize } from '../perf/platform-report.js';
+import { body } from './body-height-system.js';
 import { budgetHz, frameRateInfo } from './frame-rate-system.js';
 import { poseName } from '../sim/hand-pose.js';
 import { fingerInputs, grip, handCurls, handGrips, Touch } from './grip-system.js';
@@ -234,7 +235,7 @@ export class PerfHudSystem extends createSystem({}) {
       graphTop + graphH + 112,
     );
     ctx.fillText(
-      `rtt ${Number.isNaN(s.rttMs) ? '-' : s.rttMs.toFixed(0) + ' ms'}  ${perf.label}`,
+      `rtt ${Number.isNaN(s.rttMs) ? '-' : s.rttMs.toFixed(0) + ' ms'}  eyes ${eyeText(body.eye)}/${eyeText(body.crewEye)} m  ${perf.label}`,
       10,
       graphTop + graphH + 138,
     );
@@ -282,6 +283,11 @@ export class PerfHudSystem extends createSystem({}) {
       `cpu ${s.cpuAvg.toFixed(2)} ms  calls ${s.drawCalls}  tris ${(s.triangles / 1000).toFixed(0)}k\n` +
       `rtt ${Number.isNaN(s.rttMs) ? '-' : s.rttMs.toFixed(0) + ' ms'}  [H] hide  `;
   }
+}
+
+/** An eye height for the HUD: "1.62", or "-" before it's known. */
+function eyeText(eye: number): string {
+  return Number.isNaN(eye) ? '-' : eye.toFixed(2);
 }
 
 function heapMb(): number {

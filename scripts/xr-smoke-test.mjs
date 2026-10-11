@@ -10,6 +10,8 @@
  *     the ship still);
  *  1b. walks the deck with the thumbstick from off the room's centre and
  *     checks the head stops at the rails, then snap turns about the head;
+ *  1c. picks a character height and seated play and checks the eyes and
+ *     hands are raised to it;
  *  2. checks the 90 Hz request ran;
  *  3. checks the fuel bricks settled in the crate;
  *  4. grabs a brick with the right controller's squeeze, lifts and drops it,
@@ -203,16 +205,24 @@ async function startScreenAndMenu() {
   await menuButton();
   const opened = evalInApp('({ open: window.__gameMenu.open, at: window.__gameMenu.position(), exit: window.__gameMenu.shown("menu-exit") })');
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-game-menu.png'], {});
-  const audio = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-0-value"), on: window.__settings.audio })');
-  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const audio = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-2-value"), on: window.__settings.audio })');
+  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
   const off = audio();
-  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
   const on = audio();
+  const playing = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-0-value"), seated: window.__body.state.choice.seated })');
+  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const seated = playing();
+  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const standing = playing();
   await menuButton();
   const closed = evalInApp('window.__gameMenu.open');
   check('Y opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
     opened.open && opened.at[2] < -0.5 && opened.exit && off.shown === 'Off' && !off.on && on.shown === 'On' && on.on && !closed,
     `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.shown} then ${on.shown}, closed ${!closed}`);
+  check('The game menu switches between seated and standing play',
+    seated.shown === 'Seated' && seated.seated && standing.shown === 'Standing' && !standing.seated,
+    `${seated.shown} then ${standing.shown}`);
   iwsdk(['xr', 'set-device-state'], {});
 }
 
@@ -318,6 +328,31 @@ async function main() {
     `yaw ${((snapped.yaw * 180) / Math.PI).toFixed(0)}°, head moved ${(Math.hypot(snapped.head[0] - stopped[0], snapped.head[2] - stopped[2]) * 100).toFixed(1)} cm`);
   // Back to the middle of the deck for the checks below, which place hands in room space.
   evalInApp('(window.__debug.world.player.position.set(0, 0, 0), window.__debug.world.player.rotation.set(0, 0, 0), true)');
+
+  // 1c. Character height and seated play: a chosen height puts the eyes at
+  //     it, seated play lifts a seated player to standing eye height, and
+  //     back at their own height nothing moves. The rig carries the hands.
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.6, z: 0 } });
+  await sleep(300);
+  const bodyState = () => evalInApp('({ ...window.__body.state, rigY: window.__debug.world.player.position.y, standingEye: window.__body.standingEye(), hand: window.__ownHands.position("right") })');
+  evalInApp('(window.__body.choose({ height: 1.8, seated: false }), true)');
+  const tall = await waitFor('the 1.8 m character', () => { const b = bodyState(); return Math.abs(b.eye - 1.67) < 0.01 && b; }, 5000).catch(() => bodyState());
+  check('A chosen character height puts the eyes at it', Math.abs(tall.eye - 1.67) < 0.01 && Math.abs(tall.rigY - 0.07) < 0.01,
+    `eyes at ${tall.eye?.toFixed(3)} m, rig raised ${tall.rigY?.toFixed(3)} m`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.15, z: 0 } });
+  await sleep(300);
+  evalInApp('(window.__body.choose({ height: 0, seated: true }), true)');
+  const seatedEye = tall.standingEye ?? 1.62;
+  const seated = await waitFor('seated play', () => { const b = bodyState(); return Math.abs(b.eye - seatedEye) < 0.01 && b; }, 5000).catch(() => bodyState());
+  check('Seated play lifts a seated player to standing eye height, hands too',
+    Math.abs(seated.eye - seatedEye) < 0.01 && Math.abs(seated.rigY - (seatedEye - 1.15)) < 0.01 && seated.hand[1] > tall.hand[1] + 0.3,
+    `eyes at ${seated.eye?.toFixed(3)} m for standing ${seatedEye.toFixed(3)} m, rig raised ${seated.rigY?.toFixed(3)} m, right hand at ${fmt(seated.hand)}`);
+  evalInApp('(window.__body.choose({ height: 0, seated: false }), true)');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.6, z: 0 } });
+  await sleep(300);
+  const own = bodyState();
+  check('At their own height, standing, the player is not moved', own.rigY === 0 && own.offset === 0, `rig at ${own.rigY} m`);
+  iwsdk(['xr', 'set-device-state'], {});
   iwsdk(['xr', 'set-device-state'], {});
 
   // 2. The frame-rate system ran when the session started.

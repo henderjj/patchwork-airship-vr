@@ -21,6 +21,7 @@ import {
 } from '../scene-assets/crank.scene-asset.js';
 import { PROPELLER_HUB } from '../scene-assets/gondola.scene-asset.js';
 import { createHandleInput, CrankSim, wrapAngle } from '../sim/crank.js';
+import { type CrankAdvice, crankAdvice, crankBalanceMs } from '../sim/crew-sync.js';
 import {
   FLAG_LEFT_CRANK,
   FLAG_LEFT_TRACKED,
@@ -42,6 +43,14 @@ import { HoldKind, lockResolvers } from './hand-lock.js';
  * Feedback: a ratchet click in the controller every eighth of a turn, a
  * double pulse when high gear engages, and a shudder while the two players
  * pull against each other. A sign on the pedestal shows the speed and gear.
+ *
+ * Keeping in step (src/sim/crew-sync.ts): hands are drawn on the handles, so
+ * neither player can see who is pushing harder. With both players on the
+ * crank, each page's sign shows that player's balance against the
+ * crewmate's on a bar and says "push harder" or "ease off", and the
+ * controller says it too: a quick flutter when the crewmate leads and the
+ * handle is pulling away from the hand, a slow heavy throb when this player
+ * is doing more than their share.
  */
 
 const SIDES = ['left', 'right'] as const;
@@ -49,6 +58,11 @@ type Side = (typeof SIDES)[number];
 const SEND_HZ = 45;
 /** Fraction of the gap to the host's crank closed per frame on the guest. */
 const BLEND_RATE = 0.12;
+/** Time constant smoothing the balance between the two players' hands, s. */
+const BALANCE_SMOOTHING = 0.2;
+/** Advice in the hand: a light flutter to push harder, a heavy throb to ease off (gap between pulses, ms). */
+const PUSH_PULSE_MS = 70;
+const EASE_PULSE_MS = 280;
 
 type TestHand = (nowMs: number) => number | null;
 
@@ -64,6 +78,8 @@ interface CrankDebug {
   turnsPerSecond(): number;
   /** Guest only: how far the predicted crank was from the host's before the last blend, radians. */
   hostError(): number;
+  /** This player's smoothed balance against the crewmate's hand (ms, positive when pushing harder; NaN unless both are on the crank) and the advice for it. */
+  balance(): { ms: number; advice: CrankAdvice | null };
   /** Stop the crank and reset its angle (tests). */
   reset(): void;
 }
@@ -96,6 +112,10 @@ export class CrankSystem extends createSystem({}) {
   private sign!: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; texture: CanvasTexture };
   private lastSignDraw = 0;
   private blendError = Number.NaN;
+  /** This player's smoothed balance against the crewmate (ms), and the advice for it (null unless both players are on the crank). */
+  private balanceMs = 0;
+  private advice: CrankAdvice | null = null;
+  private lastAdvicePulse = 0;
 
   init(): void {
     this.mesh = createCrank();
@@ -125,6 +145,7 @@ export class CrankSystem extends createSystem({}) {
       }),
       turnsPerSecond: () => this.sim.omega / (2 * Math.PI),
       hostError: () => this.blendError,
+      balance: () => ({ ms: this.advice ? this.balanceMs : Number.NaN, advice: this.advice }),
       reset: () => {
         this.sim.angle = 0;
         this.sim.omega = 0;
@@ -233,6 +254,7 @@ export class CrankSystem extends createSystem({}) {
       }
     }
 
+    this.updateBalance(dt, me);
     this.mesh.rotation.x = -this.sim.angle;
     // Geared from the crank's angle, so both players see it turn alike.
     this.propeller.rotation.z = this.sim.angle * PROPELLER_GEAR;
@@ -319,7 +341,27 @@ export class CrankSystem extends createSystem({}) {
     netLink.send(this.sendBuffer, encodeCrank(this.sendBuffer, s));
   }
 
-  /** Ratchet clicks, the high-gear double pulse and the out-of-sync shudder. */
+  /**
+   * This player's balance against the crewmate, while each holds one handle:
+   * smoothed so the advice follows the pair's effort rather than each
+   * wobble of a hand.
+   */
+  private updateBalance(dt: number, me: number): void {
+    const mine = this.hold.left >= 0 ? this.hold.left : this.hold.right;
+    const theirs = 1 - mine;
+    const both = mine >= 0 && this.hold.left !== theirs && this.hold.right !== theirs && this.inputs[mine].player === me
+      && this.inputs[theirs].holding && this.inputs[theirs].player !== me;
+    if (!both) {
+      this.balanceMs = 0;
+      this.advice = null;
+      return;
+    }
+    const raw = crankBalanceMs(this.sim.lead[mine], this.sim.lead[theirs], this.sim.omega);
+    this.balanceMs += (raw - this.balanceMs) * Math.min(1, dt / BALANCE_SMOOTHING);
+    this.advice = crankAdvice(this.balanceMs, this.sim.params.syncWindowMs, this.advice ?? 'even');
+  }
+
+  /** Ratchet clicks, the high-gear double pulse, the out-of-sync shudder and the push/ease advice. */
   private feedback(now: number): void {
     const holding = this.hold.left >= 0 || this.hold.right >= 0;
     const eighth = Math.floor((this.sim.angle * 4) / Math.PI);
@@ -340,6 +382,14 @@ export class CrankSystem extends createSystem({}) {
       this.lastShudder = now;
       for (const side of SIDES) {
         if (this.hold[side] >= 0) this.pulse(side, 0.7, 50);
+      }
+    } else if (this.advice === 'push' || this.advice === 'ease') {
+      const push = this.advice === 'push';
+      if (now - this.lastAdvicePulse > (push ? PUSH_PULSE_MS : EASE_PULSE_MS)) {
+        this.lastAdvicePulse = now;
+        for (const side of SIDES) {
+          if (this.hold[side] >= 0) this.pulse(side, push ? 0.25 : 0.45, push ? 12 : 70);
+        }
       }
     }
   }
@@ -373,30 +423,60 @@ export class CrankSystem extends createSystem({}) {
     const s = this.sim;
     // Round tiny speeds to zero so the sign never shows "-0.00".
     const turns = Math.abs(s.omega) < 0.03 ? 0 : s.omega / (2 * Math.PI);
+    // With both players on the crank, this player's balance bar goes along the bottom.
+    const two = this.advice !== null;
     ctx.fillStyle = '#2b1d12';
     ctx.fillRect(0, 0, 256, 96);
     ctx.strokeStyle = '#c9a03a';
     ctx.lineWidth = 4;
     ctx.strokeRect(2, 2, 252, 92);
     ctx.fillStyle = '#f3e3c3';
-    ctx.font = 'bold 30px sans-serif';
+    ctx.font = two ? 'bold 26px sans-serif' : 'bold 30px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(turns === 0 ? '0.00 turns/s' : `${turns > 0 ? 'AHEAD' : 'ASTERN'} ${Math.abs(turns).toFixed(2)}/s`, 128, 40);
-    ctx.font = 'bold 24px sans-serif';
-    if (s.gear > 0.95) {
-      ctx.fillStyle = '#f4c542';
-      ctx.fillText('HIGH GEAR', 128, 78);
-    } else if (s.stutter > 0.1) {
+    ctx.fillText(turns === 0 ? '0.00 turns/s' : `${turns > 0 ? 'AHEAD' : 'ASTERN'} ${Math.abs(turns).toFixed(2)}/s`, 128, two ? 31 : 40);
+    ctx.font = two ? 'bold 22px sans-serif' : 'bold 24px sans-serif';
+    const y = two ? 58 : 78;
+    if (s.stutter > 0.1) {
       ctx.fillStyle = '#e0604a';
-      ctx.fillText('out of step!', 128, 78);
+      ctx.fillText('out of step!', 128, y);
+    } else if (this.advice === 'push' || this.advice === 'ease') {
+      ctx.fillStyle = '#f08a5d';
+      ctx.fillText(this.advice === 'push' ? '<< push harder' : 'ease off >>', 128, y);
+    } else if (s.gear > 0.95) {
+      ctx.fillStyle = '#f4c542';
+      ctx.fillText('HIGH GEAR', 128, y);
     } else if (s.gear > 0.05) {
       ctx.fillStyle = '#d9b85a';
-      ctx.fillText('in step...', 128, 78);
+      ctx.fillText('in step...', 128, y);
     } else {
       ctx.fillStyle = '#a89878';
       const held = this.inputs[0].holding || this.inputs[1].holding;
-      ctx.fillText(held ? 'crank together' : 'grab a handle', 128, 78);
+      ctx.fillText(held ? 'crank together' : 'grab a handle', 128, y);
+    }
+    if (two) {
+      this.drawBalance(ctx);
     }
     texture.needsUpdate = true;
+  }
+
+  /**
+   * This player's balance: a bar two sync windows either side of even, with
+   * the in-step zone (one window either side) in green and a marker that
+   * sits left when the crewmate leads (push harder) and right when this
+   * player does (ease off).
+   */
+  private drawBalance(ctx: CanvasRenderingContext2D): void {
+    const left = 28;
+    const width = 200;
+    const top = 70;
+    const height = 14;
+    ctx.fillStyle = '#4a3522';
+    ctx.fillRect(left, top, width, height);
+    ctx.fillStyle = '#4f7a3a';
+    ctx.fillRect(left + width / 4, top, width / 2, height);
+    const scale = 2 * this.sim.params.syncWindowMs;
+    const x = left + width / 2 + (Math.max(-1, Math.min(1, this.balanceMs / scale)) * width) / 2;
+    ctx.fillStyle = this.advice === 'even' ? '#f3e3c3' : '#f08a5d';
+    ctx.fillRect(x - 4, top - 4, 8, height + 8);
   }
 }

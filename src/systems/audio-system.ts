@@ -6,6 +6,7 @@ import { BELL_CENTER } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
 import { CRANK_AXLE_HEIGHT, CRANK_POSITION } from '../scene-assets/gondola.scene-asset.js';
 import { onSettingChange } from '../live-settings.js';
+import { ROPE_RUN, ROPE_X, ROPE_Y, ROPE_Z0 } from '../scene-assets/rope.scene-asset.js';
 import { settings } from '../settings.js';
 import { crankInfo } from './crank-system.js';
 import { flightInfo, route, ship } from './ship-system.js';
@@ -35,6 +36,7 @@ export const sounds = new ShipSounds(
     burner: [BURNER_POSITION[0], 0.7, BURNER_POSITION[2]],
     crank: [CRANK_POSITION[0], CRANK_AXLE_HEIGHT, CRANK_POSITION[2]],
     bell: [BELL_CENTER[0], BELL_CENTER[1], BELL_CENTER[2]],
+    haul: [ROPE_X, ROPE_Y, ROPE_Z0 + ROPE_RUN / 2],
   },
   settings.audio,
 );

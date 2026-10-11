@@ -4,6 +4,7 @@ import { preferHighPerformanceGpu } from './gpu-preference.js';
 import { ComfortSystem } from './systems/comfort-system.js';
 import { ControlsSystem } from './systems/controls-system.js';
 import { RouteSystem } from './systems/route-system.js';
+import { BodyHeightSystem } from './systems/body-height-system.js';
 import { AudioSystem } from './systems/audio-system.js';
 import { CrankSystem } from './systems/crank-system.js';
 import { CrewBotSystem } from './systems/crew-bot-system.js';
@@ -36,6 +37,8 @@ World.create(
   world.registerSystem(PerfHudSystem, { priority: -100 });
   world.registerSystem(FrameRateSystem);
   world.registerSystem(ShipSystem, { priority: -10 });
+  // Before anything reads the head or hands: it raises or lowers the player for their character's height.
+  world.registerSystem(BodyHeightSystem, { priority: -6 });
   // Before the crank, rope and throwables, which read its grip state.
   world.registerSystem(GripSystem, { priority: -5 });
   world.registerSystem(SkyWorldSystem);

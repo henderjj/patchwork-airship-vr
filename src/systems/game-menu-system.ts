@@ -1,9 +1,10 @@
 import { createSystem, InputComponent, type UIKitMLAsset, VisibilityState } from '@iwsdk/core';
 import { menuCrewLine } from '../game-flow.js';
-import { changeSetting, LIVE_ITEMS, MENU_ROWS, nextOption, optionLabel } from '../live-settings.js';
+import { changeSetting, LIVE_ITEMS, type LiveItem, MENU_ROWS, nextOption, optionLabel } from '../live-settings.js';
 import { crewControls, onCrewChange } from '../net/crew-controls.js';
 import { CREW_COLOR_NAMES } from '../scene-assets/avatar.scene-asset.js';
 import { settings } from '../settings.js';
+import { body, chooseBody } from './body-height-system.js';
 import { OPEN_MENU_EVENT } from './net-system.js';
 import { PanelUi } from './panel-ui.js';
 import { startScreen } from './start-screen-system.js';
@@ -11,6 +12,45 @@ import { startScreen } from './start-screen-system.js';
 /** Where the menu stands in VR when opened: ahead of the head and a little below the eyes, m. */
 const DISTANCE = 0.9;
 const DROP = 0.2;
+
+/** A menu row: a live setting, or one with its own way of applying a choice. */
+interface MenuRow extends LiveItem {
+  apply?: (value: string) => void;
+}
+
+/**
+ * The player's body (src/systems/body-height-system.ts), shown first:
+ * `chooseBody` moves the view at once and keeps the choice.
+ */
+const BODY_ROWS: readonly MenuRow[] = [
+  {
+    key: 'seated',
+    label: 'Playing',
+    options: [
+      ['0', 'Standing'],
+      ['1', 'Seated'],
+    ],
+    current: (s) => (s.seated ? '1' : '0'),
+    apply: (value) => chooseBody({ height: body.choice.height, seated: value === '1' }),
+  },
+  {
+    key: 'height',
+    label: 'Character height',
+    options: [
+      ['0', 'Your own'],
+      ['1.5', '1.50 m'],
+      ['1.6', '1.60 m'],
+      ['1.7', '1.70 m'],
+      ['1.8', '1.80 m'],
+      ['1.9', '1.90 m'],
+    ],
+    current: (s) => String(s.height),
+    apply: (value) => chooseBody({ height: Number(value), seated: body.choice.seated }),
+  },
+];
+
+/** The menu's setting rows, in order (at most MENU_ROWS). */
+export const MENU_SETTING_ROWS: readonly MenuRow[] = [...BODY_ROWS, ...LIVE_ITEMS];
 
 interface GameMenuDebug {
   readonly open: boolean;
@@ -30,8 +70,8 @@ interface GameMenuDebug {
  * - in a crew, the crew's state, buttons to mute this player's microphone
  *   or the crewmate's voice, and nothing else crew-only:
  *   leaving is "Back to start screen";
- * - the coat colour and the settings that apply straight away
- *   (LIVE_ITEMS, src/live-settings.ts), each a button that steps through
+ * - the coat colour, standing or seated play, character height and the
+ *   settings that apply straight away (LIVE_ITEMS, src/live-settings.ts), each a button that steps through
  *   its choices and keeps the choice in this browser;
  * - Back to start screen (leaves any crew) and Exit VR.
  */
@@ -54,14 +94,19 @@ export class GameMenuSystem extends createSystem({}) {
     ui.on('menu-mute-crew', () => crewControls.setCrewMuted(!crewControls.crewMuted));
     ui.on('menu-coat', () => crewControls.setColor((crewControls.color + 1) % CREW_COLOR_NAMES.length));
     for (let row = 0; row < MENU_ROWS; row++) {
-      const item = LIVE_ITEMS[row];
+      const item = MENU_SETTING_ROWS[row];
       ui.show(`menu-row-${row}`, item !== undefined);
       if (item === undefined) {
         continue;
       }
       ui.setText(`menu-row-${row}-label`, item.label);
       ui.on(`menu-row-${row}-value`, () => {
-        changeSetting(item, nextOption(item, item.current(settings)));
+        const next = nextOption(item, item.current(settings));
+        if (item.apply) {
+          item.apply(next);
+        } else {
+          changeSetting(item, next);
+        }
         this.render();
       });
     }
@@ -152,8 +197,8 @@ export class GameMenuSystem extends createSystem({}) {
     );
     ui.setText('menu-mute-crew', c.crewMuted ? 'Crewmate: muted' : 'Crewmate: on');
     ui.setText('menu-coat', CREW_COLOR_NAMES[c.color] ?? '');
-    for (let row = 0; row < MENU_ROWS && row < LIVE_ITEMS.length; row++) {
-      const item = LIVE_ITEMS[row];
+    for (let row = 0; row < MENU_ROWS && row < MENU_SETTING_ROWS.length; row++) {
+      const item = MENU_SETTING_ROWS[row];
       ui.setText(`menu-row-${row}-value`, optionLabel(item, item.current(settings)));
     }
   }
