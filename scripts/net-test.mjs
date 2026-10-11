@@ -230,7 +230,7 @@ async function crankTogether(host, guest, rate, guestLagS, seconds) {
     p.page.evaluate(
       () =>
         new Promise((resolve) => {
-          const out = { gearFrames: 0, frames: 0, maxError: 0, omega: 0, gear: 0, held: null, solo: 0 };
+          const out = { gearFrames: 0, frames: 0, maxError: 0, omega: 0, gear: 0, held: null, solo: 0, advice: { even: 0, push: 0, ease: 0, none: 0 } };
           const end = performance.now() + 1000;
           const tick = () => {
             const c = window.__crank;
@@ -242,6 +242,7 @@ async function crankTogether(host, guest, rate, guestLagS, seconds) {
             out.gear = c.sim.gear;
             out.held = c.holders().sim;
             out.solo = c.sim.soloTopSpeed;
+            out.advice[c.balance().advice ?? 'none']++;
             if (performance.now() < end) requestAnimationFrame(tick);
             else resolve(out);
           };
@@ -662,8 +663,9 @@ async function lobbyChecks(browser, host, guest) {
   // Coat colours: each player's pick, told on connecting and on changing.
   const colors = async () => Promise.all([host, guest].map((p) => p.page.evaluate(() => ({ mine: window.__net.color, theirs: window.__net.remoteColor }))));
   const [h0, g0] = await colors();
-  const pick = (g0.mine + 3) % 8;
-  await guest.page.evaluate((i) => document.getElementById(`crew-color-${i}`).click(), pick);
+  // The game menu's coat button steps to the next colour.
+  const pick = (g0.mine + 1) % 8;
+  await guest.page.evaluate(() => window.__gameMenu.click('menu-coat'));
   const recolored = await waitFor('the host to see the new coat', async () => {
     const [h] = await colors();
     return h.theirs === pick ? h : null;
@@ -737,8 +739,20 @@ async function lobbyChecks(browser, host, guest) {
     return b !== null && getComputedStyle(b).display !== 'none';
   });
   const shownSolo = await waitFor('the Enter VR button', enterVr, 5000).catch(() => false);
-  await solo.page.evaluate(() => window.__net.join('SOLO'));
-  await waitFor('Di waiting in the lobby', async () => (await state(solo.page)) === 'waiting', 10000).catch(() => null);
+  // Di joins a crew of her own by typing its code on the start screen's keypad.
+  await solo.page.evaluate(() => {
+    const s = window.__startScreen;
+    s.click('start-join');
+    for (const key of ['S', 'V', 'del', 'W', 'R', 'T']) {
+      s.click(`key-${key}`);
+    }
+    s.click('start-join-go');
+  });
+  const typed = await waitFor('Di waiting in the lobby', async () => ((await state(solo.page)) === 'waiting'
+    ? solo.page.evaluate(() => ({ page: window.__startScreen.page, status: window.__startScreen.text('start-crew-status'), title: window.__startScreen.text('start-crew-title'), url: location.search }))
+    : null), 10000).catch(() => null);
+  check('The start screen joins a crew typed on its keypad', typed !== null && typed.page === 'crew' && typed.title === 'Crew SWRT' &&
+    typed.status === 'Waiting for your crewmate.' && typed.url.includes('room=SWRT'), JSON.stringify(typed));
   const shownInCrew = await enterVr();
   await solo.page.evaluate(() => document.getElementById('crew-enter-vr').click());
   const requests = await waitFor('a VR session request', () => solo.page.evaluate(() => window.__vrRequests), 3000).catch(() => 0);
@@ -755,23 +769,47 @@ async function lobbyChecks(browser, host, guest) {
     vrNote !== null && vrNote.text.includes('No headset in this test') && !vrNote.disabled,
     vrNote ? `"${vrNote.text}", button ${vrNote.disabled ? 'disabled' : 'ready'}` : 'no reason shown');
 
-  // The Settings menu on the crew panel: turning the ship's sounds off saves
-  // the choice in the browser and reloads the page with it.
+  // The game menu turns the ship's sounds off straight away, and keeps the choice.
+  const sounds = await solo.page.evaluate(() => {
+    const m = window.__gameMenu;
+    m.toggle(true);
+    const before = m.text('menu-row-2-value');
+    m.click('menu-row-2-value');
+    return { label: m.text('menu-row-2-label'), before, after: m.text('menu-row-2-value'), audio: window.__settings.audio,
+      stored: localStorage.getItem('patchwork-airship.settings') };
+  });
+  check('The game menu turns the ship\'s sounds off straight away',
+    sounds.label === 'Ship sounds' && sounds.before === 'On' && sounds.after === 'Off' && sounds.audio === false && sounds.stored === 'audio=0',
+    JSON.stringify(sounds));
+  const height = await solo.page.evaluate(() => {
+    const m = window.__gameMenu;
+    m.click('menu-row-1-value');
+    const result = { label: m.text('menu-row-1-label'), shown: m.text('menu-row-1-value'), height: window.__body.state.choice.height,
+      stored: localStorage.getItem('patchwork-airship.settings') };
+    window.__body.choose({ height: 0, seated: false });
+    m.toggle(false);
+    return result;
+  });
+  check('The game menu sets the character height straight away, and keeps it',
+    height.label === 'Character height' && height.shown === '1.50 m' && height.height === 1.5 && height.stored === 'audio=0&height=1.5',
+    JSON.stringify(height));
+
+  // The start-up settings on the page's panel: turning the rain on saves the
+  // choice in the browser and reloads the page with it.
   await solo.page.evaluate(() => {
     document.getElementById('settings-menu').open = true;
-    const audio = document.getElementById('setting-audio');
-    audio.value = '0';
+    document.getElementById('setting-rain').value = '1';
   });
   await Promise.all([
     solo.page.waitForNavigation({ waitUntil: 'load' }),
     solo.page.evaluate(() => document.getElementById('settings-save').click()),
   ]);
   await waitFor('the game to reload', async () => (await state(solo.page).catch(() => 'loading')) !== 'loading', 60000);
-  const saved = await solo.page.evaluate(() => ({ audio: window.__settings.audio, motion: window.__settings.motion, url: location.search,
-    stored: localStorage.getItem('patchwork-airship.settings'), shown: document.getElementById('setting-audio').value }));
-  check('The Settings menu saves a choice and reloads the game with it',
-    saved.audio === false && saved.shown === '0' && saved.motion === 'still' && !saved.url.includes('audio') && saved.url.includes('name=Di'),
-    `sounds ${saved.audio ? 'on' : 'off'} (menu shows ${saved.shown}), ship ${saved.motion}, URL ${saved.url}, saved ${saved.stored}`);
+  const saved = await solo.page.evaluate(() => ({ rain: window.__settings.rain, audio: window.__settings.audio, motion: window.__settings.motion, url: location.search,
+    stored: localStorage.getItem('patchwork-airship.settings'), shown: document.getElementById('setting-rain').value }));
+  check('The start-up settings save a choice and reload the game with it, keeping the game menu\'s',
+    saved.rain === true && saved.shown === '1' && saved.audio === false && saved.motion === 'still' && !saved.url.includes('rain') && saved.url.includes('name=Di'),
+    `rain ${saved.rain ? 'on' : 'off'} (menu shows ${saved.shown}), sounds ${saved.audio ? 'on' : 'off'}, ship ${saved.motion}, URL ${saved.url}, saved ${saved.stored}`);
   await solo.context.close();
 }
 
@@ -947,21 +985,19 @@ async function botChecks(browser) {
     crank.gearFrames / crank.frames > 0.6 && crank.omega > 1.5 * solo && crank.held[1],
     `${(crank.omega / (2 * Math.PI)).toFixed(2)} turns/s (solo top ${(solo / (2 * Math.PI)).toFixed(2)}), high gear ${((100 * crank.gearFrames) / crank.frames).toFixed(0)}% of frames, handles held ${JSON.stringify(crank.held)}, bot ${botMode}`);
 
-  // Line: the player hauls hand over hand alone; the bot copies the strokes.
+  // Line: the player hauls hand over hand on the ship's haul call; the bot hauls on the call too.
   await me.page.waitForTimeout(800);
   await me.page.evaluate(() => window.__rope.reset());
-  await me.page.evaluate((start) => {
+  await me.page.evaluate(() => {
     ['left', 'right'].forEach((side, sideIndex) => {
-      window.__rope.setTestHand(side, () => {
-        const tt = (Date.now() - start) / 1000;
-        if (tt < 0) return null;
-        const n = Math.floor(tt / 0.5);
-        if (n % 2 !== sideIndex) return null;
-        const phase = tt / 0.5 - n;
-        return 0.4 + (0.5 * (1 - Math.cos(Math.PI * phase))) / 2;
+      window.__rope.setTestHand(side, (now) => {
+        // A 0.5 s stroke from each heave of the call, hands in turn.
+        const c = window.__rope.call(now);
+        if (!(c.sinceMs >= 0) || c.sinceMs > 500 || ((c.index % 2) + 2) % 2 !== sideIndex) return null;
+        return 0.4 + (0.5 * (1 - Math.cos((Math.PI * c.sinceMs) / 500))) / 2;
       });
     });
-  }, Date.now() + 300);
+  });
   const trace = process.env.DEBUG_ROPE
     ? setInterval(async () => {
         const h = await me.page.evaluate(() => { const s = window.__rope.sim; const r = window.__net.remotePose(); return [s.stroking, s.strokeStart.map((x) => Math.round((x + performance.timeOrigin) % 100000)), s.heaves, +s.hauled.toFixed(2), s.lead.map((x) => +x.toFixed(2)), r ? [+r.left.pz.toFixed(2), +r.right.pz.toFixed(2), r.flags] : null]; }).catch(() => null);
@@ -971,13 +1007,13 @@ async function botChecks(browser) {
     : null;
   await me.page.waitForTimeout(7000);
   if (trace) clearInterval(trace);
-  const haul = await me.page.evaluate(() => ({ heaves: window.__rope.sim.heaves, hauled: window.__rope.sim.hauled }));
+  const haul = await me.page.evaluate(() => ({ heaves: window.__rope.sim.heaves, hauled: window.__rope.sim.hauled, call: window.__rope.call(performance.now()).running, drums: window.__audio?.played.heave ?? 0 }));
   await me.page.evaluate(() => {
     window.__rope.setTestHand('left', null);
     window.__rope.setTestHand('right', null);
   });
-  check('Practice crewmate: hauls in step, so the line heaves', haul.heaves >= 5,
-    `${haul.heaves} heaves, ${haul.hauled.toFixed(2)} m hauled in 7 s`);
+  check('Practice crewmate: hauls on the call, so a player hauling on it heaves', haul.heaves >= 4 && haul.call,
+    `${haul.heaves} heaves, ${haul.hauled.toFixed(2)} m hauled in 7 s; call ${haul.call ? 'sounding' : 'silent'} (${haul.drums} heave drums played)`);
 
   // Throwing: the player throws to the bot's hand; the bot catches and throws back to the player's chest.
   await me.page.waitForTimeout(2000);
@@ -1064,6 +1100,15 @@ async function main() {
     const b = await openPlayer(browser, `room=${room}&name=Bo${quickLag}`);
     await waitFor('both connected', async () => (await state(a.page)) === 'connected' && (await state(b.page)) === 'connected');
     check('Two players connect over WebRTC', true);
+    // Opened from a link with the crew code, each page's start screen shows
+    // the crew and gets out of the way once the crewmate is aboard.
+    const startScreens = () => Promise.all([a, b].map((p) => p.page.evaluate(() => ({ page: window.__startScreen.page, mode: window.__startScreen.mode, visible: window.__startScreen.visible }))));
+    const stepped = await waitFor('the start screens to step aside', async () => {
+      const s = await startScreens();
+      return s.every((x) => x.page === null && !x.visible) ? s : null;
+    }, 5000).catch(() => null);
+    check('A crew link\'s start screen steps aside once the crewmate is aboard', stepped !== null && stepped.every((x) => x.mode === 'link'),
+      JSON.stringify(stepped ?? await startScreens()));
     if (process.env.ONLY_LIFECYCLE) {
       // Quick loop for spike S10: just pausing and reconnecting.
       await lifecycleChecks(a, b);
@@ -1149,11 +1194,21 @@ async function main() {
     // Voice: the fake microphone beeps about once a second.
     const voicePeak = await peakVoiceLevel(b.page, 2500);
     check('Crewmate voice arrives', voicePeak > 0.01, `peak level ${voicePeak.toFixed(3)}`);
-    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+    // The game menu's mute buttons: Ann mutes her microphone, then Bo turns Ann's voice off.
+    await a.page.evaluate(() => window.__gameMenu.click('menu-mute-me'));
     await new Promise((r) => setTimeout(r, 500));
     const mutedPeak = await peakVoiceLevel(b.page, 2500);
-    check('Mute silences the microphone', mutedPeak < 0.002, `peak level ${mutedPeak.toFixed(4)}`);
-    await a.page.evaluate(() => document.getElementById('crew-mute').click());
+    const mutedLabel = await a.page.evaluate(() => window.__gameMenu.text('menu-mute-me'));
+    check('Mute silences the microphone', mutedPeak < 0.002 && mutedLabel === 'My mic: muted', `peak level ${mutedPeak.toFixed(4)}, menu says "${mutedLabel}"`);
+    await a.page.evaluate(() => window.__gameMenu.click('menu-mute-me'));
+    await b.page.evaluate(() => window.__gameMenu.click('menu-mute-crew'));
+    await new Promise((r) => setTimeout(r, 500));
+    const crewMutedPeak = await peakVoiceLevel(b.page, 2500);
+    await b.page.evaluate(() => window.__gameMenu.click('menu-mute-crew'));
+    await new Promise((r) => setTimeout(r, 500));
+    const crewBackPeak = await peakVoiceLevel(b.page, 2500);
+    check('Muting the crewmate silences their voice, and unmuting brings it back', crewMutedPeak < 0.002 && crewBackPeak > 0.01,
+      `peak level muted ${crewMutedPeak.toFixed(4)}, unmuted ${crewBackPeak.toFixed(3)}`);
 
     // Spike S8: each player sees the other's platform report, with the microphone named.
     const crews = await waitFor('platform reports', async () => {
@@ -1191,12 +1246,14 @@ async function main() {
     check('Cranking in step engages high gear on the host',
       together.host.gearFrames / together.host.frames > 0.9 && together.host.omega > 2.5 * together.host.solo,
       `${(together.host.omega / (2 * Math.PI)).toFixed(2)} turns/s (solo top ${(together.host.solo / (2 * Math.PI)).toFixed(2)}), high gear ${((100 * together.host.gearFrames) / together.host.frames).toFixed(0)}% of frames, handles held ${JSON.stringify(together.host.held)}`);
+    check('Both crank signs read in step', together.host.advice.even / together.host.frames > 0.9 && together.guest.advice.even / together.guest.frames > 0.9,
+      `host ${JSON.stringify(together.host.advice)}, guest ${JSON.stringify(together.guest.advice)}`);
     check('Guest crank stays with the host', together.guest.maxError < 0.35 && Math.abs(together.guest.omega - together.host.omega) < 1.5,
       `largest gap ${((together.guest.maxError * 180) / Math.PI).toFixed(1)}°, guest ${(together.guest.omega / (2 * Math.PI)).toFixed(2)} turns/s`);
     const apart = await crankTogether(b, a2, 6, 0.25, 6);
     report.crankOutOfStep = apart;
     check('Cranking 250 ms out of step stays in low gear', apart.host.gearFrames === 0 && Math.abs(apart.host.omega) < 1.6 * apart.host.solo,
-      `${(apart.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${apart.host.gearFrames} frames`);
+      `${(apart.host.omega / (2 * Math.PI)).toFixed(2)} turns/s, high gear ${apart.host.gearFrames} frames; advice host ${JSON.stringify(apart.host.advice)}, guest ${JSON.stringify(apart.guest.advice)}`);
 
     const hauled = await haulTogether(b, a2, 0, 6);
     report.haulInStep = hauled;

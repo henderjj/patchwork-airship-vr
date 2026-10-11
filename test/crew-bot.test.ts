@@ -48,6 +48,34 @@ describe('practice crewmate', () => {
     expect(p[0]).toBe(1);
   });
 
+  it("hauls on the ship's call: a stroke on every heave, hands in turn", () => {
+    const rhythm = new HaulRhythm(2.1);
+    const period = 1000;
+    const starts: number[] = [];
+    const sides: string[] = [];
+    let botStarted = Number.NEGATIVE_INFINITY;
+    for (let ms = 0; ms < 5000; ms += 10) {
+      rhythm.setCall(ms + (period - (ms % period)) % period, period);
+      rhythm.update(ms);
+      if (rhythm.botStartMs !== botStarted) {
+        botStarted = rhythm.botStartMs;
+        starts.push(botStarted);
+        sides.push(rhythm.botSide);
+      }
+    }
+    expect(starts.length).toBeGreaterThanOrEqual(4);
+    for (const start of starts) {
+      expect(start % period).toBe(0);
+    }
+    expect(new Set(starts).size).toBe(starts.length);
+    expect(sides[0]).not.toBe(sides[1]);
+    // It holds the line through the stroke that starts on the heave.
+    expect(rhythm.botAlong(rhythm.botSide, rhythm.botStartMs + 200)).not.toBeNull();
+    // Without a call it goes back to keeping time with the player (none yet: it waits).
+    rhythm.setCall(Number.NaN, 0);
+    expect(rhythm.rhythmic(5000)).toBe(false);
+  });
+
   it('keeps time with a player hauling hand over hand, and strokes when their next stroke is due', () => {
     const rhythm = new HaulRhythm(2.1);
     // The player strokes every 0.5 s, each hand in turn, 0.4 m to 0.9 m.

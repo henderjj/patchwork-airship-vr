@@ -5,6 +5,8 @@ import { DEFAULT_FLIGHT_LIMITS } from '../sim/flight.js';
 import { BELL_CENTER } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
 import { CRANK_AXLE_HEIGHT, CRANK_POSITION } from '../scene-assets/gondola.scene-asset.js';
+import { onSettingChange } from '../live-settings.js';
+import { ROPE_RUN, ROPE_X, ROPE_Y, ROPE_Z0 } from '../scene-assets/rope.scene-asset.js';
 import { settings } from '../settings.js';
 import { crankInfo } from './crank-system.js';
 import { flightInfo, route, ship } from './ship-system.js';
@@ -34,6 +36,7 @@ export const sounds = new ShipSounds(
     burner: [BURNER_POSITION[0], 0.7, BURNER_POSITION[2]],
     crank: [CRANK_POSITION[0], CRANK_AXLE_HEIGHT, CRANK_POSITION[2]],
     bell: [BELL_CENTER[0], BELL_CENTER[1], BELL_CENTER[2]],
+    haul: [ROPE_X, ROPE_Y, ROPE_Z0 + ROPE_RUN / 2],
   },
   settings.audio,
 );
@@ -45,7 +48,7 @@ export const sounds = new ShipSounds(
  * timbers creak more as the gondola tilts, eases into or out of a turn and
  * changes speed, a ring flown through chimes, and touching down thumps.
  * Everyone hears their own copy, driven by the ship state they already
- * share. `?audio=0` turns it off.
+ * share. `?audio=0`, or Ship sounds in the game menu, turns it off.
  */
 export class AudioSystem extends createSystem({}) {
   private headPos = new Vector3();
@@ -58,9 +61,6 @@ export class AudioSystem extends createSystem({}) {
   private prev = { roll: 0, pitch: 0, yaw: 0, yawRate: 0, speed: 0, vy: 0, crank: 0, rings: 0, set: false };
 
   init(): void {
-    if (!sounds.enabled) {
-      return;
-    }
     // Browsers start audio only after a gesture: a click or key on the page, or entering VR.
     const wake = () => sounds.resume();
     window.addEventListener('pointerdown', wake);
@@ -74,6 +74,13 @@ export class AudioSystem extends createSystem({}) {
         }
       }),
       () => sounds.dispose(),
+      onSettingChange((key) => {
+        if (key === 'audio') {
+          sounds.setEnabled(settings.audio);
+          // Start from the ship as it is now, not where it was when the sounds went off.
+          this.prev.set = false;
+        }
+      }),
     );
     (window as { __audio?: unknown }).__audio = {
       sounds,

@@ -151,7 +151,7 @@ export function crewCoat(index: number): number {
   return CREW_COLORS[index % CREW_COLORS.length];
 }
 
-/** A posable glove and sleeve in crew colour `index`, for drawing at a grip pose. */
+/** A posable glove (no arm) in crew colour `index`, for drawing at a grip pose. */
 export function createAvatarHand(index: number, side: 'left' | 'right'): PosedHand {
   const hand = new PosedHand(CREW_COLORS[index % CREW_COLORS.length], side);
   hand.mesh.name = `Crew ${index + 1} ${side === 'left' ? 'Left' : 'Right'} Hand`;

@@ -128,6 +128,11 @@ const TAKE_HOLD_MS = 100;
  * rhythm, and starts each of its own strokes when the player's next one is
  * due, with the same length and duration, beside the player's hands. Until
  * then (and when the rhythm breaks) it copies each stroke as it sees it.
+ *
+ * With the ship's haul call to go by (`setCall`), it hauls as a crewmate
+ * who listens for the call: a stroke on every heave, hands in turn, with
+ * the length the player's strokes have, so the player practises hauling on
+ * the call.
  */
 export class HaulRhythm {
   readonly hands: Record<Side, HandTrack> = { left: newTrack(), right: newTrack() };
@@ -140,6 +145,9 @@ export class HaulRhythm {
   /** The bot's own stroke under the rhythm. */
   botStartMs = Number.NEGATIVE_INFINITY;
   botSide: Side = 'right';
+  /** The haul call's next heave (local ms) and its period (ms); period 0 when there is no call. */
+  private callAtMs = Number.NaN;
+  private callPeriod = 0;
   private botBase = 0;
   private lastBase = 0;
   /** Where and when each of the bot's hands last let go, to reach forward from. */
@@ -196,18 +204,31 @@ export class HaulRhythm {
     h.atMs = atMs;
   }
 
-  /** The player is hauling to a rhythm the bot can keep. */
-  rhythmic(nowMs: number): boolean {
-    return this.period > 0 && nowMs - this.lastStartMs < 2.5 * this.period;
+  /** Haul on the ship's call: its next heave, local ms, and its period (ms); NaN for no call (keep time with the player instead). */
+  setCall(nextHeaveMs: number, periodMs: number): void {
+    const on = Number.isFinite(nextHeaveMs) && periodMs > 0;
+    this.callAtMs = on ? nextHeaveMs : Number.NaN;
+    this.callPeriod = on ? periodMs : 0;
   }
 
-  /** Start the bot's next stroke when the player's is due. Call once a frame. */
+  /** The player is hauling to a rhythm the bot can keep (or there is a call to haul on). */
+  rhythmic(nowMs: number): boolean {
+    return this.callPeriod > 0 || (this.period > 0 && nowMs - this.lastStartMs < 2.5 * this.period);
+  }
+
+  /** Time between the bot's strokes: the call's, else the player's. */
+  private beatMs(): number {
+    return this.callPeriod > 0 ? this.callPeriod : this.period;
+  }
+
+  /** Start the bot's next stroke when the call's heave, or else the player's stroke, is due. Call once a frame. */
   update(nowMs: number): void {
     if (!this.rhythmic(nowMs)) {
       return;
     }
-    const due = this.lastStartMs + this.period;
-    if (nowMs >= due - TAKE_HOLD_MS && due > this.botStartMs + this.period / 2) {
+    const beat = this.beatMs();
+    const due = this.callPeriod > 0 ? this.callAtMs : this.lastStartMs + this.period;
+    if (nowMs >= due - TAKE_HOLD_MS && due > this.botStartMs + beat / 2) {
       const end = this.botEnd[this.botSide];
       end.along = this.botBase + this.strokeLength;
       end.atMs = this.botStartMs + this.botStrokeMs();
@@ -223,7 +244,7 @@ export class HaulRhythm {
   }
 
   private botStrokeMs(): number {
-    return Math.min(this.strokeMs, 0.95 * this.period);
+    return Math.min(this.strokeMs, 0.95 * this.beatMs());
   }
 
   /**

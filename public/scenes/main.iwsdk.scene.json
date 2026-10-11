@@ -59,27 +59,52 @@
       "components": {}
     },
     {
-      "id": "welcome-panel",
-      "name": "Welcome Panel",
+      "id": "start-panel",
+      "name": "Start Screen",
       "content": {
         "type": "asset",
-        "asset": "welcome-panel"
+        "asset": "start-panel"
       },
       "transform": {
         "position": [
           0,
-          1.75,
-          -2.2
+          1.3,
+          -1.0
         ],
-        "scale": 0.4
+        "scale": 0.19
       },
       "components": {
         "RayInteractable": {},
         "ScreenSpace": {
-          "top": "20px",
-          "left": "20px",
-          "width": "25vw",
-          "height": "40%"
+          "top": "8%",
+          "left": "22%",
+          "width": "40vw",
+          "height": "84vh"
+        }
+      }
+    },
+    {
+      "id": "menu-panel",
+      "name": "Game Menu",
+      "content": {
+        "type": "asset",
+        "asset": "menu-panel"
+      },
+      "transform": {
+        "position": [
+          0,
+          1.3,
+          -1.0
+        ],
+        "scale": 0.19
+      },
+      "components": {
+        "RayInteractable": {},
+        "ScreenSpace": {
+          "top": "6%",
+          "left": "22%",
+          "width": "40vw",
+          "height": "88vh"
         }
       }
     }

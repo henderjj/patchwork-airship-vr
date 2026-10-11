@@ -10,6 +10,8 @@
  *     the ship still);
  *  1b. walks the deck with the thumbstick from off the room's centre and
  *     checks the head stops at the rails, then snap turns about the head;
+ *  1c. picks a character height and seated play and checks the eyes and
+ *     hands are raised to it;
  *  2. checks the 90 Hz request ran;
  *  3. checks the fuel bricks settled in the crate;
  *  4. grabs a brick with the right controller's squeeze, lifts and drops it,
@@ -199,6 +201,71 @@ async function ensureRuntime() {
   }
 }
 
+/** World position of element `id` on scene panel `panel`. */
+function elementPosition(panel, id) {
+  return evalInApp(`(() => { const w = window.__debug.world; const p = w.getSceneObject('${panel}').getElementById('${id}').getWorldPosition(w.player.head.position.clone()); return [p.x, p.y, p.z]; })()`);
+}
+
+/** Point the right controller's ray at `target` from a little in front of the head, and pull the trigger. */
+async function rayClick(target) {
+  const from = [target[0] + 0.2, target[1] - 0.45, target[2] + 0.55];
+  iwsdk(['xr', 'set-transform'], { device: 'controller-right', position: toOrigin(from) });
+  const o = toOrigin(target);
+  iwsdk(['xr', 'look-at'], { device: 'controller-right', target: o });
+  await sleep(300);
+  iwsdk(['xr', 'select'], { device: 'controller-right' });
+  await sleep(500);
+}
+
+/**
+ * 0. The start screen stands in front of the player as VR starts, and a
+ *    controller ray picks Play solo on it, after which nothing is left in
+ *    front of them. Y on the left controller opens the game menu in front
+ *    of them, the ray turns the ship's
+ *    sounds off and on again, and another press closes it.
+ */
+async function startScreenAndMenu() {
+  const start = await waitFor('the start screen in front of the player', () => {
+    const s = evalInApp('({ page: window.__startScreen.page, visible: window.__startScreen.visible, at: window.__startScreen.position() })');
+    return s.visible && s.at[2] < -0.5 ? s : null;
+  }, 10000).catch(() => evalInApp('({ page: window.__startScreen.page, visible: window.__startScreen.visible, at: window.__startScreen.position() })'));
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-start-screen.png'], {});
+  await rayClick(elementPosition('start-panel', 'start-solo'));
+  const after = evalInApp('({ page: window.__startScreen.page, mode: window.__startScreen.mode, visible: window.__startScreen.visible })');
+  check('The start screen stands in front of the player in VR, and a ray click on Play solo starts the game',
+    start.page === 'home' && start.visible && after.page === null && after.mode === 'solo' && !after.visible,
+    `shown ${start.page} at ${fmt(start.at)}, then ${after.page ?? 'closed'} (${after.mode})`);
+
+  const menuButton = async () => {
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 4, value: 1 }] });
+    await sleep(300);
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 4, value: 0 }] });
+    await sleep(300);
+  };
+  await menuButton();
+  const opened = evalInApp('({ open: window.__gameMenu.open, at: window.__gameMenu.position(), exit: window.__gameMenu.shown("menu-exit") })');
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-game-menu.png'], {});
+  const audio = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-2-value"), on: window.__settings.audio })');
+  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
+  const off = audio();
+  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
+  const on = audio();
+  const playing = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-0-value"), seated: window.__body.state.choice.seated })');
+  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const seated = playing();
+  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const standing = playing();
+  await menuButton();
+  const closed = evalInApp('window.__gameMenu.open');
+  check('Y opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
+    opened.open && opened.at[2] < -0.5 && opened.exit && off.shown === 'Off' && !off.on && on.shown === 'On' && on.on && !closed,
+    `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.shown} then ${on.shown}, closed ${!closed}`);
+  check('The game menu switches between seated and standing play',
+    seated.shown === 'Seated' && seated.seated && standing.shown === 'Standing' && !standing.seated,
+    `${seated.shown} then ${standing.shown}`);
+  iwsdk(['xr', 'set-device-state'], {});
+}
+
 async function main() {
   mkdirSync(`${ROOT}/artifacts`, { recursive: true });
   await ensureRuntime();
@@ -229,6 +296,7 @@ async function main() {
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
   check('XR session active', iwsdk(['xr', 'status'], {}).result.sessionActive);
   await sleep(500);
+  await startScreenAndMenu();
   const ownHands = evalInApp('({ shown: window.__ownHands.shown(), right: window.__ownHands.position("right") })');
   check('This player sees their own hands', ownHands.shown.length === 2, `shown: ${ownHands.shown.join(', ') || 'none'}, right at ${fmt(ownHands.right)}`);
   // 1a. Phase 3 posed hands: the fingers follow the controller's trigger,
@@ -300,6 +368,31 @@ async function main() {
     `yaw ${((snapped.yaw * 180) / Math.PI).toFixed(0)}°, head moved ${(Math.hypot(snapped.head[0] - stopped[0], snapped.head[2] - stopped[2]) * 100).toFixed(1)} cm`);
   // Back to the middle of the deck for the checks below, which place hands in room space.
   evalInApp('(window.__debug.world.player.position.set(0, 0, 0), window.__debug.world.player.rotation.set(0, 0, 0), true)');
+
+  // 1c. Character height and seated play: a chosen height puts the eyes at
+  //     it, seated play lifts a seated player to standing eye height, and
+  //     back at their own height nothing moves. The rig carries the hands.
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.6, z: 0 } });
+  await sleep(300);
+  const bodyState = () => evalInApp('({ ...window.__body.state, rigY: window.__debug.world.player.position.y, standingEye: window.__body.standingEye(), hand: window.__ownHands.position("right") })');
+  evalInApp('(window.__body.choose({ height: 1.8, seated: false }), true)');
+  const tall = await waitFor('the 1.8 m character', () => { const b = bodyState(); return Math.abs(b.eye - 1.67) < 0.01 && b; }, 5000).catch(() => bodyState());
+  check('A chosen character height puts the eyes at it', Math.abs(tall.eye - 1.67) < 0.01 && Math.abs(tall.rigY - 0.07) < 0.01,
+    `eyes at ${tall.eye?.toFixed(3)} m, rig raised ${tall.rigY?.toFixed(3)} m`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.15, z: 0 } });
+  await sleep(300);
+  evalInApp('(window.__body.choose({ height: 0, seated: true }), true)');
+  const seatedEye = tall.standingEye ?? 1.62;
+  const seated = await waitFor('seated play', () => { const b = bodyState(); return Math.abs(b.eye - seatedEye) < 0.01 && b; }, 5000).catch(() => bodyState());
+  check('Seated play lifts a seated player to standing eye height, hands too',
+    Math.abs(seated.eye - seatedEye) < 0.01 && Math.abs(seated.rigY - (seatedEye - 1.15)) < 0.01 && seated.hand[1] > tall.hand[1] + 0.3,
+    `eyes at ${seated.eye?.toFixed(3)} m for standing ${seatedEye.toFixed(3)} m, rig raised ${seated.rigY?.toFixed(3)} m, right hand at ${fmt(seated.hand)}`);
+  evalInApp('(window.__body.choose({ height: 0, seated: false }), true)');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.6, z: 0 } });
+  await sleep(300);
+  const own = bodyState();
+  check('At their own height, standing, the player is not moved', own.rigY === 0 && own.offset === 0, `rig at ${own.rigY} m`);
+  iwsdk(['xr', 'set-device-state'], {});
   iwsdk(['xr', 'set-device-state'], {});
 
   // 2. The frame-rate system ran when the session started.
@@ -689,14 +782,9 @@ async function main() {
   await move([0, 0.9, 0.75]);
   await squeeze(1);
   const tillerHeld = controlHeld();
-  // Grip locking: the arm on the tiller comes in from the player, inside the gondola.
-  const tillerArm = evalInApp('({ arm: window.__ownHands.forearm("right"), hand: window.__ownHands.fist("right"), head: window.__debug.world.player.head.getWorldPosition(new window.__debug.world.player.head.position.constructor()).toArray() })');
-  // The bar runs fore and aft through the fist, so the forearm can only turn about it (Z) towards the player.
-  const toHead = [tillerArm.head[0] - tillerArm.hand[0], tillerArm.head[1] - tillerArm.hand[1]];
-  const armAcross = [tillerArm.arm[0], tillerArm.arm[1]];
-  const armToHead = (armAcross[0] * toHead[0] + armAcross[1] * toHead[1]) / (Math.hypot(...armAcross) * Math.hypot(...toHead) || 1);
-  check('The arm on the tiller comes in from the player holding it', armToHead > 0.7 && Math.abs(tillerArm.arm[2]) < 0.05,
-    `forearm ${fmt(tillerArm.arm)}, head at ${fmt(tillerArm.head)}, ${((Math.acos(Math.min(1, armToHead)) * 180) / Math.PI).toFixed(0)}° off the way to the player about the bar`);
+  // Grip locking: the hand on the tiller is drawn closed on it.
+  const tillerLock = evalInApp('window.__ownHands.locked("right")');
+  check('The hand on the tiller is drawn on its handle', tillerLock === 1, `eased ${Number(tillerLock).toFixed(2)} of the way onto it`);
   await move([0.28, 0.9, 0.8], 0.6);
   const steered = evalInApp('window.__ship.controls.rudder');
   await squeeze(0);
