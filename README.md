@@ -19,7 +19,7 @@ npm run test:net   # two-player network test against the local lobby (run after 
 
 To play two-player locally, run `npm run lobby` next to `npm run dev`, then open the game in two browsers (or a browser and a headset). How to play is chosen on the start screen, which stands in front of you when VR starts (and shows on the page itself in a browser without a headset): **Play solo**, **Solo with the practice crewmate**, **Start a crew** (makes a four-letter code to give a friend) or **Join a crew** (type their code on its keypad, or on the keyboard on a PC). In a crew it waits until your crewmate is aboard, then gets out of the way; **Play while waiting** doesn't wait. A link with `?room=CODE` joins that crew straight away. The page's small panel at the top right keeps what has to happen in the browser: **Enter VR** (use it if the browser's own Enter VR offer goes away, which Quest Browser does once a crew connects), and **Allow microphone**, so the permission prompt comes before VR rather than inside it; the microphone itself only turns on in a crew. See [docs/start-and-menu.md](docs/start-and-menu.md). The deployed lobby is a Cloudflare Worker; see [lobby/README.md](lobby/README.md).
 
-Every push to `main` is built, tested and deployed to GitHub Pages by `.github/workflows/ci.yml`.
+Every pull request is tested and every push to `main` is tested and deployed to GitHub Pages by `.github/workflows/ci.yml`. How the tests are split and which to run while developing: [docs/testing.md](docs/testing.md).
 
 ## Settings
 
