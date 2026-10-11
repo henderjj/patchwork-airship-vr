@@ -33,9 +33,30 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 
 const CLI = fileURLToPath(new URL('../node_modules/@iwsdk/cli/dist/cli.js', import.meta.url));
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+// CLI calls and page evaluations go through a worker thread that keeps the
+// CLI loaded and one browser connection open (see scripts/iwsdk-worker.mjs);
+// a fresh process per call cost about a second each. IWSDK_SPAWN=1 goes back
+// to a process per call.
+const shared = new SharedArrayBuffer(8 + 32 * 1024 * 1024);
+const header = new Int32Array(shared, 0, 2);
+const worker = process.env.IWSDK_SPAWN
+  ? null
+  : new Worker(new URL('./iwsdk-worker.mjs', import.meta.url), { workerData: { root: ROOT, shared } });
+worker?.unref();
+
+/** Sends a request to the worker and waits for its answer: { stdout } or { error }. */
+function ask(request) {
+  Atomics.store(header, 0, 0);
+  worker.postMessage(request);
+  if (Atomics.wait(header, 0, 0, 300000) === 'timed-out') throw new Error(`no answer to ${JSON.stringify(request)} in 300 s`);
+  const text = new TextDecoder().decode(new Uint8Array(shared, 8, Atomics.load(header, 1)).slice());
+  return JSON.parse(text);
+}
 
 // Mirrors src/scene-assets/gondola.scene-asset.ts.
 const DECK_HALF_WIDTH = 1.0;
@@ -50,7 +71,11 @@ function iwsdk(args, input) {
   const argv = [CLI, ...args];
   if (input !== undefined) argv.push('--input-json', JSON.stringify(input));
   let stdout;
-  try {
+  if (worker) {
+    const reply = ask({ kind: 'cli', argv: argv.slice(1) });
+    if (reply.error) throw new Error(`iwsdk ${args.join(' ')}: ${reply.error}`);
+    stdout = reply.stdout;
+  } else try {
     stdout = execFileSync(process.execPath, argv, {
       cwd: ROOT,
       encoding: 'utf8',
@@ -74,6 +99,13 @@ function iwsdk(args, input) {
 
 /** Evaluate an expression in the app frame (needs --allow-browser-automation). */
 function evalInApp(expression) {
+  if (worker) {
+    const reply = ask({ kind: 'eval', expression });
+    if (reply.error) throw new Error(`evaluating ${expression.slice(0, 80)}: ${reply.error}`);
+    const data = JSON.parse(reply.stdout);
+    if (!data.ok) throw new Error(`iwsdk browser run failed: ${JSON.stringify(data.error)}`);
+    return data.data.result?.value ?? data.data.result;
+  }
   const file = 'artifacts/.eval.mjs';
   writeFileSync(
     `${ROOT}/${file}`,
@@ -88,6 +120,14 @@ function evalInApp(expression) {
     rmSync(`${ROOT}/${file}`, { force: true });
   }
 }
+
+/**
+ * A board's lines (`window.__route` or `window.__controls`) once it has had
+ * time to redraw: boards refresh every 250 ms, so a read straight after a
+ * change can still show the moment before.
+ */
+const boardAfterRedraw = (owner) =>
+  evalInApp(`new Promise((resolve) => setTimeout(() => resolve(window.${owner}.boardText()), 400))`);
 
 const results = [];
 function check(name, pass, detail) {
@@ -365,7 +405,10 @@ async function main() {
     return true;
   })()`);
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 1 }] });
-  await sleep(500);
+  // Held about 2 s before the pull, as this check has always done (the slow
+  // CLI calls used to take that long). Pulled within half a second of the
+  // grip, a neighbour is sometimes knocked away at 7-11 m/s: a separate bug.
+  await sleep(2300);
   const pulledBy = evalInApp('window.__throw.objects()[0].heldBy');
   iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([0.1, 1.2, -0.6]), duration: 0.6 });
   await sleep(2000);
@@ -410,8 +453,7 @@ async function main() {
   const crankHolder = evalInApp('window.__crank.holders().local[1]');
   check('Squeeze takes the crank handle', crankHolder === 'right', `handle 1 held by ${crankHolder}`);
   const crankStart = evalInApp('window.__crank.sim.angle');
-  const propellerAngle = () => evalInApp("window.__debug.world.scene.getObjectByName('Propeller').rotation.z");
-  const propellerStart = propellerAngle();
+  const propellerStart = evalInApp("window.__debug.world.scene.getObjectByName('Propeller').rotation.z");
   for (let i = 1; i <= 16; i++) {
     iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(onCircle(Math.PI + (i * Math.PI) / 8)), duration: 0.12 });
   }
@@ -424,9 +466,12 @@ async function main() {
   const lockGap = Math.hypot(...lockedOn.hand.map((v, i) => v - lockedOn.handle[i]));
   check('The drawn hand locks onto the crank handle it holds', lockedOn.blend === 1 && lockGap < 0.005,
     `eased ${lockedOn.blend.toFixed(2)} onto it, ${(lockGap * 100).toFixed(1)} cm from the handle`);
-  const propellerTurned = propellerAngle() - propellerStart;
-  check('The crank turns the propeller at the bow', Math.abs(propellerTurned - 3 * crankTurned) < 0.3,
-    `${(propellerTurned / (2 * Math.PI)).toFixed(2)} turns for the crank's ${(crankTurned / (2 * Math.PI)).toFixed(2)}`);
+  // Both read in one go: the crank may still be easing to a stop.
+  const geared = evalInApp("({ crank: window.__crank.sim.angle, propeller: window.__debug.world.scene.getObjectByName('Propeller').rotation.z })");
+  const propellerTurned = geared.propeller - propellerStart;
+  const crankNow = geared.crank - crankStart;
+  check('The crank turns the propeller at the bow', Math.abs(propellerTurned - 3 * crankNow) < 0.3,
+    `${(propellerTurned / (2 * Math.PI)).toFixed(2)} turns for the crank's ${(crankNow / (2 * Math.PI)).toFixed(2)}`);
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.0, z: -1.2 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-crank.png'], {});
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
@@ -695,7 +740,7 @@ async function main() {
     `${fed.burned - burnedBefore} burned, ${fed.left.toFixed(0)} s of flame, brick back at ${fmt(brick0)}`);
   // Read the instrument board while the brick still burns (slow CI runners
   // take many seconds over the steps below).
-  const board = evalInApp('window.__controls.boardText()');
+  const board = boardAfterRedraw('__controls');
   check('The instrument board shows the flight', board.length === 5 && board[3].startsWith('BURNER') && !board[3].endsWith('out'), board.join(' | '));
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.2, z: 0.05 } });
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-burner.png'], {});
@@ -711,6 +756,8 @@ async function main() {
   //     The ship is moved between the route's points to keep the test short.
   evalInApp('window.__ship.fly()');
   const route = evalInApp('window.__route.run.route');
+  // Let the board (redrawn every 250 ms) catch up with the restart.
+  await sleep(400);
   const atStart = evalInApp('({ phase: window.__route.run.phase, grounded: window.__ship.flight.grounded, y: window.__ship.state.y, board: window.__route.boardText() })');
   // The keel sits on the grass, about half a metre below the deck.
   const keelGap = atStart.y - route.start.y;
@@ -734,7 +781,7 @@ async function main() {
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-ring.png'], {});
   evalInApp(`(window.__ship.place(${ring.x}, ${ring.y - 5}, ${ring.z + 2}, 0), window.__ship.flight.airspeed = 4)`);
   const passed = await waitFor('ring 1', () => evalInApp('window.__route.run.ringMask & 1'), 10000).catch(() => 0);
-  const flyingBoard = evalInApp('window.__route.boardText()');
+  const flyingBoard = boardAfterRedraw('__route');
   check('Flying through a ring counts it, and the board points to the next', passed === 1 && flyingBoard[1] === 'RINGS 1 of 2' && flyingBoard[2].startsWith('NEXT Ring 2'),
     flyingBoard.join(' | '));
   // 6e. Docking at island B: take the grapple off its hook, throw it at the
@@ -779,7 +826,7 @@ async function main() {
   })()`);
   evalInApp(placeAlongside);
   await sleep(500);
-  const approach = evalInApp('window.__route.boardText()');
+  const approach = boardAfterRedraw('__route');
   check('Coming in to island B, the board points to the post and says how high it is',
     approach[2].startsWith('NEXT Post at B') && /LEVEL/.test(approach[3]), approach.join(' | '));
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.4, 1.6, -0.6]) });
@@ -825,7 +872,7 @@ async function main() {
     JSON.stringify(fast ?? dockedState));
   evalInApp("(window.__rope.setTestHand('left', null), window.__rope.setTestHand('right', null))");
   const finished = await waitFor('the run to finish', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 10000).catch(() => null);
-  const scoreBoard = evalInApp('window.__route.boardText()');
+  const scoreBoard = boardAfterRedraw('__route');
   check('Made fast at island B finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 && scoreBoard[0].startsWith('MADE FAST'),
     scoreBoard.join(' | '));
   evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__wind)');
@@ -854,6 +901,9 @@ async function main() {
       rung.bell.strikes === bellBefore + 1 && rung.bell.peak > 0.3 && swungBack.strikes === bellBefore + 2,
     `held by ${lanyardHeld}, ${beforePull} then ${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, clapper swung ${((rung.bell.peak * 180) / Math.PI).toFixed(0)}°, ${swungBack.strikes - bellBefore} strikes`);
   // Mid-run, one ring only asks; sinking into the haze loses the run; N (the keyboard's bell) restarts.
+  // First let the lanyard's last ring age past the bell's 3 s second-ring
+  // window (RING_AGAIN_MS), or the next ring counts as a second one.
+  await sleep(3200);
   evalInApp('window.__ship.place(0, 126, -40)');
   await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
   // In one call, since each CLI call takes long enough for the second-ring window to pass.
@@ -861,7 +911,8 @@ async function main() {
     window.dispatchEvent(new KeyboardEvent('keyup', { key: 'n' })),
     new Promise((resolve) => setTimeout(() => resolve({ phase: window.__route.run.phase, board: window.__route.boardText() }), 400)))`);
   evalInApp('window.__ship.place(0, 35, -60)');
-  const lost = await waitFor('lost run', () => evalInApp("window.__route.run.phase === 'lost' ? window.__route.boardText() : null"), 5000).catch(() => null);
+  // Lost, and the board (redrawn every 250 ms) has caught up.
+  const lost = await waitFor('lost run', () => evalInApp("window.__route.run.phase === 'lost' && !window.__route.boardText()[0].startsWith('TIME') ? window.__route.boardText() : null"), 5000).catch(() => null);
   key('keydown', 'n');
   key('keyup', 'n');
   const again = evalInApp('window.__route.run.phase');

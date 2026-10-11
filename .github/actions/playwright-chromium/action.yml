@@ -1,0 +1,16 @@
+name: Playwright Chromium
+description: Installs the Chromium build the workspace's Playwright expects, keeping the download in the Actions cache between runs.
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      run: echo "playwright=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+    # The download once took 11 minutes; from the cache it takes seconds.
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-chromium-${{ runner.os }}-${{ steps.version.outputs.playwright }}
+    - name: Install Chromium and its system libraries
+      shell: bash
+      run: npx playwright install --with-deps chromium
