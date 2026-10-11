@@ -12,7 +12,7 @@ Status: built and tested between two browsers in the cloud with Chromium's fake 
   - `?voice=plain` plays through an ordinary audio element with no positioning. This is the fail plan.
   - `?voice=off` turns voice off.
 - **Loopback workaround** (`?voiceloop=1`): Chromium's echo canceller only removes sound it played itself through WebRTC's output. Spatial voice played straight from Web Audio is invisible to it, so a headset's speakers could feed the crewmate's voice back into its microphones. The workaround sends the Web Audio mix through a peer connection inside the same page and plays it from an audio element, which the echo canceller does see. Opus is asked for stereo on that local link so the HRTF panning survives.
-- **Mute**: the **Y** button on the left controller in VR, or **Mic** on the crew panel.
+- **Mute**: **My mic** in the game menu (Y on the left controller opens it), which can also turn the crewmate's voice off ([../start-and-menu.md](../start-and-menu.md)).
 - **Stats** every five seconds in the console: the voice jitter-buffer delay, lost audio packets and the share of audio the decoder had to conceal, next to the RTT and pose stats.
 
 ## Results in the cloud

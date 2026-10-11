@@ -1,4 +1,5 @@
 import { createSystem, VisibilityState } from '@iwsdk/core';
+import { onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
 
 export interface FrameRateInfo {
@@ -39,6 +40,7 @@ export function chooseFrameRate(supported: readonly number[], target: number): n
  * Neither IWSDK nor three.js requests a refresh rate, and the Quest Browser's
  * default may be 72 Hz, so ask for the target rate (90 Hz) when each immersive
  * session starts. Also applies the foveation and framebuffer-scale settings.
+ * The frame rate and foveation can be changed while playing (the game menu).
  */
 export class FrameRateSystem extends createSystem({}) {
   private currentSession: XRSession | undefined;
@@ -61,6 +63,14 @@ export class FrameRateSystem extends createSystem({}) {
         this.currentSession = session;
         void this.onSessionStart(session);
       }),
+      onSettingChange((key) => {
+        const session = this.world.session;
+        if (key === 'foveation') {
+          this.renderer.xr.setFoveation(settings.foveation);
+        } else if (key === 'hz' && session) {
+          void this.requestRate(session);
+        }
+      }),
     );
   }
 
@@ -76,6 +86,11 @@ export class FrameRateSystem extends createSystem({}) {
     console.info(
       `[FrameRate] supported=${JSON.stringify(supported)} default=${session.frameRate ?? 'unknown'} requesting=${rate ?? 'none'}`,
     );
+    await this.requestRate(session, rate);
+  }
+
+  /** Ask the session for `rate`, by default the supported rate nearest the `hz` setting. */
+  private async requestRate(session: XRSession, rate = chooseFrameRate(frameRateInfo.supported, settings.hz)): Promise<void> {
     if (rate === null || !frameRateInfo.canSet) {
       // PCVR over Link: the rate is whatever the Link app's refresh setting is.
       return;

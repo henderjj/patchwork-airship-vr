@@ -7,9 +7,14 @@ const publicAssetUrl = (filePath: string): string =>
 export default defineAssets({
   'gondola-hull': createGondolaHull(),
   'gondola-rigging': createGondolaRigging(),
-  'welcome-panel': {
-    url: publicAssetUrl('ui/welcome.uikitml'),
+  'start-panel': {
+    url: publicAssetUrl('ui/start.uikitml'),
     type: AssetType.UIKitML,
-    name: 'Welcome Panel',
+    name: 'Start Screen',
+  },
+  'menu-panel': {
+    url: publicAssetUrl('ui/menu.uikitml'),
+    type: AssetType.UIKitML,
+    name: 'Game Menu',
   },
 });

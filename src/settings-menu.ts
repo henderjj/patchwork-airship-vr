@@ -11,16 +11,12 @@ export interface MenuItem {
 
 const onOff = (s: boolean) => (s ? '1' : '0');
 
+/**
+ * The start-up settings: ones read once as the game loads, so changing them
+ * reloads the page. Settings that apply straight away are in the in-game
+ * menu instead (LIVE_ITEMS, src/live-settings.ts).
+ */
 export const MENU_ITEMS: readonly MenuItem[] = [
-  {
-    key: 'bot',
-    label: 'This page plays as',
-    options: [
-      ['0', 'Me'],
-      ['1', 'Practice crewmate (a bot)'],
-    ],
-    current: (s) => onOff(s.bot),
-  },
   {
     key: 'motion',
     label: 'Ship',
@@ -34,32 +30,6 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     current: (s) => s.motion,
   },
   {
-    key: 'hz',
-    label: 'Frame rate',
-    options: [
-      ['72', '72 Hz'],
-      ['80', '80 Hz'],
-      ['90', '90 Hz'],
-      ['120', '120 Hz'],
-    ],
-    current: (s) => String(s.hz),
-  },
-  {
-    key: 'height',
-    label: 'Character height',
-    options: [
-      ['0', 'Your own'],
-      ['1.5', '1.50 m'],
-      ['1.6', '1.60 m'],
-      ['1.7', '1.70 m'],
-      ['1.8', '1.80 m'],
-      ['1.9', '1.90 m'],
-    ],
-    current: (s) => String(s.height),
-  },
-  { key: 'seated', label: 'Playing', options: [['0', 'Standing'], ['1', 'Seated']], current: (s) => onOff(s.seated) },
-  { key: 'audio', label: 'Ship sounds', options: [['1', 'On'], ['0', 'Off']], current: (s) => onOff(s.audio) },
-  {
     key: 'voice',
     label: "Crewmate's voice",
     options: [
@@ -69,18 +39,6 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     ],
     current: (s) => s.voice,
   },
-  {
-    key: 'comfort',
-    label: 'Comfort question',
-    options: [
-      ['0', 'Never'],
-      ['60', 'Every minute'],
-      ['120', 'Every 2 minutes'],
-      ['300', 'Every 5 minutes'],
-    ],
-    current: (s) => String(s.comfort),
-  },
-  { key: 'hud', label: 'Perf HUD', options: [['1', 'Shown'], ['0', 'Hidden']], current: (s) => onOff(s.hud) },
   {
     key: 'clouds',
     label: 'Clouds',
@@ -93,26 +51,18 @@ export const MENU_ITEMS: readonly MenuItem[] = [
   },
   { key: 'rain', label: 'Rain', options: [['0', 'Off'], ['1', 'On']], current: (s) => onOff(s.rain) },
   { key: 'shadows', label: 'Deck shadows', options: [['0', 'Off'], ['1', 'On']], current: (s) => onOff(s.shadows) },
-  {
-    key: 'foveation',
-    label: 'Foveation',
-    options: [
-      ['0', 'Off'],
-      ['0.5', 'Half'],
-      ['1', 'Full'],
-    ],
-    current: (s) => String(s.foveation),
-  },
 ];
 
 /**
- * The query string the menu saves: only the choices that differ from the
- * defaults, so a later change of default still reaches players who never
- * picked that setting.
+ * The query string the menu saves: the settings saved before (`saved`, which
+ * holds the in-game menu's choices too) with the menu's choices on top, each
+ * kept only when it differs from the default, so a later change of default
+ * still reaches players who never picked that setting.
  */
-export function menuQuery(values: Readonly<Record<string, string>>): string {
-  const params = new URLSearchParams();
+export function menuQuery(values: Readonly<Record<string, string>>, saved = ''): string {
+  const params = new URLSearchParams(saved);
   for (const item of MENU_ITEMS) {
+    params.delete(item.key);
     const value = values[item.key];
     if (value !== undefined && value !== item.current(DEFAULT_SETTINGS)) {
       params.set(item.key, value);
@@ -122,17 +72,17 @@ export function menuQuery(values: Readonly<Record<string, string>>): string {
 }
 
 /**
- * The Settings menu on the crew panel, so players set the game up before
- * entering VR rather than editing the page URL. Saving keeps the choices in
- * this browser and reloads the page with them (settings are read once at
- * load); the crew code stays in the URL, so a crew is rejoined. A setting
- * still given in the URL wins over the saved one, for testing.
+ * The start-up settings on the page's panel, for the settings that are read
+ * once as the game loads. Saving keeps the choices in this browser and
+ * reloads the page with them; the crew code stays in the URL, so a crew is
+ * rejoined. A setting still given in the URL wins over the saved one, for
+ * testing.
  */
 export function createSettingsMenu(): HTMLElement {
   const details = document.createElement('details');
   details.id = 'settings-menu';
   const summary = document.createElement('summary');
-  summary.textContent = 'Settings';
+  summary.textContent = 'Start-up settings';
   summary.style.cssText = 'cursor:pointer;color:#cbd5e1';
   const grid = document.createElement('div');
   grid.style.cssText = 'display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;margin-top:6px';
@@ -158,7 +108,7 @@ export function createSettingsMenu(): HTMLElement {
     grid.append(label, select);
   }
   const note = document.createElement('div');
-  note.textContent = "In a crew, the ship flies as the crew's first player has it set.";
+  note.textContent = "These reload the page. In a crew, the ship flies as the crew's first player has it set. The rest of the settings are in the game's menu.";
   note.style.cssText = 'color:#94a3b8;font-size:12px;margin-top:4px';
   const buttons = document.createElement('div');
   buttons.style.cssText = 'display:flex;gap:6px;margin-top:6px';
@@ -167,15 +117,23 @@ export function createSettingsMenu(): HTMLElement {
     selects.forEach((select, key) => {
       values[key] = select.value;
     });
-    reloadWith(menuQuery(values));
+    reloadWith(menuQuery(values, savedQuery()));
   });
   save.id = 'settings-save';
-  const reset = menuButton('Defaults', () => reloadWith(''));
+  const reset = menuButton('Defaults', () => reloadWith(menuQuery({}, savedQuery())));
   reset.id = 'settings-reset';
   buttons.append(save, reset);
   details.append(summary, grid, note, buttons);
   (window as { __settings?: Settings }).__settings = settings;
   return details;
+}
+
+function savedQuery(): string {
+  try {
+    return localStorage.getItem(SAVED_SETTINGS_KEY) ?? '';
+  } catch {
+    return '';
+  }
 }
 
 /** Keep `query` as the saved settings and reload, dropping the menu's settings from the URL so the saved ones apply. */

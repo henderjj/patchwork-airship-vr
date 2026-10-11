@@ -1,0 +1,150 @@
+<!--
+  The in-game menu (src/systems/game-menu-system.ts), opened with Y (or the
+  menu button) on the left controller, or M or the Game menu button on the
+  flat page.
+  The crew section shows only in a crew. The setting rows are filled from
+  LIVE_ITEMS (src/live-settings.ts); rows it doesn't use are hidden.
+-->
+<style>
+  .root {
+    flex-direction: column;
+    width: 440px;
+    padding-top: 16px;
+    padding-bottom: 18px;
+    padding-left: 24px;
+    padding-right: 24px;
+    gap: 10px;
+  }
+
+  .header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #272727;
+  }
+
+  .title:dark {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .text {
+    font-size: 14px;
+    line-height: 1.35;
+    color: #3a3a3a;
+  }
+
+  .text:dark {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .hint {
+    font-size: 12px;
+    line-height: 1.35;
+    color: #5a5a5a;
+  }
+
+  .hint:dark {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .section {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .row {
+    flex-direction: row;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .wide {
+    width: 190px;
+  }
+
+  .setting {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .label {
+    font-size: 14px;
+    color: #3a3a3a;
+  }
+
+  .label:dark {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .value {
+    width: 170px;
+  }
+</style>
+<Panel id="menu-root" class="root">
+  <div class="header">
+    <div class="title">Settings</div>
+    <Button id="menu-close" size="sm" variant="tertiary">Close</Button>
+  </div>
+  <Divider></Divider>
+
+  <div id="menu-crew" class="section" style="display: none">
+    <div id="menu-crew-status" class="text">Crew</div>
+    <div class="row">
+      <Button id="menu-mute-me" class="wide" size="sm" variant="secondary">My mic: on</Button>
+      <Button id="menu-mute-crew" class="wide" size="sm" variant="secondary">Crewmate: on</Button>
+    </div>
+    <Divider></Divider>
+  </div>
+
+  <div class="section">
+    <div class="setting">
+      <div class="label">Coat colour</div>
+      <Button id="menu-coat" class="value" size="sm" variant="secondary">Blue</Button>
+    </div>
+    <div id="menu-row-0" class="setting">
+      <div id="menu-row-0-label" class="label">Setting</div>
+      <Button id="menu-row-0-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-1" class="setting">
+      <div id="menu-row-1-label" class="label">Setting</div>
+      <Button id="menu-row-1-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-2" class="setting">
+      <div id="menu-row-2-label" class="label">Setting</div>
+      <Button id="menu-row-2-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-3" class="setting">
+      <div id="menu-row-3-label" class="label">Setting</div>
+      <Button id="menu-row-3-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-4" class="setting">
+      <div id="menu-row-4-label" class="label">Setting</div>
+      <Button id="menu-row-4-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-5" class="setting">
+      <div id="menu-row-5-label" class="label">Setting</div>
+      <Button id="menu-row-5-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-6" class="setting">
+      <div id="menu-row-6-label" class="label">Setting</div>
+      <Button id="menu-row-6-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+    <div id="menu-row-7" class="setting">
+      <div id="menu-row-7-label" class="label">Setting</div>
+      <Button id="menu-row-7-value" class="value" size="sm" variant="secondary">Value</Button>
+    </div>
+  </div>
+  <Divider></Divider>
+
+  <div class="row">
+    <Button id="menu-start" class="wide" variant="secondary">Back to start screen</Button>
+    <Button id="menu-exit" class="wide" variant="negative">Exit VR</Button>
+  </div>
+  <div id="menu-hint" class="hint">Y or the menu button: close. X: perf HUD. B: stop or start the ship.</div>
+</Panel>

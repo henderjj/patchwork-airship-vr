@@ -17,13 +17,13 @@ npm run lobby      # local crew lobby on port 8787 (the dev server proxies /part
 npm run test:net   # two-player network test against the local lobby (run after build)
 ```
 
-To play two-player locally, run `npm run lobby` next to `npm run dev`, then open the game in two browsers (or a browser and a headset) and use the crew panel in the top right: **New crew** makes a four-letter code and puts it in the address bar, and the other player types it and presses **Join**. The panel also picks the coat colour your crewmate sees you in (kept for next time) and asks for the microphone with **Allow microphone**, so the permission prompt comes before VR rather than inside it; the microphone itself only turns on in a crew. Its **Enter VR** button starts VR on a headset; use it if the browser's own Enter VR offer goes away, which Quest Browser does once a crew connects. The deployed lobby is a Cloudflare Worker; see [lobby/README.md](lobby/README.md).
+To play two-player locally, run `npm run lobby` next to `npm run dev`, then open the game in two browsers (or a browser and a headset). How to play is chosen on the start screen, which stands in front of you when VR starts (and shows on the page itself in a browser without a headset): **Play solo**, **Solo with the practice crewmate**, **Start a crew** (makes a four-letter code to give a friend) or **Join a crew** (type their code on its keypad, or on the keyboard on a PC). In a crew it waits until your crewmate is aboard, then gets out of the way; **Play while waiting** doesn't wait. A link with `?room=CODE` joins that crew straight away. The page's small panel at the top right keeps what has to happen in the browser: **Enter VR** (use it if the browser's own Enter VR offer goes away, which Quest Browser does once a crew connects), and **Allow microphone**, so the permission prompt comes before VR rather than inside it; the microphone itself only turns on in a crew. See [docs/start-and-menu.md](docs/start-and-menu.md). The deployed lobby is a Cloudflare Worker; see [lobby/README.md](lobby/README.md).
 
 Every push to `main` is built, tested and deployed to GitHub Pages by `.github/workflows/ci.yml`.
 
 ## Settings
 
-The everyday settings (whether this page plays as you or the practice crewmate, how the ship moves, frame rate, sounds, voice, the comfort question, the perf HUD, clouds, rain, shadows and foveation) are in the **Settings** menu on the crew panel at the top right of the page: pick, then **Save and reload**. They are kept in the browser; **Defaults** clears them. Every setting can also be given in the address bar, which wins over the saved ones, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
+Settings that apply straight away are in the game menu, opened with **Y** on the left controller (or its menu button, where the browser passes it on) in VR, or **M** or **Game menu** on a PC page: coat colour, standing or seated play, character height, ship sounds, the perf HUD, frame rate, foveation and the comfort question, plus muting yourself or your crewmate in a crew, **Back to start screen** and **Exit VR**. Settings read once as the game loads (how the ship moves, the crewmate's voice, clouds, rain and shadows) are under **Start-up settings** on the page's panel: pick, then **Save and reload**. Both are kept in the browser; **Defaults** clears the start-up ones. Every setting can also be given in the address bar, which wins over the saved ones, so a headset can try variations without a rebuild. Defaults are in `src/settings.ts`.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
@@ -66,11 +66,12 @@ Example: `?islands=60&clouds=80&rain=1&motion=tour`.
 - **Flying** (the default): drop fuel bricks into the burner's hopper for lift, pull the red vent cord down to descend, swing the tiller at the stern to steer (pushing it to starboard turns to port, like a boat), turn the crank for speed, and drop sandbags from outside the starboard rail for instant lift. The instrument board on the burner flue shows height, climb, speed, burner time and ballast; the lantern shows which way the deck leans. On a desktop keyboard, **B** feeds the burner one brick, **V** held opens the vent, and **,** and **.** held swing the rudder. See [docs/flight-model.md](docs/flight-model.md).
 - **The route** (the default): lift off from island A, fly through two striped rings, then throw the grapple onto the mooring post on island B's jetty and haul the ship in until it is made fast, for a score ([docs/docking.md](docs/docking.md)). The route board on the bow side of the burner shows the clock, the way to the next ring and the score; ring the bell at the port bow corner by tugging its lanyard to one side, which swings the clapper against the bell (tug it from side to side to ring it again and again), or press **N**, to start again. With a crewmate, the ship stays moored on island A until both have rung the bell. See [docs/route.md](docs/route.md).
 - **Comfort question** (with `?comfort=60`): once a minute a sign asks how you feel from 0 (fine) to 20 (very sick). The right trigger raises the number, the left trigger lowers it, and **A** answers. After leaving VR, click **Comfort CSV** at the bottom left of the page to download the answers with the ship's peak motion for each minute.
-- **Y** (left controller) or **Mic** on the crew panel mutes your microphone.
+- **Game menu:** **Y** on the left controller (or its menu button, ≡, where the browser passes it on) opens and closes it in front of you; nothing pauses while it is open. On a PC page, **M** or the **Game menu** button.
+- **My mic** in the game menu mutes your microphone; **Crewmate** turns your crewmate's voice off for you.
 - **Fuel bricks:** squeeze the grip near a brick to pick it up and let go to throw it. With the grip already squeezed and the hand empty, a brick flying past within 20 cm is caught. Throwing to a crewmate works the same at up to 150 ms of network delay (see [docs/spikes/s7-throwing.md](docs/spikes/s7-throwing.md)).
 - **Crank:** squeeze the grip near a wooden handle on the bow crank and turn it. Two players, one per handle, cranking in step shift it into high gear (see [docs/spikes/s6-crank.md](docs/spikes/s6-crank.md)).
 - **Signs** on the burner, vent cord, bell, mooring line, ballast, tiller, crank and fuel crate say what each one does. The burner's fire glows behind its door grate while it burns.
-- **Your hands** are drawn as gloves and sleeves in your coat colour (pick it on the crew panel), holding the controllers or at your tracked hands; the controllers themselves aren't drawn. The fingers follow yours: lift your index finger off the trigger to point, let go of the grip for a flat hand, lift your thumb off the stick and buttons for a thumbs-up; your crewmate sees the same. While you hold the crank, the mooring line, the tiller, the vent cord or the bell lanyard, your hand is drawn closed on its handle, and it lets go if your real hand strays more than 25 cm from it. Without the controllers, tracked fingers pose the hands directly. In VR the wrist HUD shows what each controller's touch sensors report, one line per hand (see [docs/hands.md](docs/hands.md)).
+- **Your hands** are drawn as gloves and sleeves in your coat colour (pick it in the game menu), holding the controllers or at your tracked hands; the controllers themselves aren't drawn. The fingers follow yours: lift your index finger off the trigger to point, let go of the grip for a flat hand, lift your thumb off the stick and buttons for a thumbs-up; your crewmate sees the same. While you hold the crank, the mooring line, the tiller, the vent cord or the bell lanyard, your hand is drawn closed on its handle, and it lets go if your real hand strays more than 25 cm from it. Without the controllers, tracked fingers pose the hands directly. In VR the wrist HUD shows what each controller's touch sensors report, one line per hand (see [docs/hands.md](docs/hands.md)).
 - **Tracked hands:** put the controllers down and grip with a fist or a pinch wherever these controls say to squeeze the grip. The wrist HUD then shows a `hands` line for tuning (see [docs/spikes/s9-hand-tracking.md](docs/spikes/s9-hand-tracking.md)).
 - **When the crewmate can't play** (headset off, Meta button, headset asleep, network down, tab closed), the ship stops and a sign in front of you says why; it carries on when they're back. A dropped connection reconnects by itself (see [docs/spikes/s10-session-lifecycle.md](docs/spikes/s10-session-lifecycle.md)).
 - **Mooring line and grapple:** the grapple on the line's end hangs on a hook at the port bow; squeeze on its shank to take it and throw it overhand (at island B's mooring post). Squeeze the grip near the line along the port rail and haul it towards the stern hand over hand. Strokes started together by both players are heaves (see [docs/spikes/s6-rope.md](docs/spikes/s6-rope.md) and [docs/docking.md](docs/docking.md)).
@@ -83,28 +84,31 @@ On PC VR: make Meta Horizon Link the active OpenXR runtime, connect the Quest wi
 
 ## Testing alone: the practice crewmate
 
-The crank's high gear, heaving the mooring line and throwing to each other need two players. To try them alone, open the game on a PC as well as the headset, and in the PC's **Settings** set **This page plays as** to **Practice crewmate (a bot)**, then **Save and reload**. Join the same crew code on both. The PC page then plays the second player, with no microphone:
+The crank's high gear, heaving the mooring line and throwing to each other need two players. To try them alone, choose **Solo with the practice crewmate** on the start screen in the headset. It starts a crew and shows its code and a link: open the link on a PC, or open the game on the PC, choose **Join a crew**, type the code and press **Join as practice crewmate**. (`?bot=1` in the address does the same.) The PC page then plays the second player, with no microphone:
 
 - On island A it rings the bell once you have, so the ship casts off.
 - When you take a crank handle, it walks to the other one and turns in step with you, so the crank clicks into high gear.
 - When you haul the mooring line, it hauls beside you. After your first two strokes it has your rhythm and starts each stroke with yours, so you heave together.
 - Otherwise it stands at the bow (or the stern, if you're at the bow) facing you. Throw a brick near its hand and it catches it, then throws it back to your chest.
 
-Keep the PC page showing: a hidden tab counts as a crewmate who stepped away and pauses the ship. Set it back to **Me** in Settings when you're done. The code is `src/systems/crew-bot-system.ts`; `npm run test:net` checks all four against a scripted player (`ONLY_BOT=1` runs just those).
+Keep the PC page showing: a hidden tab counts as a crewmate who stepped away and pauses the ship. Opening the game again without the link's `bot=1` makes the page a player again. The code is `src/systems/crew-bot-system.ts`; `npm run test:net` checks all four against a scripted player (`ONLY_BOT=1` runs just those).
 
 ## How the code is laid out
 
 ```
 iwsdk.config.json          IWSDK project config (scene, features, physics at 90 Hz)
-public/scenes/             scene composition (gondola hull and rigging, welcome panel)
+public/scenes/             scene composition (gondola hull and rigging, start screen, game menu)
+public/ui/                 the start screen and game menu panels (UIKitML)
 src/index.ts               world creation and system registration
 src/settings.ts            URL settings
+src/live-settings.ts       settings the game menu changes while playing
+src/game-flow.ts           the start screen's and game menu's words (solo or crew)
 src/scene-assets/          procedural low-poly assets (gondola, avatar, posed hands, merge helpers)
 src/world/                 sky dome, islands and clouds
 src/sim/                   engine-free simulation: deck walking, ship motion, flight model, gondola controls and trim, world tiling, comfort log, release velocity, crank, rope haul, docking, hand grip, finger poses
 src/net/                   lobby protocol, WebRTC session and reconnection, packets, clock sync, jitter buffers, object ownership, crew presence, following the host's ship
 src/perf/                  frame statistics and CSV, measured refresh rate, platform report
-src/systems/               ECS systems: deck walking, frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, flight controls, throws, network, own hands, control signs, crew status sign, crank, rope, grapple
+src/systems/               ECS systems: deck walking, frame rate, perf HUD, platform report, grip (controllers and hands), ship, sky, comfort question, gondola, flight controls, throws, network, own hands, control signs, crew status sign, crank, rope, grapple, start screen, game menu
 lobby/                     crew lobby: Cloudflare Worker (deployed) and Node server (local)
 test/                      unit tests (Vitest)
 scripts/xr-smoke-test.mjs  emulated-headset test driven through the IWSDK CLI

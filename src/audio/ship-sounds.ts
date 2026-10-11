@@ -39,8 +39,31 @@ export class ShipSounds {
 
   constructor(
     private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3 },
-    readonly enabled = true,
+    private on = true,
   ) {}
+
+  /** The sounds are on (the `audio` setting, which the in-game menu changes). */
+  get enabled(): boolean {
+    return this.on;
+  }
+
+  /**
+   * Turn the sounds on or off while playing. Off suspends the audio, so it
+   * costs nothing, and nothing is queued to play when it comes back.
+   */
+  setEnabled(on: boolean): void {
+    this.on = on;
+    if (on) {
+      this.resume();
+    } else {
+      void this.ctx?.suspend();
+    }
+  }
+
+  /** The audio context while the sounds are on. */
+  private get live(): AudioContext | null {
+    return this.on ? this.ctx : null;
+  }
 
   get running(): boolean {
     return this.ctx?.state === 'running';
@@ -48,7 +71,7 @@ export class ShipSounds {
 
   /** Make (on first use) or wake the audio; browsers only allow this after a user gesture or on entering VR. */
   resume(): void {
-    if (!this.enabled) {
+    if (!this.on) {
       return;
     }
     if (!this.ctx) {
@@ -154,10 +177,10 @@ export class ShipSounds {
 
   /** Burner flame 0 (out) to 1, and the wind's gain and brightness. */
   setLoops(burner: number, windGain: number, windCutoff: number): void {
-    if (!this.ctx) {
+    if (!this.live) {
       return;
     }
-    const t = this.ctx.currentTime;
+    const t = this.live.currentTime;
     // The flame catches quickly and dies away a little slower.
     this.burnerGain.gain.setTargetAtTime(burner * 0.5, t, burner > 0 ? FOLLOW * 0.6 : FOLLOW * 2.5);
     this.windGain.gain.setTargetAtTime(windGain, t, FOLLOW * 4);
@@ -166,7 +189,7 @@ export class ShipSounds {
 
   /** One pawl click of the crank's ratchet, louder with `strength` (0 to 1). */
   ratchet(strength: number): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) {
       return;
     }
@@ -183,7 +206,7 @@ export class ShipSounds {
 
   /** A timber creak at `at`: a rough, sliding tone, deeper and longer when the load is heavy. */
   creak(at: Vec3, load: number): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) {
       return;
     }
@@ -218,7 +241,7 @@ export class ShipSounds {
 
   /** The ship's bell: a struck brass bell's out-of-tune partials, each dying away at its own rate; `strength` 0 to 1 for how hard it was struck. */
   bell(strength = 1): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) {
       return;
     }
@@ -237,7 +260,7 @@ export class ShipSounds {
 
   /** Two rising notes: a ring flown through. */
   chime(): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) {
       return;
     }
@@ -252,7 +275,7 @@ export class ShipSounds {
    * the stroke) and a soft wooden tock on the off-beat (reach forward).
    */
   haulCall(beat: 'heave' | 'reach'): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) {
       return;
     }
@@ -279,7 +302,7 @@ export class ShipSounds {
 
   /** The gondola settling onto the ground, harder with a faster `speed` (m/s). */
   thump(speed: number): void {
-    const ctx = this.ctx;
+    const ctx = this.live;
     if (!ctx) {
       return;
     }

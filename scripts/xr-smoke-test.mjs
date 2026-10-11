@@ -161,6 +161,71 @@ async function ensureRuntime() {
   }
 }
 
+/** World position of element `id` on scene panel `panel`. */
+function elementPosition(panel, id) {
+  return evalInApp(`(() => { const w = window.__debug.world; const p = w.getSceneObject('${panel}').getElementById('${id}').getWorldPosition(w.player.head.position.clone()); return [p.x, p.y, p.z]; })()`);
+}
+
+/** Point the right controller's ray at `target` from a little in front of the head, and pull the trigger. */
+async function rayClick(target) {
+  const from = [target[0] + 0.2, target[1] - 0.45, target[2] + 0.55];
+  iwsdk(['xr', 'set-transform'], { device: 'controller-right', position: toOrigin(from) });
+  const o = toOrigin(target);
+  iwsdk(['xr', 'look-at'], { device: 'controller-right', target: o });
+  await sleep(300);
+  iwsdk(['xr', 'select'], { device: 'controller-right' });
+  await sleep(500);
+}
+
+/**
+ * 0. The start screen stands in front of the player as VR starts, and a
+ *    controller ray picks Play solo on it, after which nothing is left in
+ *    front of them. Y on the left controller opens the game menu in front
+ *    of them, the ray turns the ship's
+ *    sounds off and on again, and another press closes it.
+ */
+async function startScreenAndMenu() {
+  const start = await waitFor('the start screen in front of the player', () => {
+    const s = evalInApp('({ page: window.__startScreen.page, visible: window.__startScreen.visible, at: window.__startScreen.position() })');
+    return s.visible && s.at[2] < -0.5 ? s : null;
+  }, 10000).catch(() => evalInApp('({ page: window.__startScreen.page, visible: window.__startScreen.visible, at: window.__startScreen.position() })'));
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-start-screen.png'], {});
+  await rayClick(elementPosition('start-panel', 'start-solo'));
+  const after = evalInApp('({ page: window.__startScreen.page, mode: window.__startScreen.mode, visible: window.__startScreen.visible })');
+  check('The start screen stands in front of the player in VR, and a ray click on Play solo starts the game',
+    start.page === 'home' && start.visible && after.page === null && after.mode === 'solo' && !after.visible,
+    `shown ${start.page} at ${fmt(start.at)}, then ${after.page ?? 'closed'} (${after.mode})`);
+
+  const menuButton = async () => {
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 4, value: 1 }] });
+    await sleep(300);
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-left', buttons: [{ index: 4, value: 0 }] });
+    await sleep(300);
+  };
+  await menuButton();
+  const opened = evalInApp('({ open: window.__gameMenu.open, at: window.__gameMenu.position(), exit: window.__gameMenu.shown("menu-exit") })');
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-game-menu.png'], {});
+  const audio = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-2-value"), on: window.__settings.audio })');
+  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
+  const off = audio();
+  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
+  const on = audio();
+  const playing = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-0-value"), seated: window.__body.state.choice.seated })');
+  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const seated = playing();
+  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
+  const standing = playing();
+  await menuButton();
+  const closed = evalInApp('window.__gameMenu.open');
+  check('Y opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
+    opened.open && opened.at[2] < -0.5 && opened.exit && off.shown === 'Off' && !off.on && on.shown === 'On' && on.on && !closed,
+    `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.shown} then ${on.shown}, closed ${!closed}`);
+  check('The game menu switches between seated and standing play',
+    seated.shown === 'Seated' && seated.seated && standing.shown === 'Standing' && !standing.seated,
+    `${seated.shown} then ${standing.shown}`);
+  iwsdk(['xr', 'set-device-state'], {});
+}
+
 async function main() {
   mkdirSync(`${ROOT}/artifacts`, { recursive: true });
   await ensureRuntime();
@@ -191,6 +256,7 @@ async function main() {
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
   check('XR session active', iwsdk(['xr', 'status'], {}).result.sessionActive);
   await sleep(500);
+  await startScreenAndMenu();
   const ownHands = evalInApp('({ shown: window.__ownHands.shown(), right: window.__ownHands.position("right") })');
   check('This player sees their own hands', ownHands.shown.length === 2, `shown: ${ownHands.shown.join(', ') || 'none'}, right at ${fmt(ownHands.right)}`);
   // 1a. Phase 3 posed hands: the fingers follow the controller's trigger,
