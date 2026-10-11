@@ -1,6 +1,6 @@
 # Spike S8: PC VR through Meta Horizon Link
 
-Status: solo PC VR passes. On 2026-10-11 John played in Chrome over Air Link on his PC and the game held 90 fps at 90 Hz, after Chrome's graphics acceleration was turned on (see "Solved" below). Cross-play between a Quest Browser player and a PC VR player, the plan's pass test, needs a second person with a headset, like S4 and S5. Wired Link, Edge and hand tracking over Link haven't been tried; they run the same code, so they are only worth checking if someone plays that way.
+Status: passed. On 2026-10-10 John (Quest Browser) played a crew game with a second player on an Oculus Rift (PC VR): voice worked with no echo and voice and movement latency were good, which is the plan's cross-play pass test. On 2026-10-11 John played in Chrome over Air Link on his PC and the game held 90 fps at 90 Hz, after Chrome's graphics acceleration was turned on (see "Solved" below). Wired Link, Edge and hand tracking over Link haven't been tried; they run the same code, so they are only worth checking if someone plays that way.
 
 ## What was built
 
@@ -106,6 +106,10 @@ John turned on Chrome's Settings → System → "Use graphics acceleration when 
 ### Result: 90 fps over Air Link (2026-10-11)
 
 With acceleration on and PRs #44 and #47 live, John played in Chrome over Air Link and fps held at 90 at 90 Hz. Starting VR still takes about a minute through Link 207, after the browser's VR permission prompt on the PC screen; the crew panel says both.
+
+### Result: cross-play with an Oculus Rift (2026-10-10)
+
+John, in the Quest Browser, played a crew game with a second player on an Oculus Rift through a PC browser. Voice had no echo, and voice and movement latency were good. They turned the crank together. This needed no platform-specific code beyond feature detection, so S8 passes. The design notes from that game (arms, player height, seated play, keeping in step on the crank and the rope) are design input for later features, not part of this spike.
 
 ### What to try
 
