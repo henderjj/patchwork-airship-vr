@@ -189,7 +189,12 @@ jobs:
     # Deploys the crew lobby (lobby/) to Cloudflare Workers. Until the
     # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets exist this job only
     # leaves a notice, so main stays green before Cloudflare is set up.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # It names check's result itself: by default a job is skipped when any job
+    # further up was skipped, as the tests are when main's files were already
+    # tested on their pull request.
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.check.result == 'success'
     needs: check
     runs-on: ubuntu-latest
     outputs:
