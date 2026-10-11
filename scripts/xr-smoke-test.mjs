@@ -267,8 +267,16 @@ async function startScreenAndMenu() {
   const up2 = heightNow();
   await rayClick(elementPosition('menu-panel', 'height-own'));
   const own = heightNow();
+  const swatches = () => evalInApp(`(() => { const a = window.__debug.world.getSceneObject('menu-panel'); const out = []; for (let i = 0; i < 8; i++) { const e = a.getElementById('coat-' + i); const size = e.size.peek(); out.push({ ring: String(e.properties.peek().borderColor) !== 'rgba(0, 0, 0, 0)', round: Math.abs(size[0] - size[1]) < 0.5 }); } return out; })()`);
+  await rayClick(elementPosition('menu-panel', 'coat-2'));
+  await rayClick(elementPosition('menu-panel', 'coat-5'));
+  const coats = swatches();
+  const ringed = coats.map((c, i) => (c.ring ? i : -1)).filter((i) => i >= 0);
   await menuButton();
   const closed = evalInApp('window.__gameMenu.open');
+  check('The coat swatches are round, and only the colour picked last has a ring',
+    coats.every((c) => c.round) && ringed.length === 1 && ringed[0] === 5,
+    `ringed ${ringed.join(', ') || 'none'}, ${coats.filter((c) => !c.round).length} not round`);
   check('Y opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
     opened.open && opened.at[2] < -0.5 && opened.exit && !off.on && off.offLit && on.on && !on.offLit && !closed,
     `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.on ? 'on' : 'off'} then ${on.on ? 'on' : 'off'}, closed ${!closed}`);

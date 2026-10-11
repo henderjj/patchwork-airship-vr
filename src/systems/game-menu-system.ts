@@ -11,7 +11,7 @@ import { PanelUi } from './panel-ui.js';
 import { startScreen } from './start-screen-system.js';
 
 /** Where the menu stands in VR when opened: ahead of the head and a little below the eyes, m. */
-const DISTANCE = 0.9;
+const DISTANCE = 1.3;
 const DROP = 0.2;
 
 /** The ring round the coat colour in effect, and round the others. */
