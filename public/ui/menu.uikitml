@@ -1,19 +1,21 @@
 <!--
   The in-game menu (src/systems/game-menu-system.ts), opened with Y (or the
   menu button) on the left controller, or M or the Game menu button on the
-  flat page.
-  The crew section shows only in a crew. The setting rows are filled from
-  LIVE_ITEMS (src/live-settings.ts); rows it doesn't use are hidden.
+  flat page. Every setting shows all its choices at once, the one in effect
+  highlighted, so one press picks any of them: coat colours as swatches,
+  character height as a 5 cm stepper, everything else as a row of up to four
+  buttons (row-<key>-0 to -3, labelled and shown by the menu system from
+  LIVE_ITEMS in src/live-settings.ts). The crew section shows only in a crew.
 -->
 <style>
   .root {
     flex-direction: column;
-    width: 440px;
-    padding-top: 16px;
-    padding-bottom: 18px;
-    padding-left: 24px;
-    padding-right: 24px;
-    gap: 10px;
+    width: 520px;
+    padding-top: 14px;
+    padding-bottom: 16px;
+    padding-left: 22px;
+    padding-right: 22px;
+    gap: 8px;
   }
 
   .header {
@@ -32,14 +34,20 @@
     color: rgba(255, 255, 255, 0.95);
   }
 
-  .text {
-    font-size: 14px;
-    line-height: 1.35;
-    color: #3a3a3a;
+  .section {
+    flex-direction: column;
+    gap: 6px;
   }
 
-  .text:dark {
-    color: rgba(255, 255, 255, 0.85);
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #6a6a6a;
+    margin-top: 4px;
+  }
+
+  .section-title:dark {
+    color: rgba(255, 255, 255, 0.55);
   }
 
   .hint {
@@ -52,29 +60,16 @@
     color: rgba(255, 255, 255, 0.6);
   }
 
-  .section {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .row {
-    flex-direction: row;
-    gap: 10px;
-    justify-content: center;
-  }
-
-  .wide {
-    width: 190px;
-  }
-
   .setting {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+    min-height: 36px;
   }
 
   .label {
-    font-size: 14px;
+    width: 140px;
+    font-size: 15px;
     color: #3a3a3a;
   }
 
@@ -82,69 +77,213 @@
     color: rgba(255, 255, 255, 0.85);
   }
 
-  .value {
-    width: 170px;
+  .choices {
+    flex-direction: row;
+    align-items: center;
+    width: 320px;
+    gap: 6px;
+  }
+
+  .choice {
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .swatch {
+    padding-top: 2px;
+    padding-bottom: 2px;
+    padding-left: 2px;
+    padding-right: 2px;
+    border-radius: 19px;
+    border-width: 2px;
+    border-color: rgba(0, 0, 0, 0);
+    cursor: pointer;
+  }
+
+  .swatch:hover {
+    border-color: rgba(120, 120, 120, 0.7);
+  }
+
+  .dot {
+    width: 30px;
+    height: 30px;
+    border-radius: 15px;
+  }
+
+  .stepper {
+    width: 40px;
+    flex-shrink: 0;
+    justify-content: center;
+    text-align: center;
+    font-size: 20px;
+  }
+
+  .amount {
+    width: 64px;
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #272727;
+  }
+
+  .amount:dark {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .own {
+    width: 88px;
+    flex-shrink: 0;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .note {
+    font-size: 13px;
+    color: #5a5a5a;
+  }
+
+  .note:dark {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .footer {
+    flex-direction: row;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .wide {
+    width: 220px;
   }
 </style>
 <Panel id="menu-root" class="root">
   <div class="header">
     <div class="title">Settings</div>
-    <Button id="menu-close" size="sm" variant="tertiary">Close</Button>
+    <Button id="menu-close" size="sm" variant="secondary">Close</Button>
   </div>
   <Divider></Divider>
 
   <div id="menu-crew" class="section" style="display: none">
-    <div id="menu-crew-status" class="text">Crew</div>
-    <div class="row">
-      <Button id="menu-mute-me" class="wide" size="sm" variant="secondary">My mic: on</Button>
-      <Button id="menu-mute-crew" class="wide" size="sm" variant="secondary">Crewmate: on</Button>
+    <div class="section-title">CREW</div>
+    <div id="menu-crew-status" class="hint">Crew</div>
+    <div id="row-mic" class="setting">
+      <div id="row-mic-label" class="label">My microphone</div>
+      <div id="row-mic-choices" class="choices">
+        <Button id="row-mic-0" class="choice" size="sm" variant="secondary">On</Button>
+        <Button id="row-mic-1" class="choice" size="sm" variant="secondary">Muted</Button>
+        <div id="row-mic-note" class="note" style="display: none">Off</div>
+      </div>
     </div>
-    <Divider></Divider>
+    <div id="row-crew" class="setting">
+      <div id="row-crew-label" class="label">Crewmate's voice</div>
+      <div id="row-crew-choices" class="choices">
+        <Button id="row-crew-0" class="choice" size="sm" variant="secondary">On</Button>
+        <Button id="row-crew-1" class="choice" size="sm" variant="secondary">Muted</Button>
+      </div>
+    </div>
   </div>
 
   <div class="section">
+    <div class="section-title">YOU</div>
     <div class="setting">
       <div class="label">Coat colour</div>
-      <Button id="menu-coat" class="value" size="sm" variant="secondary">Blue</Button>
+      <div class="choices">
+        <div id="coat-0" class="swatch"><div id="coat-0-dot" class="dot"></div></div>
+        <div id="coat-1" class="swatch"><div id="coat-1-dot" class="dot"></div></div>
+        <div id="coat-2" class="swatch"><div id="coat-2-dot" class="dot"></div></div>
+        <div id="coat-3" class="swatch"><div id="coat-3-dot" class="dot"></div></div>
+        <div id="coat-4" class="swatch"><div id="coat-4-dot" class="dot"></div></div>
+        <div id="coat-5" class="swatch"><div id="coat-5-dot" class="dot"></div></div>
+        <div id="coat-6" class="swatch"><div id="coat-6-dot" class="dot"></div></div>
+        <div id="coat-7" class="swatch"><div id="coat-7-dot" class="dot"></div></div>
+      </div>
     </div>
-    <div id="menu-row-0" class="setting">
-      <div id="menu-row-0-label" class="label">Setting</div>
-      <Button id="menu-row-0-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div id="row-seated" class="setting">
+      <div id="row-seated-label" class="label">Playing</div>
+      <div id="row-seated-choices" class="choices">
+        <Button id="row-seated-0" class="choice" size="sm" variant="secondary">Standing</Button>
+        <Button id="row-seated-1" class="choice" size="sm" variant="secondary">Seated</Button>
+      </div>
     </div>
-    <div id="menu-row-1" class="setting">
-      <div id="menu-row-1-label" class="label">Setting</div>
-      <Button id="menu-row-1-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div class="setting">
+      <div class="label">Character height</div>
+      <div class="choices">
+        <Button id="height-down" class="stepper" size="sm" variant="secondary">-</Button>
+        <div id="height-value" class="amount">-</div>
+        <Button id="height-up" class="stepper" size="sm" variant="secondary">+</Button>
+        <Button id="height-own" class="own" size="sm" variant="secondary">Your own</Button>
+      </div>
     </div>
-    <div id="menu-row-2" class="setting">
-      <div id="menu-row-2-label" class="label">Setting</div>
-      <Button id="menu-row-2-value" class="value" size="sm" variant="secondary">Value</Button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">SOUND AND VIEW</div>
+    <div id="row-audio" class="setting">
+      <div id="row-audio-label" class="label">Setting</div>
+      <div id="row-audio-choices" class="choices">
+        <Button id="row-audio-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-audio-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-audio-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-audio-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
     </div>
-    <div id="menu-row-3" class="setting">
-      <div id="menu-row-3-label" class="label">Setting</div>
-      <Button id="menu-row-3-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div id="row-labels" class="setting">
+      <div id="row-labels-label" class="label">Setting</div>
+      <div id="row-labels-choices" class="choices">
+        <Button id="row-labels-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-labels-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-labels-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-labels-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
     </div>
-    <div id="menu-row-4" class="setting">
-      <div id="menu-row-4-label" class="label">Setting</div>
-      <Button id="menu-row-4-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div id="row-hud" class="setting">
+      <div id="row-hud-label" class="label">Setting</div>
+      <div id="row-hud-choices" class="choices">
+        <Button id="row-hud-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-hud-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-hud-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-hud-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
     </div>
-    <div id="menu-row-5" class="setting">
-      <div id="menu-row-5-label" class="label">Setting</div>
-      <Button id="menu-row-5-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div id="row-hz" class="setting">
+      <div id="row-hz-label" class="label">Setting</div>
+      <div id="row-hz-choices" class="choices">
+        <Button id="row-hz-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-hz-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-hz-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-hz-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
     </div>
-    <div id="menu-row-6" class="setting">
-      <div id="menu-row-6-label" class="label">Setting</div>
-      <Button id="menu-row-6-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div id="row-foveation" class="setting">
+      <div id="row-foveation-label" class="label">Setting</div>
+      <div id="row-foveation-choices" class="choices">
+        <Button id="row-foveation-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-foveation-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-foveation-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-foveation-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
     </div>
-    <div id="menu-row-7" class="setting">
-      <div id="menu-row-7-label" class="label">Setting</div>
-      <Button id="menu-row-7-value" class="value" size="sm" variant="secondary">Value</Button>
+    <div id="row-comfort" class="setting">
+      <div id="row-comfort-label" class="label">Setting</div>
+      <div id="row-comfort-choices" class="choices">
+        <Button id="row-comfort-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-comfort-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-comfort-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-comfort-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
     </div>
   </div>
   <Divider></Divider>
 
-  <div class="row">
+  <div class="footer">
     <Button id="menu-start" class="wide" variant="secondary">Back to start screen</Button>
     <Button id="menu-exit" class="wide" variant="negative">Exit VR</Button>
   </div>
-  <div id="menu-hint" class="hint">Y or the menu button: close. X: perf HUD. B: stop or start the ship.</div>
+  <div id="menu-hint" class="hint">Y: close. Hold A: control labels. X: perf HUD. B: stop or start the ship.</div>
 </Panel>

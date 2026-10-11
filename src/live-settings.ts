@@ -17,21 +17,23 @@ export interface LiveItem {
 const onOff = (s: boolean) => (s ? '1' : '0');
 
 /**
- * The in-game menu's settings, in the order shown. Each is applied by the
- * system that owns it, listening with `onSettingChange`. Adding one here adds
- * a row to the menu (it has room for MENU_ROWS).
+ * The in-game menu's settings, in the order shown, each a row of buttons
+ * with one per choice. Each is applied by the system that owns it, listening
+ * with `onSettingChange`. Adding one here needs a row for it in
+ * public/ui/menu.uikitml (`row-<key>`, with up to four choices).
  */
 export const LIVE_ITEMS: readonly LiveItem[] = [
   { key: 'audio', label: 'Ship sounds', options: [['1', 'On'], ['0', 'Off']], current: (s) => onOff(s.audio) },
-  { key: 'hud', label: 'Perf HUD (X)', options: [['1', 'Shown'], ['0', 'Hidden']], current: (s) => onOff(s.hud) },
+  { key: 'labels', label: 'Control labels', options: [['0', 'Hold A'], ['1', 'Always']], current: (s) => onOff(s.labels) },
+  { key: 'hud', label: 'Perf HUD (X)', options: [['1', 'On'], ['0', 'Off']], current: (s) => onOff(s.hud) },
   {
     key: 'hz',
-    label: 'Frame rate',
+    label: 'Frame rate (Hz)',
     options: [
-      ['72', '72 Hz'],
-      ['80', '80 Hz'],
-      ['90', '90 Hz'],
-      ['120', '120 Hz'],
+      ['72', '72'],
+      ['80', '80'],
+      ['90', '90'],
+      ['120', '120'],
     ],
     current: (s) => String(s.hz),
   },
@@ -50,27 +52,16 @@ export const LIVE_ITEMS: readonly LiveItem[] = [
     label: 'Comfort question',
     options: [
       ['0', 'Never'],
-      ['60', 'Every minute'],
-      ['120', 'Every 2 min'],
-      ['300', 'Every 5 min'],
+      ['60', '1 min'],
+      ['120', '2 min'],
+      ['300', '5 min'],
     ],
     current: (s) => String(s.comfort),
   },
 ];
 
-/** Setting rows the menu panel has (public/ui/menu.uikitml). */
-export const MENU_ROWS = 8;
-
-/** The option after `current` in `item`'s list, wrapping round; the first if `current` isn't offered. */
-export function nextOption(item: LiveItem, current: string): string {
-  const i = item.options.findIndex(([value]) => value === current);
-  return item.options[(i + 1) % item.options.length][0];
-}
-
-/** What the menu shows for `item`'s value `value` (the raw value if it isn't one of the options, as from a link). */
-export function optionLabel(item: LiveItem, value: string): string {
-  return item.options.find(([v]) => v === value)?.[1] ?? value;
-}
+/** Most choices a setting may offer: the buttons in a menu row. */
+export const MAX_OPTIONS = 4;
 
 /**
  * The saved settings query string with `key` set to `value`, or dropped when

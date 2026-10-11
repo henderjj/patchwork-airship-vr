@@ -27,6 +27,8 @@ export interface Settings {
   bricks: number;
   /** Show the perf HUD from the start. */
   hud: boolean;
+  /** Keep the signs on the gondola's controls shown; off, they show while A (or L) is held. */
+  labels: boolean;
   /** Ship motion profile: still, tour (scripted path), or a comfort profile name. */
   motion: string;
   /** Seed for the generated world. */
@@ -85,6 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   avatars: 0,
   bricks: 8,
   hud: true,
+  labels: false,
   motion: 'flight',
   seed: 1,
   room: '',
@@ -145,6 +148,7 @@ export function parseSettings(search: string): Settings {
     avatars: Math.round(num(params, 'avatars', d.avatars, 0, 8)),
     bricks: Math.round(num(params, 'bricks', d.bricks, 0, 60)),
     hud: bool(params, 'hud', d.hud),
+    labels: bool(params, 'labels', d.labels),
     motion: params.get('motion') ?? d.motion,
     seed: Math.round(num(params, 'seed', d.seed, 0, 1e9)),
     room: params.get('room') ?? d.room,

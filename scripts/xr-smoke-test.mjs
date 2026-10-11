@@ -214,9 +214,11 @@ async function rayClick(target) {
   iwsdk(['xr', 'look-at'], { device: 'controller-right', target: o });
   // Clicks closer together than the slow CLI calls used to space them (a
   // couple of seconds) were sometimes lost on CI runners, so aim, wait,
-  // click and wait about as long as before.
+  // click and wait about as long as before. The trigger is held for half a
+  // second: software rendering can drop to a few frames a second with the
+  // menu open, and a press shorter than a frame is never seen.
   await sleep(1000);
-  iwsdk(['xr', 'select'], { device: 'controller-right' });
+  iwsdk(['xr', 'select'], { device: 'controller-right', duration: 0.5 });
   await sleep(1000);
 }
 
@@ -248,24 +250,31 @@ async function startScreenAndMenu() {
   await menuButton();
   const opened = evalInApp('({ open: window.__gameMenu.open, at: window.__gameMenu.position(), exit: window.__gameMenu.shown("menu-exit") })');
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-game-menu.png'], {});
-  const audio = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-2-value"), on: window.__settings.audio })');
-  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
+  const audio = () => evalInApp('({ on: window.__settings.audio, offLit: window.__gameMenu.selected("row-audio-1") })');
+  await rayClick(elementPosition('menu-panel', 'row-audio-1'));
   const off = audio();
-  await rayClick(elementPosition('menu-panel', 'menu-row-2-value'));
+  await rayClick(elementPosition('menu-panel', 'row-audio-0'));
   const on = audio();
-  const playing = () => evalInApp('({ shown: window.__gameMenu.text("menu-row-0-value"), seated: window.__body.state.choice.seated })');
-  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
-  const seated = playing();
-  await rayClick(elementPosition('menu-panel', 'menu-row-0-value'));
-  const standing = playing();
+  const seatedNow = () => evalInApp('window.__body.state.choice.seated');
+  await rayClick(elementPosition('menu-panel', 'row-seated-1'));
+  const seated = seatedNow();
+  await rayClick(elementPosition('menu-panel', 'row-seated-0'));
+  const standing = !seatedNow();
+  const heightNow = () => evalInApp('window.__body.state.choice.height');
+  await rayClick(elementPosition('menu-panel', 'height-up'));
+  const up1 = heightNow();
+  await rayClick(elementPosition('menu-panel', 'height-up'));
+  const up2 = heightNow();
+  await rayClick(elementPosition('menu-panel', 'height-own'));
+  const own = heightNow();
   await menuButton();
   const closed = evalInApp('window.__gameMenu.open');
   check('Y opens the game menu in front of the player, its ray turns the ship\'s sounds off and on, and it closes again',
-    opened.open && opened.at[2] < -0.5 && opened.exit && off.shown === 'Off' && !off.on && on.shown === 'On' && on.on && !closed,
-    `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.shown} then ${on.shown}, closed ${!closed}`);
-  check('The game menu switches between seated and standing play',
-    seated.shown === 'Seated' && seated.seated && standing.shown === 'Standing' && !standing.seated,
-    `${seated.shown} then ${standing.shown}`);
+    opened.open && opened.at[2] < -0.5 && opened.exit && !off.on && off.offLit && on.on && !on.offLit && !closed,
+    `opened ${opened.open} at ${fmt(opened.at)}, sounds ${off.on ? 'on' : 'off'} then ${on.on ? 'on' : 'off'}, closed ${!closed}`);
+  check('The game menu picks seated or standing play, and steps the character height 5 cm at a time',
+    seated && standing && up1 > 0 && Math.abs(up2 - up1 - 0.05) < 1e-6 && own === 0,
+    `seated ${seated}, standing ${standing}, height ${up1} then ${up2} m, then ${own === 0 ? 'their own' : own}`);
   iwsdk(['xr', 'set-device-state'], {});
 }
 
@@ -340,6 +349,15 @@ async function main() {
   iwsdk(['xr', 'set-device-state'], {});
   const signs = evalInApp('window.__signs.titles()');
   check('Painted signs name the controls', ['BURNER', 'VENT', "SHIP'S BELL", 'BALLAST', 'TILLER'].every((t) => signs.includes(t)), signs.join(', '));
+  const hiddenAtFirst = !evalInApp('window.__signs.shown()');
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: 3, value: 1 }] });
+  await sleep(300);
+  const whileHeld = evalInApp('window.__signs.shown()');
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: 3, value: 0 }] });
+  await sleep(300);
+  const afterRelease = evalInApp('window.__signs.shown()');
+  check('The control signs are hidden until A is held', hiddenAtFirst && whileHeld && !afterRelease,
+    `hidden ${hiddenAtFirst}, shown while held ${whileHeld}, shown after release ${afterRelease}`);
   // The game starts in flight on island A; the spike checks below want the
   // ship held still (6b switches to the flight model again).
   evalInApp("window.__ship.setProfile('still')");

@@ -92,3 +92,27 @@ export function menuCrewLine(state: SessionState, room: string, crewmate: string
       return `Crew ${room}: connection problem.`;
   }
 }
+
+/** The game menu's character height steps, m. */
+export const HEIGHT_STEP = 0.05;
+
+/**
+ * The character height after one press of the menu's + (`direction` 1) or
+ * − (-1): the next 5 cm step above or below, between `min` and `max`. From
+ * "your own" (0) it steps from the player's own height `own` (NaN before it
+ * is measured, then from `fallback`).
+ */
+export function stepHeight(height: number, own: number, direction: 1 | -1, min: number, max: number, fallback: number): number {
+  const from = (height > 0 ? height : Number.isFinite(own) ? own : fallback) / HEIGHT_STEP;
+  const steps = direction > 0 ? Math.floor(from + 1e-6) + 1 : Math.ceil(from - 1e-6) - 1;
+  const stepped = Math.min(max, Math.max(min, steps * HEIGHT_STEP));
+  return Number(stepped.toFixed(2));
+}
+
+/** What the menu shows for character height `height` (0 for their own, measured as `own` m or NaN). */
+export function heightShown(height: number, own: number): string {
+  if (height > 0) {
+    return `${height.toFixed(2)} m`;
+  }
+  return Number.isFinite(own) ? `${own.toFixed(2)} m` : '-';
+}
