@@ -1,6 +1,6 @@
 # Spike S8: PC VR through Meta Horizon Link
 
-Status: built and tested in the cloud with the emulated headset, including a run with the frame-rate API removed as a desktop browser may have it. Whether Chrome and Edge on Windows with Link behave as expected can only be checked on a PC with a Quest (steps at the end).
+Status: solo PC VR passes. On 2026-10-11 John played in Chrome over Air Link on his PC and the game held 90 fps at 90 Hz, after Chrome's graphics acceleration was turned on (see "Solved" below). Cross-play between a Quest Browser player and a PC VR player, the plan's pass test, needs a second person with a headset, like S4 and S5. Wired Link, Edge and hand tracking over Link haven't been tried; they run the same code, so they are only worth checking if someone plays that way.
 
 ## What was built
 
@@ -102,6 +102,10 @@ The game now holds a granted session back from IWSDK until the graphics are read
 ### Solved: graphics acceleration was off (2026-10-10 18:03)
 
 John turned on Chrome's Settings → System → "Use graphics acceleration when available", and the game entered VR over Air Link. With acceleration off, Chrome drew with Windows' software renderer, so every VR start had to move the context to the real card, and the session died in that move. The steps below still apply to anyone else; the crew panel now names the setting when it sees a software renderer.
+
+### Result: 90 fps over Air Link (2026-10-11)
+
+With acceleration on and PRs #44 and #47 live, John played in Chrome over Air Link and fps held at 90 at 90 Hz. Starting VR still takes about a minute through Link 207, after the browser's VR permission prompt on the PC screen; the crew panel says both.
 
 ### What to try
 
