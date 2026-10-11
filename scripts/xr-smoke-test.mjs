@@ -212,9 +212,12 @@ async function rayClick(target) {
   iwsdk(['xr', 'set-transform'], { device: 'controller-right', position: toOrigin(from) });
   const o = toOrigin(target);
   iwsdk(['xr', 'look-at'], { device: 'controller-right', target: o });
-  await sleep(300);
+  // Clicks closer together than the slow CLI calls used to space them (a
+  // couple of seconds) were sometimes lost on CI runners, so aim, wait,
+  // click and wait about as long as before.
+  await sleep(1000);
   iwsdk(['xr', 'select'], { device: 'controller-right' });
-  await sleep(500);
+  await sleep(1000);
 }
 
 /**
