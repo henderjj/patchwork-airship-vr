@@ -501,10 +501,10 @@ async function main() {
     return true;
   })()`);
   iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 1 }] });
-  // Held about 2 s before the pull, as this check has always done (the slow
-  // CLI calls used to take that long). Pulled within half a second of the
-  // grip, a neighbour is sometimes knocked away at 7-11 m/s: a separate bug.
-  await sleep(2300);
+  // Pulled half a second after the grip, so the bricks above drop while the
+  // emulator's frames are uneven: their speed used to be measured from the
+  // drawn position and read 7-15 m/s for a 1 m/s drop (now Havok's velocity).
+  await sleep(500);
   const pulledBy = evalInApp('window.__throw.objects()[0].heldBy');
   iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([0.1, 1.2, -0.6]), duration: 0.6 });
   await sleep(2000);
