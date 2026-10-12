@@ -6,6 +6,8 @@
   character height as a 5 cm stepper, everything else as a row of up to four
   buttons (row-<key>-0 to -3, labelled and shown by the menu system from
   LIVE_ITEMS in src/live-settings.ts). The crew section shows only in a crew.
+  Practice starts a fresh run beside island B's mooring post, both rings
+  flown, to try docking without flying the route.
 -->
 <style>
   .root {
@@ -283,6 +285,15 @@
         <Button id="row-comfort-1" class="choice" size="sm" variant="secondary">Choice</Button>
         <Button id="row-comfort-2" class="choice" size="sm" variant="secondary">Choice</Button>
         <Button id="row-comfort-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">PRACTICE</div>
+    <div class="setting">
+      <div class="label">Docking</div>
+      <div class="choices">
+        <Button id="menu-dock" class="choice" size="sm" variant="secondary">Start beside B's post</Button>
       </div>
     </div>
   </div>

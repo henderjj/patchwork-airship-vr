@@ -31,9 +31,9 @@ Two more draw calls on deck: the grapple (288 triangles) and the line out to it 
 
 ## Tests
 
-- Unit tests (`test/docking.test.ts`): a throw at the post catches with the line paid out; one wide of it runs the line out and hangs, and goes back on its hook once hauled in; a gentle lob back aboard goes back on its hook; the line stops the ship pulling away with the felt gravity under 1 m/s²; hauling in draws the ship to the post and makes it fast, and it is then held still; a deck too high doesn't make fast and tears off after a second; a ship made fast at the post, even low, is clear of island B's rock. `test/route.test.ts` covers the new score and that making fast (not landing) finishes the run.
-- Emulated headset (`npm run test:xr`): the board points to the post when the ship comes alongside; squeezing on the grapple's shank takes it; a scripted throw catches on the post with 4–6 m of line out; scripted hands haul until the ship is made fast; the run finishes with "MADE FAST!" on the board.
-- Two players (`npm run test:net`): the guest throws, both pages see the catch with the same throw count and line out; while the host hauls, both pages agree on the line out and the ship's distance from the post, and both see the run finish with the same score.
+- Unit tests (`test/docking.test.ts`): a throw at the post catches with the line paid out; one wide of it runs the line out and hangs, and goes back on its hook once hauled in; a gentle lob back aboard goes back on its hook; the line stops the ship pulling away with the felt gravity under 1 m/s²; hauling in draws the ship to the post and makes it fast, and it is then held still; a deck too high doesn't make fast and tears off after a second; a ship made fast at the post, even low, is clear of island B's rock; practice docking's start puts the fairlead 5 m out and level, port side to the post. `test/route.test.ts` covers the new score and that making fast (not landing) finishes the run.
+- Emulated headset (`npm run test:xr`): the board points to the post when the ship comes alongside; squeezing on the grapple's shank takes it; a scripted throw catches on the post with 4–6 m of line out; scripted hands haul until the ship is made fast; the run finishes with "MADE FAST!" on the board; later, the game menu's practice docking starts a run beside the post, level, with both rings flown.
+- Two players (`npm run test:net`): the guest picks practice docking and the host starts the run beside the post; the guest throws, both pages see the catch with the same throw count and line out; while the host hauls, both pages agree on the line out and the ship's distance from the post, and both see the run finish with the same score.
 
 ## Tuning knobs
 
@@ -41,9 +41,13 @@ Two more draw calls on deck: the grapple (288 triangles) and the line out to it 
 - `src/systems/grapple-system.ts`: `LOAD_HANGING`, `LOAD_SLACK` and `LOAD_TIGHT` for how heavy the haul is.
 - `src/sim/route.ts`: `CALM_SKIES.dock` for where the post is and how tall.
 
+## Practice docking
+
+The game menu (Y on the left controller) has **Practice → Docking: Start beside B's post**. It starts a fresh run already under way, with both rings counted as flown, the ship still and at floating heat, its port side to the post with the fairlead 5 m out and level with the post's top (`practiceDocking()` in `src/systems/ship-system.ts`, placed by `alongsidePost()` in `src/sim/docking.ts`). The clock starts there, and the run finishes and is scored as usual once the ship is made fast. In a crew, the guest's press asks the host (a `route-dock` event). Ring the bell twice to go back to island A.
+
 ## Headset check
 
-1. Fly the route to island B. Once both rings are flown, the board says NEXT Post at B, with how far, which way and how much higher or lower.
+1. Fly the route to island B (or use the game menu's practice docking to start beside the post). Once both rings are flown, the board says NEXT Post at B, with how far, which way and how much higher or lower.
 2. Come alongside the post with it off the port bow, a few metres out, and use the board's height line to get level (LEVEL WITH POST).
 3. Take the grapple off its hook at the port bow corner (low on the inside of the bow rail, just right of where the line comes aboard) and throw it overhand at the post.
 4. If it catches, haul the line in along the port rail. Watch the board and the mooring sign for HIGH or LOW, and vent or burn to stay level. With the line down to 1.3 m and the deck level, the ship is made fast; 3 s later the board shows the score.

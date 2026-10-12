@@ -17,7 +17,7 @@ import {
   updateFeltGravity,
   updateQuaternion,
 } from '../sim/ship-motion.js';
-import { DockingSim } from '../sim/docking.js';
+import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
 import { groundBelow, islandHit, restingDeck } from '../sim/islands.js';
@@ -56,6 +56,8 @@ const MAX_BURN_SECONDS = 60;
 const FLIGHT_START = [ROUTE.start.x, restingDeck(ROUTE.start), ROUTE.start.z] as const;
 /** Waiting on island A, the ground crew keeps the envelope this close below floating heat, °C. */
 const READY_HEAT_BELOW = 2;
+/** Practice docking starts with the fairlead this far out from the post, m. */
+const PRACTICE_DOCK_ACROSS = 5;
 /** While a guest is connected, the host repeats the route's state this often, ms (so a late joiner catches up). */
 const ROUTE_RESEND_MS = 1000;
 /** How fast the keyboard swings the rudder, full travel per second. */
@@ -107,7 +109,7 @@ export function moored(): boolean {
 }
 
 /** The ship system's own restart and ready check, set when it starts. */
-const routeControl = { restart: () => undefined as void, ready: () => undefined as void };
+const routeControl = { restart: () => undefined as void, ready: () => undefined as void, practiceDocking: () => undefined as void };
 
 /** This player is ready to cast off (the guest tells the host). */
 export function markReady(): void {
@@ -124,6 +126,20 @@ export function restartRoute(): void {
     netLink.sendEvent({ t: 'route-restart' });
   } else {
     routeControl.restart();
+  }
+}
+
+/**
+ * Practice docking (the game menu's "Start beside B's post"): start a run
+ * with both rings flown and the ship beside island B's mooring post, level
+ * with it, so the crew can go straight to throwing the grapple (the guest
+ * asks the host).
+ */
+export function practiceDocking(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'route-dock' });
+  } else {
+    routeControl.practiceDocking();
   }
 }
 
@@ -223,6 +239,7 @@ export class ShipSystem extends createSystem({
 
   init(): void {
     routeControl.restart = () => this.restart();
+    routeControl.practiceDocking = () => this.practiceDocking();
     routeControl.ready = () => {
       crewReady.host = true;
       this.sendRoute();
@@ -295,6 +312,11 @@ export class ShipSystem extends createSystem({
         this.restart();
       }
     });
+    netLink.events.set('route-dock', () => {
+      if (netLink.isHost) {
+        this.practiceDocking();
+      }
+    });
     netLink.events.set('crew-ready', () => {
       if (netLink.isHost && route.phase === 'ready') {
         crewReady.guest = true;
@@ -303,7 +325,7 @@ export class ShipSystem extends createSystem({
     });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'crew-ready']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'crew-ready']) {
         netLink.events.delete(name);
       }
     });
@@ -363,6 +385,23 @@ export class ShipSystem extends createSystem({
     route.reset();
     docking.reset();
     crewReady.host = crewReady.guest = false;
+    this.sendRoute();
+  }
+
+  /**
+   * Host or solo: a fresh run already under way beside island B's post,
+   * both rings flown, the envelope at floating heat and the ship still.
+   */
+  private practiceDocking(): void {
+    this.restart();
+    const at = alongsidePost(ROUTE.dock, ROUTE.finish.x, ROUTE.finish.z, PRACTICE_DOCK_ACROSS);
+    flight.reset(ship, at.x, at.y, at.z, at.yaw);
+    route.phase = 'flying';
+    route.ringMask = (1 << ROUTE.rings.length) - 1;
+    route.startTime = ship.time;
+    route.jumped();
+    crewReady.host = crewReady.guest = true;
+    console.info('[Route] practice docking: starting beside the post at B');
     this.sendRoute();
   }
 

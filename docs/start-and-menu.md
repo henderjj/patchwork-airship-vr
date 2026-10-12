@@ -47,6 +47,8 @@ The rows:
 | Sound and view | Foveation | Off, Half, Full |
 | Sound and view | Comfort question | Never, 1 min, 2 min, 5 min |
 
+Under **Practice**, **Start beside B's post** (Docking) starts a fresh run already under way beside island B's mooring post, both rings counted as flown, the deck level with the post's top and its port side 5 m off it, so docking can be tried without flying the route ([docking.md](docking.md)). In a crew, the guest's press asks the host, who flies the ship for both.
+
 Below them, **Back to start screen** leaves any crew and shows the start screen, and **Exit VR** ends the session. A line at the bottom reminds the player of the controller buttons.
 
 In code, the crew, Playing and live-setting rows are `CHOICE_ROWS` in the menu system; the live settings come from `LIVE_ITEMS` in `src/live-settings.ts`, applied by the system that owns each from `onSettingChange`. A new live setting is one `LIVE_ITEMS` entry (up to four choices) plus a `row-<key>` row in the panel. Height steps are `stepHeight` in `src/game-flow.ts`.

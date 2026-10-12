@@ -1,6 +1,6 @@
 import type { Island } from './islands.js';
 import { DEFAULT_ROPE } from './rope-haul.js';
-import { GRAVITY, type ShipState } from './ship-motion.js';
+import { createShipState, GRAVITY, type ShipState, updateQuaternion } from './ship-motion.js';
 
 /**
  * Docking (Phase 3 step 1): throwing the grapple on the end of the mooring
@@ -110,6 +110,41 @@ export function worldToShip(s: ShipState, x: number, y: number, z: number, out: 
   out.x = px + qw * tx + (qy * tz - qz * ty);
   out.y = py + qw * ty + (qz * tx - qx * tz);
   out.z = pz + qw * tz + (qx * ty - qy * tx);
+}
+
+/**
+ * Where to put the ship (its deck's middle, and heading) to start beside
+ * `post`: port side (the fairlead) to it, the fairlead `across` metres out
+ * from it across the ground, on the side away from the island's middle at
+ * (`islandX`, `islandZ`), and `high` metres above the post's top.
+ */
+export function alongsidePost(
+  post: DockPost,
+  islandX: number,
+  islandZ: number,
+  across: number,
+  high = 0,
+): { x: number; y: number; z: number; yaw: number } {
+  const dx = post.x - islandX;
+  const dz = post.z - islandZ;
+  const d = Math.hypot(dx, dz) || 1;
+  const outX = dx / d;
+  const outZ = dz / d;
+  // Ship -X (port) faces back towards the post.
+  const yaw = Math.atan2(-outZ, outX);
+  const s = createShipState();
+  s.x = s.y = s.z = 0;
+  s.pitch = s.roll = 0;
+  s.yaw = yaw;
+  updateQuaternion(s);
+  const f = { x: 0, y: 0, z: 0 };
+  shipToWorld(s, FAIRLEAD[0], FAIRLEAD[1], FAIRLEAD[2], f);
+  return {
+    x: post.x + outX * across - f.x,
+    y: post.y + post.height + high - f.y,
+    z: post.z + outZ * across - f.z,
+    yaw,
+  };
 }
 
 /** A thrown grapple: where and how fast it left the hand (world), and the ship time it did. */
