@@ -8,6 +8,8 @@ import {
   TorusGeometry,
 } from '@iwsdk/core';
 import { FAIRLEAD } from '../sim/docking.js';
+import { DECK_WIDTH } from '../sim/gondola-layout.js';
+import { RAIL_HEIGHT } from './gondola.scene-asset.js';
 import { beam, mergeParts, type Part, shade } from './lowpoly.js';
 
 /**
@@ -49,6 +51,10 @@ const COIL_STEP = [0.01, -0.008] as const;
 const COIL_TOP = 0.02 + (COIL_TURNS.length - 1) * COIL_RISE;
 /** Where the outboard line goes over the rail top and hangs down from (the docking fairlead). */
 export const ROPE_OVERSIDE = FAIRLEAD;
+/** The haul call's lamp (RopeSystem lights it): its radius, and its centre, sat in a brass cup on the port rail top halfway along the run, in front of the hauling crew. */
+export const HAUL_LAMP_RADIUS = 0.022;
+const LAMP_CUP_HEIGHT = 0.012;
+export const HAUL_LAMP = [-DECK_WIDTH / 2 + 0.03, RAIL_HEIGHT + 0.03 + LAMP_CUP_HEIGHT + HAUL_LAMP_RADIUS * 0.6, ROPE_Z0 + ROPE_RUN * 0.55] as const;
 /** Where the grapple's eye hangs on its hook, on the inside of the bow rail by the fairlead. */
 export const GRAPPLE_HOOK = [-0.66, 0.93, -1.41] as const;
 /** The grapple is held by its shank this far below its eye, m... */
@@ -115,6 +121,12 @@ export function createRope(): RopeMeshes {
     beam([ox + 0.06, oy + 0.01, oz], [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
     // Fairlead ring on the rail.
     { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] },
+    // The haul lamp's cup on the rail top.
+    {
+      geometry: new CylinderGeometry(HAUL_LAMP_RADIUS * 1.1, HAUL_LAMP_RADIUS * 0.8, LAMP_CUP_HEIGHT, 10),
+      color: BRASS,
+      position: [HAUL_LAMP[0], RAIL_HEIGHT + 0.03 + LAMP_CUP_HEIGHT / 2, HAUL_LAMP[2]],
+    },
     // The grapple's hook: an iron peg out of the bow rail's inside face, turned up at its end.
     beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] - 0.05], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] + 0.02], 0.008, IRON, 5),
     beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.008, GRAPPLE_HOOK[2] + 0.02], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.04, GRAPPLE_HOOK[2] + 0.025], 0.007, IRON, 5),
