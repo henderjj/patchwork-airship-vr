@@ -403,7 +403,7 @@ async function main() {
   //     back at their own height nothing moves. The rig carries the hands.
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.6, z: 0 } });
   await sleep(300);
-  const bodyState = () => evalInApp('({ ...window.__body.state, rigY: window.__debug.world.player.position.y, standingEye: window.__body.standingEye(), hand: window.__ownHands.position("right") })');
+  const bodyState = () => evalInApp('({ ...window.__body.state, rigY: window.__debug.world.player.position.y, hand: window.__ownHands.position("right") })');
   evalInApp('(window.__body.choose({ height: 1.8, seated: false }), true)');
   const tall = await waitFor('the 1.8 m character', () => { const b = bodyState(); return Math.abs(b.eye - 1.67) < 0.01 && b; }, 5000).catch(() => bodyState());
   check('A chosen character height puts the eyes at it', Math.abs(tall.eye - 1.67) < 0.01 && Math.abs(tall.rigY - 0.07) < 0.01,
@@ -411,11 +411,12 @@ async function main() {
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.15, z: 0 } });
   await sleep(300);
   evalInApp('(window.__body.choose({ height: 0, seated: true }), true)');
-  const seatedEye = tall.standingEye ?? 1.62;
+  // Mirrors SEATED_EYE in src/sim/body-height.ts.
+  const seatedEye = 1.45;
   const seated = await waitFor('seated play', () => { const b = bodyState(); return Math.abs(b.eye - seatedEye) < 0.01 && b; }, 5000).catch(() => bodyState());
-  check('Seated play lifts a seated player to standing eye height, hands too',
-    Math.abs(seated.eye - seatedEye) < 0.01 && Math.abs(seated.rigY - (seatedEye - 1.15)) < 0.01 && seated.hand[1] > tall.hand[1] + 0.3,
-    `eyes at ${seated.eye?.toFixed(3)} m for standing ${seatedEye.toFixed(3)} m, rig raised ${seated.rigY?.toFixed(3)} m, right hand at ${fmt(seated.hand)}`);
+  check('Seated play lifts a seated player to a little under average eye height, hands too',
+    Math.abs(seated.eye - seatedEye) < 0.01 && Math.abs(seated.rigY - (seatedEye - 1.15)) < 0.01 && seated.hand[1] > tall.hand[1] + 0.2,
+    `eyes at ${seated.eye?.toFixed(3)} m for ${seatedEye.toFixed(3)} m, rig raised ${seated.rigY?.toFixed(3)} m, right hand at ${fmt(seated.hand)}`);
   evalInApp('(window.__body.choose({ height: 0, seated: false }), true)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: { x: 0, y: 1.6, z: 0 } });
   await sleep(300);
