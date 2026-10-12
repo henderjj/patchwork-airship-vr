@@ -6,7 +6,7 @@ import { FAIRLEAD, MADE_FAST_HEIGHT, STRAIN_HEIGHT } from '../sim/docking.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
-import { crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
+import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
 const BOARD_SIZE = [0.42, 0.26] as const;
@@ -166,15 +166,18 @@ export class RouteSystem extends createSystem({}) {
           const mark = (ready: boolean) => (ready ? 'READY' : '...');
           return moored()
             ? ['CALM SKIES', 'Moored on island A', 'Ring the bell when ready', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, `Then fly ${ROUTE.rings.length} rings to island B.`, best]
-            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, "and moor at island B's post.", best];
+            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly ${ROUTE.rings.length} rings, moor at B`, 'and lower the crate there.', best];
         }
-        return ['CALM SKIES', 'Waiting on island A', 'Feed the burner to lift off,', `fly through ${ROUTE.rings.length} rings`, "and moor at island B's post.", best];
+        return ['CALM SKIES', 'Waiting on island A', 'Feed the burner to lift off,', `fly ${ROUTE.rings.length} rings, moor at B`, 'and lower the crate there.', best];
       }
       case 'flying': {
-        const top = [`TIME ${clock(route.seconds)}`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
+        const top = [`TIME ${clock(route.seconds)}  CRATE ${Math.round(cargo.condition)}%`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
         const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`;
-        if (docking.phase === 'hooked' || docking.phase === 'fast') {
-          return [...top, docking.phase === 'fast' ? 'MADE FAST' : `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, ringAgain ? 'Ring again to restart' : ''];
+        if (docking.phase === 'fast') {
+          return [...top, 'MADE FAST', cargo.phase === 'delivered' ? '     CRATE DELIVERED' : '     LOWER THE CRATE', fuel, ringAgain ? 'Ring again to restart' : ''];
+        }
+        if (docking.phase === 'hooked') {
+          return [...top, `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, ringAgain ? 'Ring again to restart' : ''];
         }
         const next = this.nextTarget();
         return [
@@ -188,11 +191,11 @@ export class RouteSystem extends createSystem({}) {
       case 'finished': {
         const r = route.result!;
         return [
-          `MADE FAST!  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
+          `DELIVERED!  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
           `SCORE ${r.score}${this.best > 0 ? `   BEST ${this.best}` : ''}`,
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
           `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
-          '',
+          `Crate ${r.cargo ?? 100}%`,
           'Ring the bell to fly again',
         ];
       }

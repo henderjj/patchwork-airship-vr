@@ -53,7 +53,8 @@ import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { bell } from './route-system.js';
-import { dropBallast, flightControls, flightInfo, ship, stations } from './ship-system.js';
+import { cargo, dropBallast, flightControls, flightInfo, ship, stations } from './ship-system.js';
+import { CARGO_TRIM_WEIGHT, HATCH_CENTER } from '../sim/cargo.js';
 
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -143,8 +144,9 @@ export class ControlsSystem extends createSystem({}) {
   private sendAccumulator = 0;
 
   private trim = { pitch: 0, roll: 0 };
-  private crewX = [0, 0];
-  private crewZ = [0, 0];
+  private crewX = [0, 0, 0];
+  private crewZ = [0, 0, 0];
+  private crewWeights = [1, 1, 1];
   private swing = { x: 0, z: 0, vx: 0, vz: 0 };
   private tillerTmp = { x: 0, y: 0, z: 0 };
   private clapperMesh!: Mesh;
@@ -291,8 +293,8 @@ export class ControlsSystem extends createSystem({}) {
       const g = grip[side];
       this.player.gripSpaces[side].getWorldPosition(this.handPos);
       const p = this.handPos;
-      if (held === 'grapple') {
-        // GrappleSystem's: it takes and lets go of the grapple itself.
+      if (held === 'grapple' || held === 'winch' || held === 'lever' || held === 'tag') {
+        // GrappleSystem's and CargoSystem's: they take and let go of their gear themselves.
         continue;
       }
       if (held) {
@@ -424,7 +426,14 @@ export class ControlsSystem extends createSystem({}) {
       this.crewZ[1] = netLink.remote.head.pz;
       count = 2;
     }
-    trimFromCrew(this.crewX, this.crewZ, count, this.trim);
+    if (cargo.carried) {
+      // The crate, in the hatch or on the line from the block above it.
+      this.crewX[count] = HATCH_CENTER[0];
+      this.crewZ[count] = HATCH_CENTER[1];
+      this.crewWeights[count] = CARGO_TRIM_WEIGHT;
+      count++;
+    }
+    trimFromCrew(this.crewX, this.crewZ, count, this.trim, this.crewWeights);
     flightControls.trimPitch = this.trim.pitch;
     flightControls.trimRoll = this.trim.roll;
   }

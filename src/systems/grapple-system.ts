@@ -108,7 +108,6 @@ export class GrappleSystem extends createSystem({}) {
   private seenResets = -1;
   private shownPhase: GrapplePhase = 'stowed';
   private lastStrain = 0;
-  private fastLine = 0;
   private handPos = new Vector3();
   private handQuat = new Quaternion();
   private eye = new Vector3();
@@ -198,15 +197,14 @@ export class GrappleSystem extends createSystem({}) {
     sim.mass = light ? LIGHT_MASS : sim.params.mass;
     sim.damping = light ? LIGHT_DAMPING : sim.params.damping;
     if (phase === 'fast') {
-      // Made fast: the line is tied off.
-      sim.setOut(this.fastLine);
+      // Made fast: the line is tied off (the guest's line follows the host's).
+      if (host) {
+        sim.setOut(docking.fastLine);
+      }
     } else if (phase === 'hooked' && sim.params.length - sim.hauled < SHORTEST_LINE) {
       sim.setOut(SHORTEST_LINE);
     }
     docking.lineOut = sim.params.length - sim.hauled;
-    if (phase !== 'fast') {
-      this.fastLine = docking.lineOut;
-    }
     if (host && docking.stowIfIn(docking.lineOut)) {
       sim.setOut(0);
       docking.lineOut = 0;

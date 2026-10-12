@@ -122,6 +122,32 @@ describe('crank packets', () => {
   });
 });
 
+describe('cargo packets', () => {
+  it('round-trip the host crate state and the guest hands on the gear', async () => {
+    const c = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(c.CARGO_PACKET_BYTES);
+    const state = { ...c.createCargoStatePacket(), timeMs: 98765.4, phase: 2, flags: c.CARGO_FLAG_DOOR | c.CARGO_FLAG_TAG, winch: 41.5, lever: 0.66, x: 0.3, y: -6.2, z: 0.81, vx: -0.2, vz: 0.05, condition: 73.6, knocks: 260, resets: 3 };
+    expect(c.encodeCargo(buffer, state)).toBe(c.CARGO_PACKET_BYTES);
+    const out = c.createCargoStatePacket();
+    expect(c.decodeCargo(new DataView(buffer), out)).toBe(true);
+    expect(out).toMatchObject({ timeMs: 98765, phase: 2, flags: 5, condition: 74, knocks: 4, resets: 3 });
+    expect(out.winch).toBeCloseTo(41.5, 5);
+    expect(out.lever).toBeCloseTo(0.66, 2);
+    expect(out.y).toBeCloseTo(-6.2, 5);
+    expect(out.vx).toBeCloseTo(-0.2, 5);
+
+    const hands = new ArrayBuffer(c.CARGO_HANDS_PACKET_BYTES);
+    expect(c.encodeCargoHands(hands, { timeMs: 5, flags: c.CARGO_FLAG_WINCH | c.CARGO_FLAG_LEVER, winch: -3.25, lever: 0.4, tagX: -0.071, tagZ: 0.462, resets: 3 })).toBe(c.CARGO_HANDS_PACKET_BYTES);
+    const h = c.createCargoHandsPacket();
+    expect(c.decodeCargoHands(new DataView(hands), h)).toBe(true);
+    expect(h).toMatchObject({ timeMs: 5, flags: 10, winch: -3.25, tagX: -0.071, tagZ: 0.462, resets: 3 });
+    expect(h.lever).toBeCloseTo(0.4, 2);
+    // Neither is taken for the other.
+    expect(c.decodeCargo(new DataView(hands), out)).toBe(false);
+    expect(c.decodeCargoHands(new DataView(buffer), h)).toBe(false);
+  });
+});
+
 describe('clock sync reset', () => {
   it('forgets the previous peer', async () => {
     const { ClockSync } = await import('../src/net/clock-sync.js');

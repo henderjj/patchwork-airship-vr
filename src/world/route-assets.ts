@@ -99,15 +99,28 @@ export function createBeaconLampGeometry(): BufferGeometry {
 const IRON = 0x3a3f47;
 const POST_RED = 0xc8402c;
 
+/** The cargo stage under the jetty's end, in the jetty's own space (the post's foot at the origin, the jetty along +Z). */
+export interface CargoStagePlace {
+  x: number;
+  /** Its planks' top, below the jetty (negative). */
+  y: number;
+  z: number;
+  radius: number;
+  depth: number;
+}
+
 /**
  * Island B's jetty and mooring post (docking, Phase 3): the post at the
  * origin, standing `postHeight` on the jetty's end, and the jetty running
  * `length` towards +Z back to the island, on struts down to the rock. The
  * post is banded red and white so it reads from a distance, with an iron cap
- * for the grapple to bite under.
+ * for the grapple to bite under. With `stage`, the cargo stage too (Phase 3
+ * cargo): a small floating rock below the jetty's end with a plank platform
+ * on it, a painted ring to set crates down in, a few crates already
+ * delivered, and a rope ladder up to the jetty.
  */
-export function createJettyGeometry(length: number, postHeight: number): BufferGeometry {
-  const parts: Part[] = [];
+export function createJettyGeometry(length: number, postHeight: number, stage?: CargoStagePlace): BufferGeometry {
+  const parts: Part[] = stage ? cargoStageParts(stage) : [];
   const width = 1.6;
   // Planks across, on two stringers. They sit a little above the island's
   // grass where the jetty runs onto it (their tops level with it flickered).
@@ -131,4 +144,45 @@ export function createJettyGeometry(length: number, postHeight: number): BufferG
   parts.push({ geometry: new CylinderGeometry(0.24, 0.2, 0.12, 8), position: [0, postHeight + 0.06, 0], color: IRON });
   parts.push({ geometry: new CylinderGeometry(0.2, 0.2, 0.06, 8), position: [0, postHeight - 0.25, 0], color: IRON });
   return mergeParts(parts);
+}
+
+const CRATE = 0xc08a52;
+
+function cargoStageParts(stage: CargoStagePlace): Part[] {
+  const { x, y, z, radius } = stage;
+  const parts: Part[] = [];
+  // The rock: a jittered cone under a thin grass cap, like the scenery islands.
+  const rockDepth = stage.depth - 0.3;
+  const rock = new ConeGeometry(radius * 0.95, rockDepth, 10, 3);
+  rock.rotateX(Math.PI);
+  jitter(rock, radius * 0.1, rng(9311));
+  const rockPos = rock.getAttribute('position');
+  for (let i = 0; i < rockPos.count; i++) {
+    rockPos.setY(i, Math.min(rockPos.getY(i), rockDepth / 2 - 0.05));
+  }
+  parts.push({ geometry: rock, position: [x, y - 0.3 - rockDepth / 2, z], color: (tri, c) => shade(ROCK, 0.95 - Math.min(0.4, (-(c.y - y) / stage.depth) * 0.45) + (tri % 3) * 0.02) });
+  parts.push({ geometry: new CylinderGeometry(radius, radius * 0.95, 0.3, 12, 1), position: [x, y - 0.27, z], color: (tri) => shade(GRASS, 0.9 + (tri % 3) * 0.03) });
+  // The plank platform, square, a little inside the rock's rim, and a painted ring on it.
+  const side = radius * 1.3;
+  const planks = 9;
+  for (let i = 0; i < planks; i++) {
+    const px = x - side / 2 + (side / planks) * (i + 0.5);
+    parts.push({ geometry: new BoxGeometry(side / planks - 0.03, 0.1, side), position: [px, y - 0.05, z], color: i % 3 === 0 ? PLANK_DARK : PLANK });
+  }
+  parts.push({ geometry: new TorusGeometry(radius * 0.55, 0.1, 3, 24), position: [x, y + 0.005, z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.1], color: PAINT });
+  // A few crates already delivered, stacked at the platform's island side.
+  const stack: [number, number, number][] = [[-1.6, 0, 1.4], [-1.05, 0, 1.6], [-1.35, 0.4, 1.5]];
+  for (const [cx, cy, cz] of stack) {
+    parts.push({ geometry: new BoxGeometry(0.4, 0.36, 0.4), position: [x + cx, y + cy + 0.18, z + cz], color: (tri) => (tri % 4 < 2 ? CRATE : shade(CRATE, 0.85)) });
+  }
+  // A rope ladder from the platform up to the jetty's end beside the post.
+  const lx = 0.55;
+  const lz = -0.25;
+  for (const dx of [-0.2, 0.2]) {
+    parts.push(beam([lx + dx, y, lz], [lx + dx, 0.05, lz], 0.02, POLE, 4));
+  }
+  for (let ry = y + 0.35; ry < 0; ry += 0.35) {
+    parts.push(beam([lx - 0.2, ry, lz], [lx + 0.2, ry, lz], 0.025, PLANK_DARK, 4));
+  }
+  return parts;
 }

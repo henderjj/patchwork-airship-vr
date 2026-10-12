@@ -17,6 +17,7 @@ import {
   updateFeltGravity,
   updateQuaternion,
 } from '../sim/ship-motion.js';
+import { CargoSim, CRATE_KG } from '../sim/cargo.js';
 import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
@@ -59,6 +60,8 @@ const FLIGHT_START = [ROUTE.start.x, restingDeck(ROUTE.start), ROUTE.start.z] as
 const READY_HEAT_BELOW = 2;
 /** Practice docking starts with the fairlead this far out from the post, m. */
 const PRACTICE_DOCK_ACROSS = 5;
+/** Practice cargo starts made fast with this much line out, m. */
+const PRACTICE_CARGO_LINE = 1.2;
 /** While a guest is connected, the host repeats the route's state this often, ms (so a late joiner catches up). */
 const ROUTE_RESEND_MS = 1000;
 /** How fast the keyboard swings the rudder, full travel per second. */
@@ -98,6 +101,13 @@ export const route = new RouteRun(ROUTE);
 export const docking = new DockingSim(ROUTE.dock);
 
 /**
+ * The crate (Phase 3 cargo, docs/cargo.md), carried from island A and
+ * lowered through the hatch onto island B's cargo stage. CargoSystem works
+ * the hatch, winch and tag line and runs it on the host.
+ */
+export const cargo = new CargoSim();
+
+/**
  * Phase 2 ready check: with a crewmate, the ship stays moored to island A
  * until both players have rung the bell there. Solo, it casts off as soon as
  * it has lift. The host keeps this and sends it with the route.
@@ -110,7 +120,12 @@ export function moored(): boolean {
 }
 
 /** The ship system's own restart and ready check, set when it starts. */
-const routeControl = { restart: () => undefined as void, ready: () => undefined as void, practiceDocking: () => undefined as void };
+const routeControl = {
+  restart: () => undefined as void,
+  ready: () => undefined as void,
+  practiceDocking: () => undefined as void,
+  practiceCargo: () => undefined as void,
+};
 
 /** This player is ready to cast off (the guest tells the host). */
 export function markReady(): void {
@@ -141,6 +156,20 @@ export function practiceDocking(): void {
     netLink.sendEvent({ t: 'route-dock' });
   } else {
     routeControl.practiceDocking();
+  }
+}
+
+/**
+ * Practice cargo (the game menu's "Start made fast at B"): start a run with
+ * both rings flown and the ship already made fast at island B's post, the
+ * crate aboard, so the crew can go straight to lowering it (the guest asks
+ * the host).
+ */
+export function practiceCargo(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'route-cargo' });
+  } else {
+    routeControl.practiceCargo();
   }
 }
 
@@ -237,6 +266,7 @@ export class ShipSystem extends createSystem({
   private sendAccumulator = 0;
   private routeSentAt = Number.NEGATIVE_INFINITY;
   private wasConnected = false;
+  private routeCargo = { delivered: false, condition: 100 };
 
   init(): void {
     // The breeze's strength from the game menu (only the host's or a solo ship's matters).
@@ -254,6 +284,7 @@ export class ShipSystem extends createSystem({
     );
     routeControl.restart = () => this.restart();
     routeControl.practiceDocking = () => this.practiceDocking();
+    routeControl.practiceCargo = () => this.practiceCargo();
     routeControl.ready = () => {
       crewReady.host = true;
       this.sendRoute();
@@ -331,6 +362,11 @@ export class ShipSystem extends createSystem({
         this.practiceDocking();
       }
     });
+    netLink.events.set('route-cargo', () => {
+      if (netLink.isHost) {
+        this.practiceCargo();
+      }
+    });
     netLink.events.set('crew-ready', () => {
       if (netLink.isHost && route.phase === 'ready') {
         crewReady.guest = true;
@@ -339,7 +375,7 @@ export class ShipSystem extends createSystem({
     });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'crew-ready']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'crew-ready']) {
         netLink.events.delete(name);
       }
     });
@@ -398,6 +434,7 @@ export class ShipSystem extends createSystem({
     setBallast(0);
     route.reset();
     docking.reset();
+    cargo.reset();
     crewReady.host = crewReady.guest = false;
     this.sendRoute();
   }
@@ -416,6 +453,25 @@ export class ShipSystem extends createSystem({
     route.jumped();
     crewReady.host = crewReady.guest = true;
     console.info('[Route] practice docking: starting beside the post at B');
+    this.sendRoute();
+  }
+
+  /**
+   * Host or solo: a fresh run already under way with the ship made fast at
+   * island B's post (level with it, port side to it), both rings flown and
+   * the crate aboard.
+   */
+  private practiceCargo(): void {
+    this.restart();
+    const at = alongsidePost(ROUTE.dock, ROUTE.finish.x, ROUTE.finish.z, PRACTICE_CARGO_LINE);
+    flight.reset(ship, at.x, at.y, at.z, at.yaw);
+    docking.makeFast(ship, PRACTICE_CARGO_LINE);
+    route.phase = 'flying';
+    route.ringMask = (1 << ROUTE.rings.length) - 1;
+    route.startTime = ship.time;
+    route.jumped();
+    crewReady.host = crewReady.guest = true;
+    console.info('[Route] practice cargo: starting made fast at B');
     this.sendRoute();
   }
 
@@ -482,6 +538,8 @@ export class ShipSystem extends createSystem({
         const swing = (this.keys.starboard ? 1 : 0) - (this.keys.port ? 1 : 0);
         c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
         c.crankSpeed = crankInfo.speed;
+        // Once the crate is delivered the ship is that much lighter.
+        c.ballastDropped = ballastDropped(flightInfo.ballastMask) + (cargo.carried ? 0 : CRATE_KG);
         if (route.phase === 'ready') {
           flight.heat = Math.max(flight.heat, flight.balanceHeat(c.ballastDropped) - READY_HEAT_BELOW);
         }
@@ -501,7 +559,9 @@ export class ShipSystem extends createSystem({
           }
         }
         const crashed = islandHit(ROUTE_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
-        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed)) {
+        this.routeCargo.delivered = cargo.phase === 'delivered';
+        this.routeCargo.condition = cargo.condition;
+        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, this.routeCargo)) {
           this.sendRoute();
         }
         flightInfo.heat = flight.heat;

@@ -625,18 +625,58 @@ async function shipSyncChecks(host, guest) {
     const [h, g] = await Promise.all([dockState(host.page), dockState(guest.page)]);
     return h.lineOut < 3 ? { h, g } : null;
   }, 8000).catch(() => null);
-  const docked = await waitFor('both to see the run finish made fast', async () => {
-    const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
-    return h.result && g.result && g.board[0].startsWith('MADE FAST') ? { h, g } : null;
+  const fast = await waitFor('both to see the ship made fast', async () => {
+    const [h, g] = await Promise.all([dockState(host.page), dockState(guest.page)]);
+    return h.phase === 'fast' && g.phase === 'fast' ? { h, g } : null;
   }, 20000).catch(() => null);
+  await host.page.evaluate(() => clearInterval(window.__haulIn));
+  check('Hauling in draws the ship to the post on both pages until it is made fast',
+    midHaul !== null && Math.abs(midHaul.h.lineOut - midHaul.g.lineOut) < 0.5 && Math.abs(midHaul.h.across - midHaul.g.across) < 0.5 && fast !== null,
+    `${midHaul ? `mid-haul line out ${midHaul.h.lineOut.toFixed(2)} / ${midHaul.g.lineOut.toFixed(2)} m, from the post ${midHaul.h.across.toFixed(2)} / ${midHaul.g.across.toFixed(2)} m` : 'line never came in'}, ` +
+      `${fast ? 'made fast' : `not made fast: ${JSON.stringify(await dockState(host.page))}`}`);
+  // Cargo (docs/cargo.md): made fast, the run waits for the crate. The guest
+  // pulls the hatch lever and winds the crate down while the host steadies it
+  // on the tag line (scripted hands); both see it land and the run finish.
+  const cargoState = (page) => page.evaluate(() => window.__cargo.state());
+  const notYet = await run(host.page);
+  await guest.page.evaluate(() => window.__cargo.setLeverHand(0.7));
+  const opened = await waitFor('both to see the hatch open', async () => {
+    const [h, g] = await Promise.all([cargoState(host.page), cargoState(guest.page)]);
+    return h.door && g.door && h.phase === 'hanging' ? { h, g } : null;
+  }, 5000).catch(() => null);
+  await guest.page.evaluate(() => window.__cargo.setLeverHand(null));
+  check('The guest\'s hand on the hatch lever opens the hatch on the host, and the run waits for the crate',
+    notYet.phase === 'flying' && opened !== null && opened.h.condition === 100,
+    `${notYet.phase} when made fast, ${opened ? `door open on both, crate ${opened.h.phase}` : `not opened: host ${JSON.stringify(await cargoState(host.page))}`}`);
+  await host.page.evaluate(() => window.__cargo.setTagHand([0.25, 0.75]));
+  await guest.page.evaluate(() => {
+    let last = performance.now();
+    window.__cargo.setWinchHand((now) => {
+      const s = window.__cargo.state();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (s.phase === 'delivered') return null;
+      const rate = s.phase === 'hanging' && s.toGo > 1.2 ? 8 : 2.5;
+      return s.winch + Math.min(0.8, rate * dt);
+    });
+  });
+  const midLower = await waitFor('the crate to be part way down', async () => {
+    const [h, g] = await Promise.all([cargoState(host.page), cargoState(guest.page)]);
+    return h.pos[1] < -3 ? { h, g } : null;
+  }, 40000).catch(() => null);
+  const docked = await waitFor('both to see the crate delivered and the run finish', async () => {
+    const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
+    return h.result && g.result && g.board[0].startsWith('DELIVERED!') ? { h, g } : null;
+  }, 60000).catch(() => null);
+  await guest.page.evaluate(() => window.__cargo.setWinchHand(null));
   await host.page.evaluate(() => {
-    clearInterval(window.__haulIn);
+    window.__cargo.setTagHand(null);
     clearInterval(window.__holdHeat);
   });
-  check('Hauling in draws the ship to the post on both pages, and both see the run finish',
-    midHaul !== null && Math.abs(midHaul.h.lineOut - midHaul.g.lineOut) < 0.5 && Math.abs(midHaul.h.across - midHaul.g.across) < 0.5 && docked !== null,
-    `${midHaul ? `mid-haul line out ${midHaul.h.lineOut.toFixed(2)} / ${midHaul.g.lineOut.toFixed(2)} m, from the post ${midHaul.h.across.toFixed(2)} / ${midHaul.g.across.toFixed(2)} m` : 'line never came in'}, ` +
-      `${docked ? `${docked.g.board[0]}` : `not finished: ${JSON.stringify(await dockState(host.page))}`}`);
+  check('The guest winds the crate down on the host\'s page, both see it alike, and both see the run finish with it delivered',
+    midLower !== null && Math.abs(midLower.h.pos[1] - midLower.g.pos[1]) < 0.4 && docked !== null && docked.h.result.cargo === docked.g.result.cargo,
+    `${midLower ? `part way down at ${midLower.h.pos[1].toFixed(2)} / ${midLower.g.pos[1].toFixed(2)} m` : `never lowered: host ${JSON.stringify(await cargoState(host.page))}`}, ` +
+      `${docked ? `${docked.g.board[0]}, crate ${docked.h.result.cargo}% / ${docked.g.result.cargo}%` : `not finished: ${JSON.stringify(await cargoState(host.page))}`}`);
   check('The guest sees the host\'s run, rings the bell for both, and sees the same score',
     guestFlying !== null && restarted !== null && docked !== null && docked.g.result.score === docked.h.result.score,
     `${guestFlying ? `guest clock ${guestFlying.seconds.toFixed(1)} s` : 'guest never saw the run start'}, ` +

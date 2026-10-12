@@ -7,8 +7,9 @@
   buttons (row-<key>-0 to -3, labelled and shown by the menu system from
   LIVE_ITEMS in src/live-settings.ts). The crew section shows only in a crew.
   Practice starts a fresh run beside island B's mooring post, both rings
-  flown, to try docking without flying the route, and sets the breeze's
-  strength (the host's choice counts in a crew).
+  flown, to try docking without flying the route, or already made fast
+  there to try lowering the crate, and sets the breeze's strength (the
+  host's choice counts in a crew).
 -->
 <style>
   .root {
@@ -295,6 +296,12 @@
       <div class="label">Docking</div>
       <div class="choices">
         <Button id="menu-dock" class="choice" size="sm" variant="secondary">Start beside B's post</Button>
+      </div>
+    </div>
+    <div class="setting">
+      <div class="label">Cargo</div>
+      <div class="choices">
+        <Button id="menu-cargo" class="choice" size="sm" variant="secondary">Start made fast at B</Button>
       </div>
     </div>
     <div id="row-wind" class="setting">

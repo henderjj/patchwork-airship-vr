@@ -114,14 +114,22 @@ export const TRIM_PER_METRE = 0.015;
 /**
  * Trim from where the crew stands: nose-up pitch and starboard-down roll,
  * radians. Each person standing towards the bow pushes the nose down; each
- * one to starboard pushes that side down.
+ * one to starboard pushes that side down. Cargo counts too, as a person
+ * `weights[i]` times as heavy (1 for anyone not given a weight).
  */
-export function trimFromCrew(xs: readonly number[], zs: readonly number[], count: number, out: { pitch: number; roll: number }): void {
+export function trimFromCrew(
+  xs: readonly number[],
+  zs: readonly number[],
+  count: number,
+  out: { pitch: number; roll: number },
+  weights?: readonly number[],
+): void {
   let sx = 0;
   let sz = 0;
   for (let i = 0; i < count; i++) {
-    sx += Math.max(-DECK_WIDTH / 2, Math.min(DECK_WIDTH / 2, xs[i]));
-    sz += Math.max(-DECK_LENGTH / 2, Math.min(DECK_LENGTH / 2, zs[i]));
+    const w = weights?.[i] ?? 1;
+    sx += w * Math.max(-DECK_WIDTH / 2, Math.min(DECK_WIDTH / 2, xs[i]));
+    sz += w * Math.max(-DECK_LENGTH / 2, Math.min(DECK_LENGTH / 2, zs[i]));
   }
   // Bow is -Z, so standing at the bow (negative z) gives a negative (nose-down) pitch.
   out.pitch = TRIM_PER_METRE * sz;

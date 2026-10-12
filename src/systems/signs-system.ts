@@ -2,13 +2,14 @@ import { BufferAttribute, BufferGeometry, CanvasTexture, createSystem, InputComp
 import { CRANK_POSITION, FUEL_CRATE_POSITION, FUEL_CRATE_SIZE, RAIL_HEIGHT } from '../scene-assets/gondola.scene-asset.js';
 import { TILLER_PIVOT, VENT_TOGGLE } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, BURNER_SIZE, DECK_WIDTH } from '../sim/gondola-layout.js';
+import { LEVER_PIVOT, TAG_RING, WINCH_AXLE } from '../sim/cargo.js';
 import { settings } from '../settings.js';
 
-/** Each sign's size, m, and its cell in the shared canvas, px (two columns of four). */
+/** Each sign's size, m, and its cell in the shared canvas, px (two columns of six). */
 const SIGN_SIZE = [0.24, 0.12] as const;
 const CELL = [512, 256] as const;
 const COLUMNS = 2;
-const CANVAS = [CELL[0] * COLUMNS, 1024] as const;
+const CANVAS = [CELL[0] * COLUMNS, CELL[1] * 6] as const;
 
 interface Sign {
   title: string;
@@ -53,6 +54,10 @@ const SIGNS: readonly Sign[] = [
   { title: 'BALLAST', hint: 'Drop a bag overboard to rise', at: [STARBOARD_RAIL, RAIL_TOP, 0.9], facing: [-1, 0, 0], twoSided: true },
   { title: 'TILLER', hint: 'Swing it to steer', at: [TILLER_PIVOT[0], 0.62, TILLER_PIVOT[2] - 0.055], facing: [0, 0, -1], twoSided: false },
   { title: 'CRANK', hint: 'Tops to the bow: ahead. Back: astern', at: [CRANK_POSITION[0], 0.6, CRANK_POSITION[2] + 0.074], facing: [0, 0, 1], twoSided: false },
+  // The cargo gear (docs/cargo.md): on the winch frame's port cheek under the handle, inside the starboard bulwark by the lever, and on the tag line's post.
+  { title: 'CARGO WINCH', hint: 'Tops aft: lower. Tops forward: hoist', at: [WINCH_AXLE[0] - 0.135, 0.42, WINCH_AXLE[2]], facing: [-1, 0, 0], twoSided: false },
+  { title: 'HATCH LEVER', hint: 'Pull aft to open the hatch', at: [STARBOARD_RAIL - 0.04, 0.75, LEVER_PIVOT[2]], facing: [-1, 0, 0], twoSided: false },
+  { title: 'TAG LINE', hint: 'Hold it over the hatch to steady the crate', at: [TAG_RING[0] + 0.026, 0.42, TAG_RING[2]], facing: [1, 0, 0], twoSided: false },
   {
     title: 'FUEL',
     hint: 'Bricks for the burner',

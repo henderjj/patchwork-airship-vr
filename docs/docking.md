@@ -1,6 +1,6 @@
 # Docking at island B (Phase 3)
 
-From the concept: "One throws the grapple onto a dock post while the other holds altitude steady with small vent and burner taps. Then both haul the line in, hand over hand, in rhythm." The route ([route.md](route.md)) now ends this way: the run finishes when the ship is made fast to the mooring post at the end of island B's jetty, not by landing on B.
+From the concept: "One throws the grapple onto a dock post while the other holds altitude steady with small vent and burner taps. Then both haul the line in, hand over hand, in rhythm." The route ([route.md](route.md)) now ends this way: the run finishes when the ship is made fast to the mooring post at the end of island B's jetty, not by landing on B, and the crate has been lowered there ([cargo.md](cargo.md)).
 
 ## How it plays
 
@@ -9,7 +9,7 @@ From the concept: "One throws the grapple onto a dock post while the other holds
 3. **A catch.** If it passes within 45 cm of the post's top part (from 90 cm below its top to just above it), it catches round the post and the line is made fast there: a thump and a pulse in both controllers. If it misses, it falls until the line runs out or it lands on the island, then hangs over the side; haul it back in and it goes back on its hook to throw again. Thrown up and back into the gondola, it goes back on its hook.
 4. **Hauling in.** Once it has caught, the ship can't get further from the post (across the ground) than the line that is out: pushing away with the crank, or the breeze, just pulls the line tight. Hauling shortens the line and draws the ship in. The line is belayed between pulls, so it doesn't run back out. Slack line comes in easily; a tight line pulls the whole ship, so it is slow for one and much faster for two heaving together (the S6 haul, [spikes/s6-rope.md](spikes/s6-rope.md)). The mooring sign at the stern end of the hauling run says "on the post: haul!" while the line is tight.
 5. **Holding height.** While the line is fast to the post, the ship must stay level with it. More than 1.5 m above or below the post's top and the line creaks, both controllers buzz, and the sign says HIGH! or LOW!; more than 2.5 m for over a second and the grapple is torn off the post and the line hangs over the side again. The board's height line says HIGH or LOW by how much, with VENT or BURN.
-6. **Made fast.** When the line is down to 1.3 m, with the ship drawn in to within half a metre of that and the deck within 1 m of the right height, the ship is made fast: it holds there whatever the crank, wind or burner do, and after 3 s the run is finished and scored.
+6. **Made fast.** When the line is down to 1.3 m, with the ship drawn in to within half a metre of that and the deck within 1 m of the right height, the ship is made fast: it holds there whatever the crank, wind or burner do. Once it has been fast for 3 s and the crate has been lowered ([cargo.md](cargo.md)), the run is finished and scored.
 
 ## Score
 
@@ -32,7 +32,7 @@ Two more draw calls on deck: the grapple (288 triangles) and the line out to it 
 ## Tests
 
 - Unit tests (`test/docking.test.ts`): a throw at the post catches with the line paid out; one wide of it runs the line out and hangs, and goes back on its hook once hauled in; a gentle lob back aboard goes back on its hook; the line stops the ship pulling away with the felt gravity under 1 m/s²; hauling in draws the ship to the post and makes it fast, and it is then held still; a deck too high doesn't make fast and tears off after a second; a ship made fast at the post, even low, is clear of island B's rock; practice docking's start puts the fairlead 5 m out and level, port side to the post. `test/route.test.ts` covers the new score and that making fast (not landing) finishes the run.
-- Emulated headset (`npm run test:xr`): the board points to the post when the ship comes alongside; squeezing on the grapple's shank takes it; a scripted throw catches on the post with 4–6 m of line out; scripted hands haul until the ship is made fast; the run finishes with "MADE FAST!" on the board; later, the game menu's practice docking starts a run beside the post, level, with both rings flown.
+- Emulated headset (`npm run test:xr`): the board points to the post when the ship comes alongside; squeezing on the grapple's shank takes it; a scripted throw catches on the post with 4–6 m of line out; scripted hands haul until the ship is made fast; the board shows MADE FAST and asks for the crate, which is then lowered (cargo.md) and the run finishes; later, the game menu's practice docking starts a run beside the post, level, with both rings flown.
 - Two players (`npm run test:net`): the guest picks practice docking and the host starts the run beside the post; the guest throws, both pages see the catch with the same throw count and line out; while the host hauls, both pages agree on the line out and the ship's distance from the post, and both see the run finish with the same score.
 
 ## Tuning knobs
@@ -43,14 +43,14 @@ Two more draw calls on deck: the grapple (288 triangles) and the line out to it 
 
 ## Practice docking
 
-The game menu (Y on the left controller) has **Practice → Docking: Start beside B's post**. It starts a fresh run already under way, with both rings counted as flown, the ship still and at floating heat, its port side to the post with the fairlead 5 m out and level with the post's top (`practiceDocking()` in `src/systems/ship-system.ts`, placed by `alongsidePost()` in `src/sim/docking.ts`). The clock starts there, and the run finishes and is scored as usual once the ship is made fast. In a crew, the guest's press asks the host (a `route-dock` event). Ring the bell twice to go back to island A. Below it, **Wind** (Off, Half, Normal or Double) sets the breeze's strength as a share of the usual (`wind` in `src/settings.ts`, applied to the flight model by ShipSystem); in a crew the host's setting counts, since the host flies the ship.
+The game menu (Y on the left controller) has **Practice → Docking: Start beside B's post**. It starts a fresh run already under way, with both rings counted as flown, the ship still and at floating heat, its port side to the post with the fairlead 5 m out and level with the post's top (`practiceDocking()` in `src/systems/ship-system.ts`, placed by `alongsidePost()` in `src/sim/docking.ts`). The clock starts there, and the run finishes and is scored as usual once the ship is made fast and the crate lowered. Below it, **Cargo: Start made fast at B** starts already made fast with the crate aboard ([cargo.md](cargo.md#practice)). In a crew, the guest's press asks the host (a `route-dock` event). Ring the bell twice to go back to island A. Below it, **Wind** (Off, Half, Normal or Double) sets the breeze's strength as a share of the usual (`wind` in `src/settings.ts`, applied to the flight model by ShipSystem); in a crew the host's setting counts, since the host flies the ship.
 
 ## Headset check
 
 1. Fly the route to island B (or use the game menu's practice docking to start beside the post). Once both rings are flown, the board says NEXT Post at B, with how far, which way and how much higher or lower.
 2. Come alongside the post with it off the port bow, a few metres out, and use the board's height line to get level (LEVEL WITH POST).
 3. Take the grapple off its hook at the port bow corner (low on the inside of the bow rail, just right of where the line comes aboard) and throw it overhand at the post.
-4. If it catches, haul the line in along the port rail. Watch the board and the mooring sign for HIGH or LOW, and vent or burn to stay level. With the line down to 1.3 m and the deck level, the ship is made fast; 3 s later the board shows the score.
+4. If it catches, haul the line in along the port rail. Watch the board and the mooring sign for HIGH or LOW, and vent or burn to stay level. With the line down to 1.3 m and the deck level, the ship is made fast. Then lower the crate through the hatch ([cargo.md](cargo.md#headset-check)) and the board shows the score.
 5. Throw one wide on purpose: it should hang over the side, and haul back in onto its hook.
 
 What would help: whether the throw is easy to judge, how far out is fair, whether holding height while hauling feels like a job for two, and how long it takes alone and with the practice crewmate.

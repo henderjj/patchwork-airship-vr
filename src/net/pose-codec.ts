@@ -23,6 +23,10 @@ export const PacketType = {
   Ship: 7,
   /** The guest's hands on the vent cord and tiller (Phase 2 controls). */
   Controls: 8,
+  /** Host's authoritative crate, hatch and winch (Phase 3 cargo). */
+  Cargo: 9,
+  /** The guest's hands on the cargo winch, tag line and hatch lever (Phase 3 cargo). */
+  CargoHands: 10,
 } as const;
 
 /** One tracked pose: position (m) and rotation quaternion. */
@@ -450,5 +454,136 @@ export function decodeControls(view: DataView, out: ControlsPacket): boolean {
   out.flags = view.getUint8(5);
   out.vent = view.getUint8(6) / 255;
   out.rudder = view.getInt16(7) / 32767;
+  return true;
+}
+
+/**
+ * Host's crate: type(1) time(4) phase u8(1) flags u8(1) winch f32(4)
+ * lever u8(1) crate top x, y, z f32(12) swing x, z f32(8) condition u8(1)
+ * knocks u8(1) resets u8(1).
+ */
+export const CARGO_PACKET_BYTES = 35;
+
+/** Cargo packet flag bits: the hatch door is open; someone holds the winch, the tag line, the lever. */
+export const CARGO_FLAG_DOOR = 1;
+export const CARGO_FLAG_WINCH = 2;
+export const CARGO_FLAG_TAG = 4;
+export const CARGO_FLAG_LEVER = 8;
+
+export interface CargoStatePacket {
+  timeMs: number;
+  /** An index into CARGO_PHASES (src/sim/cargo.ts). */
+  phase: number;
+  flags: number;
+  /** The winch's angle, rad (sets the line out). */
+  winch: number;
+  /** The hatch lever's angle, rad (0 to about 0.7). */
+  lever: number;
+  /** The crate's top middle, ship space, m, and how fast it swings across the deck, m/s. */
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vz: number;
+  /** Its condition, 0 to 100 %. */
+  condition: number;
+  /** Knocks so far (wrapping), so the guest hears each one. */
+  knocks: number;
+  /** Restarts so far (wrapping), so the guest drops its own hold on the old run's winch. */
+  resets: number;
+}
+
+export function createCargoStatePacket(): CargoStatePacket {
+  return { timeMs: 0, phase: 0, flags: 0, winch: 0, lever: 0, x: 0, y: 0, z: 0, vx: 0, vz: 0, condition: 100, knocks: 0, resets: 0 };
+}
+
+export function encodeCargo(buffer: ArrayBuffer, state: CargoStatePacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.Cargo);
+  view.setUint32(1, Math.floor(state.timeMs) >>> 0);
+  view.setUint8(5, state.phase & 0xff);
+  view.setUint8(6, state.flags & 0xff);
+  view.setFloat32(7, state.winch);
+  view.setUint8(11, Math.round(Math.max(0, Math.min(1, state.lever)) * 255));
+  view.setFloat32(12, state.x);
+  view.setFloat32(16, state.y);
+  view.setFloat32(20, state.z);
+  view.setFloat32(24, state.vx);
+  view.setFloat32(28, state.vz);
+  view.setUint8(32, Math.round(Math.max(0, Math.min(100, state.condition))));
+  view.setUint8(33, state.knocks & 0xff);
+  view.setUint8(34, state.resets & 0xff);
+  return CARGO_PACKET_BYTES;
+}
+
+export function decodeCargo(view: DataView, out: CargoStatePacket): boolean {
+  if (view.byteLength < CARGO_PACKET_BYTES || view.getUint8(0) !== PacketType.Cargo) {
+    return false;
+  }
+  out.timeMs = view.getUint32(1);
+  out.phase = view.getUint8(5);
+  out.flags = view.getUint8(6);
+  out.winch = view.getFloat32(7);
+  out.lever = view.getUint8(11) / 255;
+  out.x = view.getFloat32(12);
+  out.y = view.getFloat32(16);
+  out.z = view.getFloat32(20);
+  out.vx = view.getFloat32(24);
+  out.vz = view.getFloat32(28);
+  out.condition = view.getUint8(32);
+  out.knocks = view.getUint8(33);
+  out.resets = view.getUint8(34);
+  return true;
+}
+
+/**
+ * The guest's hands on the cargo gear: type(1) time(4) flags u8(1) (the
+ * CARGO_FLAG_WINCH, _TAG and _LEVER bits) winch f32(4) lever u8(1) tag hand
+ * x, z i16 mm(4) resets u8(1).
+ */
+export const CARGO_HANDS_PACKET_BYTES = 16;
+
+export interface CargoHandsPacket {
+  timeMs: number;
+  flags: number;
+  /** The winch's angle as the guest's hand has turned it, rad. */
+  winch: number;
+  /** The lever's angle as the guest's hand holds it, rad. */
+  lever: number;
+  /** Where the guest's hand on the tag line is across the deck, ship space, m. */
+  tagX: number;
+  tagZ: number;
+  /** The host's restarts the guest had heard of (a hand from an older run is ignored). */
+  resets: number;
+}
+
+export function createCargoHandsPacket(): CargoHandsPacket {
+  return { timeMs: 0, flags: 0, winch: 0, lever: 0, tagX: 0, tagZ: 0, resets: 0 };
+}
+
+export function encodeCargoHands(buffer: ArrayBuffer, state: CargoHandsPacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.CargoHands);
+  view.setUint32(1, Math.floor(state.timeMs) >>> 0);
+  view.setUint8(5, state.flags & 0xff);
+  view.setFloat32(6, state.winch);
+  view.setUint8(10, Math.round(Math.max(0, Math.min(1, state.lever)) * 255));
+  view.setInt16(11, Math.round(Math.max(-32, Math.min(32, state.tagX)) * 1000));
+  view.setInt16(13, Math.round(Math.max(-32, Math.min(32, state.tagZ)) * 1000));
+  view.setUint8(15, state.resets & 0xff);
+  return CARGO_HANDS_PACKET_BYTES;
+}
+
+export function decodeCargoHands(view: DataView, out: CargoHandsPacket): boolean {
+  if (view.byteLength < CARGO_HANDS_PACKET_BYTES || view.getUint8(0) !== PacketType.CargoHands) {
+    return false;
+  }
+  out.timeMs = view.getUint32(1);
+  out.flags = view.getUint8(5);
+  out.winch = view.getFloat32(6);
+  out.lever = view.getUint8(10) / 255;
+  out.tagX = view.getInt16(11) / 1000;
+  out.tagZ = view.getInt16(13) / 1000;
+  out.resets = view.getUint8(15);
   return true;
 }

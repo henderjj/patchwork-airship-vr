@@ -186,6 +186,8 @@ export class DockingSim {
   stretch = 0;
   /** How far the fairlead is from the post across the ground, m (see `measure`). */
   across = 0;
+  /** Line out when the ship was made fast, m (the line is tied off at that). */
+  fastLine = 0;
   readonly launch: GrappleThrow = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, time: 0 };
   private flightT = 0;
   private tetherSpeed = 0;
@@ -382,16 +384,28 @@ export class DockingSim {
       this.strainTime = 0;
     }
     if (lineOut <= MADE_FAST_LINE && excess < MADE_FAST_SLACK && Math.abs(this.heightOff) <= MADE_FAST_HEIGHT) {
-      this.phase = 'fast';
-      this.held.x = ship.x;
-      this.held.y = ship.y;
-      this.held.z = ship.z;
-      this.held.yaw = ship.yaw;
-      ship.vx = ship.vy = ship.vz = 0;
-      this.tetherSpeed = 0;
+      this.makeFast(ship, lineOut);
       return 'fast';
     }
     return 'none';
+  }
+
+  /** The ship is made fast where it is now, the grapple on the post and `lineOut` of line tied off (also practice cargo's start). */
+  makeFast(ship: ShipState, lineOut: number): void {
+    this.phase = 'fast';
+    this.fastLine = lineOut;
+    this.lineOut = lineOut;
+    this.pos.x = this.post.x;
+    this.pos.y = this.postTop - 0.15;
+    this.pos.z = this.post.z;
+    this.held.x = ship.x;
+    this.held.y = ship.y;
+    this.held.z = ship.z;
+    this.held.yaw = ship.yaw;
+    ship.vx = ship.vy = ship.vz = 0;
+    this.tetherSpeed = 0;
+    this.strainTime = 0;
+    this.measure(ship);
   }
 
   /** The grapple is pulled off the post and hangs over the side on the line out. */
