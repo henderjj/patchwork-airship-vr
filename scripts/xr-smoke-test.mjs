@@ -1036,6 +1036,15 @@ async function main() {
   check('Mid-run the bell asks first, a sunk run is lost, and the bell restarts it',
     asked.phase === 'flying' && asked.board[5] === 'Ring again to restart' && lost?.[1] === 'Sank into the haze' && again === 'ready',
     `one ring: ${asked.phase} "${asked.board[5]}", then ${lost ? lost.slice(0, 2).join(' / ') : 'not lost'}, then ${again}`);
+  // Practice docking from the game menu: a fresh run, both rings flown, beside B's post and level with it.
+  evalInApp("window.__gameMenu.click('menu-dock')");
+  await sleep(400);
+  const practice = evalInApp('({ phase: window.__route.run.phase, rings: window.__route.run.ringMask, dock: window.__dock.state() })');
+  const practiceBoard = boardAfterRedraw('__route');
+  check("The menu's practice docking starts beside B's post with both rings flown",
+    practice.phase === 'flying' && practice.rings === 3 && practice.dock.phase === 'stowed' && Math.abs(practice.dock.across - 5) < 0.5 &&
+      Math.abs(practice.dock.heightOff) < 0.5 && practiceBoard[2].startsWith('NEXT Post at B') && /LEVEL/.test(practiceBoard[3]),
+    `${practice.phase}, rings ${practice.rings}, ${practice.dock.across.toFixed(2)} m out, ${practice.dock.heightOff.toFixed(2)} m off level, board: ${practiceBoard.join(' | ')}`);
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
 
   // 6e. Phase 2 audio: the ship's sounds played through the tests above

@@ -584,24 +584,19 @@ async function shipSyncChecks(host, guest) {
     const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
     return h.phase === 'ready' && g.phase === 'ready' ? h : null;
   }, 5000).catch(() => null);
-  // Off island A (which starts the clock), then alongside island B's mooring
-  // post: the guest throws the grapple, both see it catch, the host hauls the
-  // line in, and both see the run finish when the ship is made fast.
-  await host.page.evaluate(() => window.__ship.place(0, 126, -40));
-  await host.page.waitForTimeout(500);
+  // The guest picks practice docking in the game menu, which asks the host
+  // to start a run beside island B's mooring post: the guest throws the
+  // grapple, both see it catch, the host hauls the line in, and both see the
+  // run finish when the ship is made fast.
+  await guest.page.evaluate(() => window.__gameMenu.click('menu-dock'));
+  const practice = await waitFor('the host to start practice docking', async () => {
+    const r = await host.page.evaluate(() => ({ phase: window.__route.run.phase, rings: window.__route.run.ringMask, dock: window.__dock.state() }));
+    return r.phase === 'flying' && r.rings === 3 && Math.abs(r.dock.across - 5) < 0.5 ? r : null;
+  }, 5000).catch(() => null);
+  check('The guest\'s practice docking starts the host\'s run beside B\'s post', practice !== null,
+    practice ? `${practice.dock.across.toFixed(2)} m out, ${practice.dock.heightOff.toFixed(2)} m off level` : 'host never started it');
   await host.page.evaluate(() => {
-    const route = window.__route.run.route;
-    const dock = route.dock;
-    const FAIRLEAD = [-1.04, 1.04, -1.35];
-    const d = Math.hypot(dock.x - route.finish.x, dock.z - route.finish.z);
-    const out = [(dock.x - route.finish.x) / d, (dock.z - route.finish.z) / d];
-    const yaw = Math.atan2(-out[1], out[0]);
-    const fx = FAIRLEAD[0] * Math.cos(yaw) + FAIRLEAD[2] * Math.sin(yaw);
-    const fz = -FAIRLEAD[0] * Math.sin(yaw) + FAIRLEAD[2] * Math.cos(yaw);
-    window.__ship.place(dock.x + out[0] * 5 - fx, dock.y + dock.height - FAIRLEAD[1], dock.z + out[1] * 5 - fz, yaw);
     const f = window.__ship.flight;
-    f.airspeed = 0;
-    f.climb = 0;
     window.__ship.info.burnLeft = 0;
     clearInterval(window.__holdHeat);
     window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb *= 0.5; }, 50);

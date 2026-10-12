@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alongsidePost,
   DockingSim,
   FAIRLEAD,
   LINE_LENGTH,
@@ -166,6 +167,21 @@ describe('docking', () => {
     fly(t, TEAR_SECONDS + 0.2, () => 1.2);
     expect(t.dock.phase).toBe('hanging');
     expect(t.dock.tears).toBe(1);
+  });
+
+  it('practice docking starts the ship beside the post, level, port side to it, and clear of island B', () => {
+    const at = alongsidePost(POST, CALM_SKIES.finish.x, CALM_SKIES.finish.z, 5);
+    const ship = createShipState();
+    new FlightSim().reset(ship, at.x, at.y, at.z, at.yaw);
+    const dock = new DockingSim(POST);
+    dock.measure(ship);
+    expect(dock.across).toBeCloseTo(5, 3);
+    expect(dock.heightOff).toBeCloseTo(0, 3);
+    // The fairlead is the side of the deck nearest the post.
+    const f = { x: 0, y: 0, z: 0 };
+    shipToWorld(ship, -FAIRLEAD[0], FAIRLEAD[1], FAIRLEAD[2], f);
+    expect(Math.hypot(f.x - POST.x, f.z - POST.z)).toBeGreaterThan(6);
+    expect(hitsIsland(CALM_SKIES.finish, ship.x, ship.y, ship.z)).toBe(false);
   });
 
   it('a ship made fast at the post, even low, is clear of island B', () => {
