@@ -39,10 +39,12 @@ export type GrapplePhase = (typeof GRAPPLE_PHASES)[number];
 /** Metres of mooring line in all (the haul's length). */
 export const LINE_LENGTH = DEFAULT_ROPE.length;
 /**
- * Where the line leaves the ship, over the port rail by the bow (ship space:
- * deck at y = 0, bow towards -Z, starboard +X).
+ * Where the line leaves the ship: through a brass fairlead on the outboard
+ * edge of the port rail's top by the bow, so the line out runs straight
+ * from it to the grapple clear of the rail (ship space: deck at y = 0, bow
+ * towards -Z, starboard +X).
  */
-export const FAIRLEAD = [-1.04, 1.04, -1.35] as const;
+export const FAIRLEAD = [-1.04, 1.07, -1.35] as const;
 /** The grapple catches if it passes this close to the post's top part, m... */
 export const CATCH_RADIUS = 0.45;
 /** ...which runs this far down from the post's top (and a little above it), m. */

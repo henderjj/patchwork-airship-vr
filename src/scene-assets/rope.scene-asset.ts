@@ -1,9 +1,11 @@
 import {
+  BoxGeometry,
   CanvasTexture,
   CylinderGeometry,
   Mesh,
   MeshLambertMaterial,
   RepeatWrapping,
+  SphereGeometry,
   SRGBColorSpace,
   TorusGeometry,
 } from '@iwsdk/core';
@@ -16,7 +18,8 @@ import { beam, mergeParts, type Part, shade } from './lowpoly.js';
  * The mooring line for the hand-over-hand haul (spike S6, part 2). It comes
  * aboard over the port rail at the bow, through a brass fairlead, and runs
  * along the inside of the rail towards the stern, where it drops to a coil
- * on the deck. Its outboard end carries a small iron grapple, which hangs
+ * on the deck, over a wooden cleat on the rail that holds it up there. Its
+ * outboard end carries a small iron grapple, which hangs
  * on a hook on the bow rail beside the fairlead until it is thrown at a
  * mooring post (docking, Phase 3). Outboard, the line out hangs over the
  * side or runs to the grapple; hauling shortens it. Players stand on the
@@ -37,6 +40,12 @@ export const ROPE_RADIUS = 0.018;
 export const ROPE_REACH = 0.1;
 /** Metres of line per stripe repeat on the texture. */
 const STRIPE_METRES = 0.25;
+/**
+ * Where the run turns down to the coil it rests on a wooden cleat bolted
+ * to the inside of the rail's top, so it doesn't end in mid-air.
+ */
+const CLEAT_Y = ROPE_Y - ROPE_RADIUS - 0.012;
+const RAIL_INSIDE = -DECK_WIDTH / 2 + 0.07;
 /**
  * The coil's centre on the deck (x, z), clear of the fuel crate's locker. Its
  * turns step inwards as they stack, and the line from the end of the run
@@ -66,6 +75,7 @@ const SHANK = 0.32;
 
 const ROPE_COLOR = 0xd8c39a;
 const BRASS = 0xc9a03a;
+const CLEAT = 0x7a5532;
 const IRON = 0x4c525c;
 
 /** Distance from a ship-space point to the inboard run, and its position along it. */
@@ -115,12 +125,20 @@ export function createRope(): RopeMeshes {
 
   const [ox, oy, oz] = ROPE_OVERSIDE;
   const flat: [number, number, number] = [Math.PI / 2, 0, 0];
+  // Rope bends get a ball of the rope's thickness, so no corner shows a gap.
+  const joint = (x: number, y: number, z: number): Part => ({ geometry: new SphereGeometry(ROPE_RADIUS, 6, 4), color: ROPE_COLOR, position: [x, y, z] });
+  // Over the rail's inner edge, clear of its top.
+  const over = [RAIL_INSIDE, oy - 0.005, ROPE_Z0] as const;
   const parts: Part[] = [
-    // From the fairlead up over the rail top to where the line hangs down.
-    beam([ROPE_X, ROPE_Y, ROPE_Z0], [ox + 0.06, oy + 0.01, oz], ROPE_RADIUS, ROPE_COLOR, 6),
-    beam([ox + 0.06, oy + 0.01, oz], [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
-    // Fairlead ring on the rail.
+    // From the guide ring at the run's bow end up over the rail top to the fairlead, where the line leaves the ship.
+    beam([ROPE_X, ROPE_Y, ROPE_Z0], over, ROPE_RADIUS, ROPE_COLOR, 6),
+    joint(over[0], over[1], over[2]),
+    beam(over, [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
+    joint(ox, oy, oz),
+    // Guide ring at the run's bow end, on a bracket from the rail, and the fairlead on the rail top's outboard edge.
     { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] },
+    beam([RAIL_INSIDE - 0.02, ROPE_Y - 0.052, ROPE_Z0], [ROPE_X, ROPE_Y - 0.052, ROPE_Z0], 0.01, BRASS, 5),
+    { geometry: new TorusGeometry(0.035, 0.011, 6, 12), color: BRASS, position: [ox + 0.01, oy, oz], rotation: [0, Math.PI / 2, 0] },
     // The haul lamp's cup on the rail top.
     {
       geometry: new CylinderGeometry(HAUL_LAMP_RADIUS * 1.1, HAUL_LAMP_RADIUS * 0.8, LAMP_CUP_HEIGHT, 10),
@@ -130,7 +148,13 @@ export function createRope(): RopeMeshes {
     // The grapple's hook: an iron peg out of the bow rail's inside face, turned up at its end.
     beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] - 0.05], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] + 0.02], 0.008, IRON, 5),
     beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.008, GRAPPLE_HOOK[2] + 0.02], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.04, GRAPPLE_HOOK[2] + 0.025], 0.007, IRON, 5),
-    // Line dropping from the end of the run onto the top turn of the coil.
+    // The cleat at the run's stern end: an arm out from the rail under the line, with a horn each side of it.
+    { geometry: new BoxGeometry(ROPE_X + 0.07 - RAIL_INSIDE, 0.024, 0.07), color: CLEAT, position: [(RAIL_INSIDE + ROPE_X + 0.07) / 2, CLEAT_Y - 0.012, ROPE_Z1] },
+    beam([ROPE_X - 0.045, CLEAT_Y, ROPE_Z1], [ROPE_X - 0.045, CLEAT_Y + 0.05, ROPE_Z1], 0.011, CLEAT, 5),
+    beam([ROPE_X + 0.045, CLEAT_Y, ROPE_Z1], [ROPE_X + 0.045, CLEAT_Y + 0.05, ROPE_Z1], 0.011, CLEAT, 5),
+    beam([RAIL_INSIDE, CLEAT_Y - 0.03, ROPE_Z1], [RAIL_INSIDE, RAIL_HEIGHT - 0.03, ROPE_Z1], 0.012, CLEAT, 5),
+    // The bend over the cleat, then the line dropping onto the top turn of the coil.
+    joint(ROPE_X, ROPE_Y, ROPE_Z1),
     {
       geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, ROPE_Y - COIL_TOP, 6, 1, true),
       color: ROPE_COLOR,
