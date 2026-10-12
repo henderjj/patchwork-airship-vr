@@ -1,6 +1,6 @@
 # Spike S8: PC VR through Meta Horizon Link
 
-Status: built and tested in the cloud with the emulated headset, including a run with the frame-rate API removed as a desktop browser may have it. Whether Chrome and Edge on Windows with Link behave as expected can only be checked on a PC with a Quest (steps at the end).
+Status: passed. On 2026-10-10 John (Quest Browser) played a crew game with a second player on an Oculus Rift (PC VR): voice worked with no echo and voice and movement latency were good, which is the plan's cross-play pass test. On 2026-10-11 John played in Chrome over Air Link on his PC and the game held 90 fps at 90 Hz, after Chrome's graphics acceleration was turned on (see "Solved" below). Wired Link, Edge and hand tracking over Link haven't been tried; they run the same code, so they are only worth checking if someone plays that way.
 
 ## What was built
 
@@ -39,7 +39,7 @@ Status: built and tested in the cloud with the emulated headset, including a run
 
 ### Tests
 
-1. **Solo on PC (wired Link).** Connect the Quest with a USB-C cable and accept **Enable Link** in the headset. From the Link home, open the desktop view, start Chrome on the PC, open `https://henderjj.github.io/patchwork-airship-vr/` and click **Enter XR**. Press **X** for the wrist HUD. Note its `me` line (for example `PC Chrome 141, ~90 Hz, no multiview`) and whether fps keeps up with the Hz. Pick up and throw a brick, turn the crank and haul the line. Press **Y** and check the mute indicator on the crew panel.
+1. **Solo on PC (wired Link).** Connect the Quest with a USB-C cable and accept **Enable Link** in the headset. From the Link home, open the desktop view, start Chrome on the PC, open `https://henderjj.github.io/patchwork-airship-vr/` and click **Enter XR**. Press **X** for the wrist HUD. Note its `me` line (for example `PC Chrome 141, ~90 Hz, no multiview`) and whether fps keeps up with the Hz. Pick up and throw a brick, turn the crank and haul the line. Press **Y** for the game menu, press **My mic** and check it says muted.
 2. **Hands on PC.** Put the controllers down and look at your hands. Say whether the hands appear, and whether `hands` shows on the HUD's `me` line.
 3. **Cross-play.** On the PC, add `?room=TEST` to the URL (any four letters). A second player in the Quest Browser opens the same URL with the same room code. Each HUD's `crew` line should show the other player's platform. Talk both ways, crank together and throw a brick to each other.
 4. **Air Link.** Repeat test 1 over Air Link (Quest **Settings → Link**, the PC wired to the router, the Quest on 5 GHz or 6 GHz Wi-Fi).
@@ -102,6 +102,14 @@ The game now holds a granted session back from IWSDK until the graphics are read
 ### Solved: graphics acceleration was off (2026-10-10 18:03)
 
 John turned on Chrome's Settings → System → "Use graphics acceleration when available", and the game entered VR over Air Link. With acceleration off, Chrome drew with Windows' software renderer, so every VR start had to move the context to the real card, and the session died in that move. The steps below still apply to anyone else; the crew panel now names the setting when it sees a software renderer.
+
+### Result: 90 fps over Air Link (2026-10-11)
+
+With acceleration on and PRs #44 and #47 live, John played in Chrome over Air Link and fps held at 90 at 90 Hz. Starting VR still takes about a minute through Link 207, after the browser's VR permission prompt on the PC screen; the crew panel says both.
+
+### Result: cross-play with an Oculus Rift (2026-10-10)
+
+John, in the Quest Browser, played a crew game with a second player on an Oculus Rift through a PC browser. Voice had no echo, and voice and movement latency were good. They turned the crank together. This needed no platform-specific code beyond feature detection, so S8 passes. The design notes from that game (arms, player height, seated play, keeping in step on the crank and the rope) are design input for later features, not part of this spike.
 
 ### What to try
 

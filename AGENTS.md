@@ -91,6 +91,8 @@ For a new multi-file procedural model, finish the initial asset module and manif
 registration before `npx @iwsdk/cli dev up`; do not keep the browser live while its import
 graph is half-written. Typecheck first, then launch the managed editor for inspection.
 
+Which of the repo's tests to run while developing, and how CI runs them, is in [docs/testing.md](docs/testing.md).
+
 Then check the right status for the task — these are not interchangeable:
 
 - scene/editor work → `scene_get_state`

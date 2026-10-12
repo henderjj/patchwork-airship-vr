@@ -34,6 +34,8 @@ const WAIT_SPOTS: readonly Vec3[] = [
 ];
 /** How long the player must have let go of the crank or line before the bot does, ms (packets can drop a frame). */
 const LET_GO_MS = 400;
+/** The same for the line, longer: hauling on the call, a player can have both hands off it between strokes, ms. */
+const ROPE_LET_GO_MS = 1500;
 /** How long the bot holds a caught brick before throwing it back, and the throw's wind-up and swing, ms. */
 const HOLD_MS = 1500;
 const WINDUP_MS = 300;
@@ -54,7 +56,8 @@ const CATCH_TIMEOUT_MS = 1000;
  *   step (the player's hand angle plus half a turn, moved on by the crank's
  *   speed since that hand was drawn), so the crank clicks into high gear;
  * - hauls the mooring line beside the player's hands, keeping time with
- *   their strokes (src/sim/crew-bot.ts, HaulRhythm), so the pair heaves;
+ *   the ship's haul call (src/sim/crew-bot.ts, HaulRhythm), so a player who
+ *   strokes on the call heaves with it;
  * - otherwise stands on deck facing the player, reaches for a brick thrown
  *   near it, and throws it back to their chest after a moment.
  *
@@ -172,12 +175,13 @@ export class CrewBotSystem extends createSystem({}) {
       this.readPlayer(now);
     }
     this.ringWhenReady(now);
-    const mode: Mode = now - this.lastCrankMs < LET_GO_MS ? 'crank' : now - this.lastRopeMs < LET_GO_MS ? 'rope' : 'idle';
+    const mode: Mode = now - this.lastCrankMs < LET_GO_MS ? 'crank' : now - this.lastRopeMs < ROPE_LET_GO_MS ? 'rope' : 'idle';
     this.setMode(mode);
     if (mode === 'idle') {
       this.chooseWaitSpot();
     }
     if (mode === 'rope') {
+      this.haul.setCall(this.rope?.nextHeaveAt(now) ?? Number.NaN, this.rope?.call.periodMs ?? 0);
       this.haul.update(now);
     }
     this.holdOn();

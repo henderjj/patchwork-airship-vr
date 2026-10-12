@@ -41,6 +41,8 @@ export class Voice {
   muted = false;
   /** The browser has allowed the microphone (asked up front, or remembered from before). */
   permitted = false;
+  /** This player has turned the crewmate's voice off (the in-game menu). */
+  remoteMuted = false;
 
   private ctx: AudioContext | null = null;
   private panner: PannerNode | null = null;
@@ -51,6 +53,7 @@ export class Voice {
   private sink: HTMLAudioElement | null = null;
   private loopOut: HTMLAudioElement | null = null;
   private loopPcs: RTCPeerConnection[] = [];
+  private remoteStream: MediaStream | null = null;
   private onMicChange: (track: MediaStreamTrack | null) => void;
 
   constructor(mode: VoiceMode, loopback: boolean, onMicChange: (track: MediaStreamTrack | null) => void) {
@@ -127,6 +130,17 @@ export class Voice {
     }
   }
 
+  /**
+   * Turn the crewmate's voice off or on again. Their audio track is disabled
+   * here, which plays silence, so nothing else in the chain changes.
+   */
+  setRemoteMuted(muted: boolean): void {
+    this.remoteMuted = muted;
+    for (const track of this.remoteStream?.getAudioTracks() ?? []) {
+      track.enabled = !muted;
+    }
+  }
+
   /** Start or resume audio output; browsers only allow this after a user gesture. */
   resume(): void {
     void this.ctx?.resume();
@@ -140,6 +154,8 @@ export class Voice {
       return;
     }
     this.stopRemote();
+    this.remoteStream = stream;
+    this.setRemoteMuted(this.remoteMuted);
     this.sink = new Audio();
     this.sink.srcObject = stream;
     this.sink.autoplay = true;
@@ -170,6 +186,7 @@ export class Voice {
   }
 
   stopRemote(): void {
+    this.remoteStream = null;
     this.source?.disconnect();
     this.panner?.disconnect();
     this.analyser?.disconnect();

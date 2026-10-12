@@ -1,3 +1,5 @@
+import { clampCharacterHeight } from './sim/body-height.js';
+
 /**
  * Runtime settings, read once when the page loads: first the ones saved from
  * the Settings menu on the crew panel (src/settings-menu.ts), then any in the
@@ -25,6 +27,8 @@ export interface Settings {
   bricks: number;
   /** Show the perf HUD from the start. */
   hud: boolean;
+  /** Keep the signs on the gondola's controls shown; off, they show while A (or L) is held. */
+  labels: boolean;
   /** Ship motion profile: still, tour (scripted path), or a comfort profile name. */
   motion: string;
   /** Seed for the generated world. */
@@ -66,6 +70,10 @@ export interface Settings {
    * the second player so one person can test the two-player parts.
    */
   bot: boolean;
+  /** Character height, m: the player's eyes are put at this height less 0.13 m when upright; 0 keeps their own (src/sim/body-height.ts). */
+  height: number;
+  /** Playing seated: the view is raised to a little under an average standing eye height. */
+  seated: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -79,6 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   avatars: 0,
   bricks: 8,
   hud: true,
+  labels: false,
   motion: 'flight',
   seed: 1,
   room: '',
@@ -100,6 +109,8 @@ export const DEFAULT_SETTINGS: Settings = {
   comfort: 0,
   label: '',
   bot: false,
+  height: 0,
+  seated: false,
 };
 
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -137,6 +148,7 @@ export function parseSettings(search: string): Settings {
     avatars: Math.round(num(params, 'avatars', d.avatars, 0, 8)),
     bricks: Math.round(num(params, 'bricks', d.bricks, 0, 60)),
     hud: bool(params, 'hud', d.hud),
+    labels: bool(params, 'labels', d.labels),
     motion: params.get('motion') ?? d.motion,
     seed: Math.round(num(params, 'seed', d.seed, 0, 1e9)),
     room: params.get('room') ?? d.room,
@@ -158,6 +170,8 @@ export function parseSettings(search: string): Settings {
     comfort: num(params, 'comfort', d.comfort, 0, 600),
     label: (params.get('label') ?? d.label).slice(0, 40),
     bot: bool(params, 'bot', d.bot),
+    height: clampCharacterHeight(num(params, 'height', d.height, 0, 3)),
+    seated: bool(params, 'seated', d.seated),
   };
 }
 
@@ -169,6 +183,26 @@ export function mergeSettings(saved: string, search: string): string {
   const params = new URLSearchParams(saved);
   new URLSearchParams(search).forEach((value, key) => params.set(key, value));
   return params.toString();
+}
+
+/**
+ * Keep settings chosen while playing (null drops one, back to its default)
+ * for the next load, as the Settings menu would. The URL still wins.
+ */
+export function saveSettings(changes: Readonly<Record<string, string | null>>): void {
+  try {
+    const params = new URLSearchParams(savedSettings());
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    localStorage.setItem(SAVED_SETTINGS_KEY, params.toString());
+  } catch {
+    // Private browsing: the choice lasts until the page is closed.
+  }
 }
 
 function savedSettings(): string {

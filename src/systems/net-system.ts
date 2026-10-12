@@ -1,4 +1,5 @@
 import { type BufferGeometry, createSystem, Euler, InputComponent, Mesh, Object3D, Quaternion, Vector3, VisibilityState } from '@iwsdk/core';
+import { crewControls } from '../net/crew-controls.js';
 import { LobbyUi } from '../net/lobby-ui.js';
 import { normaliseRoomCode } from '../net/lobby-protocol.js';
 import { NetSession } from '../net/net-session.js';
@@ -12,7 +13,6 @@ import {
   avatarTorsoGeometry,
   crewCoat,
   createAvatarTorso,
-  CREW_COLOR_NAMES,
   CREW_COLORS,
   HIP_BELOW_EYES,
   LEG_LENGTH,
@@ -22,7 +22,7 @@ import { copyCurls, createFingerCurls, type FingerCurls, setCurls } from '../sim
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import { handCurls, handUse } from './grip-system.js';
-import { HoldKind, type LockBody, LockedHand } from './hand-lock.js';
+import { HoldKind, LockedHand } from './hand-lock.js';
 import { perf } from './perf-hud-system.js';
 import { describeBrowser, readGpu } from '../perf/platform-report.js';
 import { softwareRendererNote, vrStartMessage, vrSupportNote } from '../vr-messages.js';
@@ -35,19 +35,21 @@ import { onVrStart, prepareVr, startVr, vrStartState } from '../vr-start.js';
  * ship space, which is the scene's space because the gondola never moves
  * (see the S2 record).
  *
- * The crew panel on the flat page creates or joins a room; `?room=ABCD` in
- * the URL joins on load. With no room the game is solo and nothing here runs.
+ * The start screen creates or joins a room (through `crewControls`);
+ * `?room=ABCD` in the URL joins on load. With no room the game is solo and
+ * nothing here runs.
  *
  * Spike S5 adds voice on the same connection (see src/net/voice.ts): the
  * crewmate's voice is placed at their mouth and heard from this player's
- * head. The Y button (left controller) or the crew panel's Mic button mutes.
+ * head. The game menu (Y on the left controller) mutes this player, and can
+ * also turn the crewmate's voice off.
  */
 
 const SEND_HZ = 45;
 /**
  * How far a scripted hand's grip is pitched back from level, rad: with the
- * controller's handle tilted forward like this, the glove's forearm lies
- * level (see the grip space in avatar.scene-asset.ts).
+ * controller's handle tilted forward like this, the glove's cuff lies
+ * level (see the grip space in hand.scene-asset.ts).
  */
 const SCRIPTED_GRIP_PITCH = 0.9;
 const STATS_LOG_MS = 5000;
@@ -56,6 +58,8 @@ const SCRIPTED_HOLDING = createFingerCurls(1, 1, 1);
 const SCRIPTED_RELAXED = createFingerCurls(0.35, 0.35, 0.3);
 /** Where this player's coat colour is kept in the browser. */
 const COLOR_KEY = 'patchwork-airship.colour';
+/** The window event that opens the game menu (from the flat page's panel). */
+export const OPEN_MENU_EVENT = 'patchwork-airship:open-menu';
 
 /** The coat colour picked before, or a random one (kept for next time). */
 function loadCrewColor(): number {
@@ -228,7 +232,6 @@ export class NetSystem extends createSystem({}) {
   private rightHand!: PosedHand;
   /** Grip locking for the crewmate's hands, and their curls as drawn. */
   private crewLocks = { left: new LockedHand('left'), right: new LockedHand('right') };
-  private crewBody: LockBody = { head: new Vector3(), yaw: 0 };
   private crewCurls = { left: createFingerCurls(), right: createFingerCurls() };
   private tmpPos = new Vector3();
   private tmpQuat = new Quaternion();
@@ -259,6 +262,10 @@ export class NetSystem extends createSystem({}) {
     this.session = new NetSession({
       onState: (state, detail) => {
         this.ui?.update(state, this.room, detail);
+        crewControls.state = state;
+        crewControls.detail = detail ?? '';
+        crewControls.crewmate = state === 'connected' ? this.session.peer?.name ?? '' : '';
+        crewControls.changed();
         console.info(`[Net] ${state}${detail ? `: ${detail}` : ''}`);
         clearInterval(this.statsTimer);
         if (state === 'connected') {
@@ -323,22 +330,37 @@ export class NetSystem extends createSystem({}) {
     (window as unknown as { __net: NetDebug }).__net = this.debug;
 
     this.ui = new LobbyUi({
-      onJoin: (room) => this.join(room),
-      onLeave: () => this.leave(),
-      onMute: () => this.toggleMute(),
       onAllowMic: () => {
         this.voice.resume();
         void this.voice.askPermission().then(() => this.showMic());
       },
-      onColor: (index) => this.setColor(index),
       onEnterVr: () => {
         this.voice.resume();
         startVr(this.world);
       },
-      colors: CREW_COLORS,
-      colorNames: CREW_COLOR_NAMES,
-      color: this.color,
+      onMenu: () => window.dispatchEvent(new Event(OPEN_MENU_EVENT)),
     });
+    crewControls.color = this.color;
+    crewControls.join = (room) => {
+      const url = new URL(location.href);
+      url.searchParams.set('room', room);
+      history.replaceState(null, '', url);
+      this.join(room);
+    };
+    crewControls.leave = () => {
+      this.leave();
+      const url = new URL(location.href);
+      url.searchParams.delete('room');
+      history.replaceState(null, '', url);
+    };
+    crewControls.toggleMute = () => this.toggleMute();
+    crewControls.setCrewMuted = (muted) => {
+      this.voice.setRemoteMuted(muted);
+      crewControls.crewMuted = muted;
+      console.info(`[Voice] crewmate ${muted ? 'muted' : 'unmuted'}`);
+      crewControls.changed();
+    };
+    crewControls.setColor = (index) => this.setColor(index);
     void this.voice.checkPermission().then(() => this.showMic());
     // Whether to offer Enter VR. A desktop browser can see no headset when the
     // page opened before Link was running, so look again when it reports a
@@ -433,7 +455,7 @@ export class NetSystem extends createSystem({}) {
     // The lobby only knows four-letter codes; anything else in the link is ignored.
     const code = settings.room ? normaliseRoomCode(settings.room) : null;
     if (code) {
-      this.ui.join(code);
+      crewControls.join(code);
     }
   }
 
@@ -456,6 +478,7 @@ export class NetSystem extends createSystem({}) {
 
   private join(room: string): void {
     this.room = room;
+    crewControls.room = room;
     const name = settings.name || (settings.bot ? 'Practice crewmate' : `Crew ${Math.floor(Math.random() * 900 + 100)}`);
     this.session.join(lobbyBaseUrl(), room, name, this.color);
     this.voice.resume();
@@ -471,12 +494,18 @@ export class NetSystem extends createSystem({}) {
   private showMic(): void {
     const v = this.voice;
     this.ui?.setMic({ muted: v.muted, error: v.micError, on: v.micTrack !== null, permitted: v.permitted || !v.enabled });
+    crewControls.micOn = v.micTrack !== null;
+    crewControls.micMuted = v.muted;
+    crewControls.micError = v.micError;
+    crewControls.changed();
   }
 
   /** This player's coat colour, kept in the browser and shown to the crewmate. */
   private setColor(index: number): void {
     this.color = index;
     crewLook.color = index;
+    crewControls.color = index;
+    crewControls.changed();
     try {
       localStorage.setItem(COLOR_KEY, String(index));
     } catch {
@@ -513,6 +542,8 @@ export class NetSystem extends createSystem({}) {
   private leave(): void {
     this.session.close();
     this.room = '';
+    crewControls.room = '';
+    crewControls.changed();
   }
 
   private createRemoteAvatar(): void {
@@ -585,9 +616,6 @@ export class NetSystem extends createSystem({}) {
     }
     const stats = session.clock.stats;
     perf.rttMs = stats.srtt;
-    if (this.input.xr.gamepads.left?.getButtonDown(InputComponent.Y_Button)) {
-      this.toggleMute();
-    }
 
     // Send this player's pose at 45 Hz.
     this.sendAccumulator += delta;
@@ -719,10 +747,6 @@ export class NetSystem extends createSystem({}) {
       return;
     }
     const r = this.remote;
-    // Their arms reach from their shoulders, which turn with their head's heading as the torso does.
-    this.crewBody.head.set(r.head.px, r.head.py, r.head.pz);
-    this.tmpQuat.set(r.head.qx, r.head.qy, r.head.qz, r.head.qw);
-    this.crewBody.yaw = this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ').y;
     for (const side of ['left', 'right'] as const) {
       const hand = side === 'left' ? this.leftHand : this.rightHand;
       if (!hand.mesh.visible) {
@@ -735,7 +759,7 @@ export class NetSystem extends createSystem({}) {
       this.tmpPos.set(p.px, p.py, p.pz);
       this.tmpQuat.set(p.qx, p.qy, p.qz, p.qw);
       const curls = copyCurls(side === 'left' ? r.leftFingers : r.rightFingers, this.crewCurls[side]);
-      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls, this.crewBody);
+      this.crewLocks[side].update(dt, kind === HoldKind.Bell ? HoldKind.None : kind, this.tmpPos, this.tmpQuat, hand.mesh.position, hand.mesh.quaternion, curls);
       hand.pose(curls);
     }
   }

@@ -1,0 +1,179 @@
+<!--
+  The start screen (src/systems/start-screen-system.ts): how to play, chosen
+  in VR with a controller ray or on the flat page with the mouse. Three pages,
+  shown one at a time: home (the choices), join (type a crew code) and crew
+  (waiting for the crewmate). Panel, Divider, Button, ButtonLabel and
+  ButtonLabelSubtext come from the bundled Horizon kit.
+-->
+<style>
+  .root {
+    flex-direction: column;
+    width: 440px;
+    padding-top: 20px;
+    padding-bottom: 20px;
+    padding-left: 24px;
+    padding-right: 24px;
+    gap: 12px;
+  }
+
+  .title {
+    text-align: center;
+    font-size: 26px;
+    font-weight: 700;
+    color: #272727;
+  }
+
+  .title:dark {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .text {
+    font-size: 14px;
+    line-height: 1.35;
+    color: #3a3a3a;
+  }
+
+  .text:dark {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .hint {
+    font-size: 12px;
+    line-height: 1.35;
+    color: #5a5a5a;
+  }
+
+  .hint:dark {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .page {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .choice {
+    height: 64px;
+    justify-content: flex-start;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .choice-subtext {
+    font-size: 12px;
+  }
+
+  .code {
+    text-align: center;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    color: #272727;
+  }
+
+  .code:dark {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .keys {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .key {
+    width: 46px;
+    min-width: 46px;
+    height: 46px;
+    font-size: 18px;
+  }
+
+  .row {
+    flex-direction: row;
+    gap: 10px;
+    justify-content: center;
+  }
+</style>
+<Panel id="start-root" class="root">
+  <div class="title">Patchwork Airship</div>
+  <Divider></Divider>
+
+  <div id="start-home" class="page">
+    <div class="text">How do you want to play?</div>
+    <Button id="start-solo" class="choice" variant="primary">
+      <ButtonLabel>
+        Play solo
+        <ButtonLabelSubtext class="choice-subtext">Fly the airship on your own.</ButtonLabelSubtext>
+      </ButtonLabel>
+    </Button>
+    <Button id="start-practice" class="choice" variant="secondary">
+      <ButtonLabel>
+        Solo with the practice crewmate
+        <ButtonLabelSubtext class="choice-subtext">A bot on a PC page plays your crewmate.</ButtonLabelSubtext>
+      </ButtonLabel>
+    </Button>
+    <Button id="start-host" class="choice" variant="secondary">
+      <ButtonLabel>
+        Start a crew
+        <ButtonLabelSubtext class="choice-subtext">Get a code to give a friend.</ButtonLabelSubtext>
+      </ButtonLabel>
+    </Button>
+    <Button id="start-join" class="choice" variant="secondary">
+      <ButtonLabel>
+        Join a crew
+        <ButtonLabelSubtext class="choice-subtext">Type your friend's code.</ButtonLabelSubtext>
+      </ButtonLabel>
+    </Button>
+    <div id="start-home-hint" class="hint">While you play, Y on the left controller opens Settings, and holding A on the right shows what each control does.</div>
+  </div>
+
+  <div id="start-join-page" class="page" style="display: none">
+    <div class="text">Type your crewmate's four-letter code.</div>
+    <div id="start-code" class="code">_ _ _ _</div>
+    <div class="keys">
+      <Button id="key-A" class="key" variant="secondary">A</Button>
+      <Button id="key-B" class="key" variant="secondary">B</Button>
+      <Button id="key-C" class="key" variant="secondary">C</Button>
+      <Button id="key-D" class="key" variant="secondary">D</Button>
+      <Button id="key-E" class="key" variant="secondary">E</Button>
+      <Button id="key-F" class="key" variant="secondary">F</Button>
+      <Button id="key-G" class="key" variant="secondary">G</Button>
+      <Button id="key-H" class="key" variant="secondary">H</Button>
+    </div>
+    <div class="keys">
+      <Button id="key-J" class="key" variant="secondary">J</Button>
+      <Button id="key-K" class="key" variant="secondary">K</Button>
+      <Button id="key-M" class="key" variant="secondary">M</Button>
+      <Button id="key-N" class="key" variant="secondary">N</Button>
+      <Button id="key-P" class="key" variant="secondary">P</Button>
+      <Button id="key-Q" class="key" variant="secondary">Q</Button>
+      <Button id="key-R" class="key" variant="secondary">R</Button>
+      <Button id="key-S" class="key" variant="secondary">S</Button>
+    </div>
+    <div class="keys">
+      <Button id="key-T" class="key" variant="secondary">T</Button>
+      <Button id="key-U" class="key" variant="secondary">U</Button>
+      <Button id="key-V" class="key" variant="secondary">V</Button>
+      <Button id="key-W" class="key" variant="secondary">W</Button>
+      <Button id="key-X" class="key" variant="secondary">X</Button>
+      <Button id="key-Y" class="key" variant="secondary">Y</Button>
+      <Button id="key-Z" class="key" variant="secondary">Z</Button>
+      <Button id="key-del" class="key" variant="tertiary">Del</Button>
+    </div>
+    <div class="row">
+      <Button id="start-join-back" variant="tertiary">Back</Button>
+      <Button id="start-join-go" variant="primary">Join</Button>
+    </div>
+    <Button id="start-join-bot" variant="secondary" style="display: none">Join as practice crewmate</Button>
+    <div id="start-join-error" class="hint" style="display: none">Crew codes are four letters.</div>
+  </div>
+
+  <div id="start-crew-page" class="page" style="display: none">
+    <div id="start-crew-title" class="code">Crew</div>
+    <div id="start-crew-status" class="text">Joining...</div>
+    <div id="start-crew-help" class="hint">Tell your crewmate the code.</div>
+    <div class="row">
+      <Button id="start-crew-back" variant="tertiary">Leave crew</Button>
+      <Button id="start-crew-play" variant="primary">Start playing</Button>
+    </div>
+  </div>
+</Panel>

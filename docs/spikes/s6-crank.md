@@ -10,6 +10,7 @@ Status: the crank is built and tested in the emulated headset and between two ne
 - **Latency.** Each hand input carries the local time the hand was there. The crank keeps a short history of its own angle, so the crewmate's hand, which arrives late, is compared against where the crank was at that moment. Their rhythm is judged fairly and the delay itself isn't counted against them.
 - **Network** (`src/systems/crank-system.ts`). The host runs the authoritative crank, using its own hands now and the crewmate's hands as they arrive in the pose packets (two spare flag bits say which hand holds the crank). It sends a 15-byte crank state 45 times a second. The guest runs the same simulation as a prediction, so the handle answers its own hand immediately, and blends 12% per frame towards the host's state, moved forward by the state's age.
 - **Feedback.** The controller gives a ratchet click every eighth of a turn, stronger under strain. High gear engaging gives a double pulse, and pulling out of step makes it shudder. The brass-framed sign above the axle shows turns per second and the gear.
+- **Keeping in step** (added after the 2026-10-10 two-player playtest): with both players on the crank, each player's sign shows a balance bar and says "push harder" or "ease off", and the controller flutters or throbs to match. See [../crew-sync.md](../crew-sync.md).
 
 ## Results in the cloud
 

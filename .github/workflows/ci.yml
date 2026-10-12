@@ -12,10 +12,69 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# The tests run as parallel jobs, each on its own runner: quick checks, the
+# emulated-headset test and the two-player network test. The `check` job at
+# the end gates on all of them; it is the status check the main ruleset
+# requires, so keep its name. See docs/testing.md for how to run each part.
 jobs:
-  check:
+  plan:
+    # Decides what needs to run.
+    # - Pull request touching only Markdown, docs/ or LICENSE: the browser
+    #   tests are skipped (nothing they load changed).
+    # - Push to main whose files are exactly a tree a pull request already
+    #   passed every test on (main didn't move between that run and the
+    #   merge): the tests are skipped and the deploy goes straight out.
+    #   Otherwise main runs everything before it deploys.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tests: ${{ steps.plan.outputs.tests }}
+      browser: ${{ steps.plan.outputs.browser }}
+      tree: ${{ steps.plan.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A pull request checks out its merge with the base, whose first
+          # parent is the base: depth 2 is enough to list what it changes.
+          fetch-depth: 2
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          tests=true
+          browser=true
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+            echo "Changed files:"; cat "$RUNNER_TEMP/changed.txt"
+            if [ -s "$RUNNER_TEMP/changed.txt" ] && ! grep -qvE '(^docs/|\.md$|^LICENSE$)' "$RUNNER_TEMP/changed.txt"; then
+              browser=false
+              echo "::notice::Only docs changed: the browser tests are skipped."
+            fi
+          else
+            # Only a run of this repository's own branches counts (a fork's
+            # pull request could name an artifact anything).
+            passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=tested-tree-$tree&per_page=20" \
+              --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_repository_id != null and .workflow_run.head_repository_id == .workflow_run.repository_id)] | length' || echo 0)
+            if [ "${passed:-0}" -gt 0 ]; then
+              tests=false
+              browser=false
+              echo "::notice::These exact files already passed every test on their pull request: deploying without running them again."
+            fi
+          fi
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"
+
+  quick:
+    # Typecheck, unit tests and a production build: about a minute.
+    needs: plan
+    if: needs.plan.outputs.tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -26,33 +85,116 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Install Chromium for the emulated-headset test
-        run: npx playwright install --with-deps chromium
-      - name: Emulated-headset smoke test
+      - name: Typecheck the lobby worker
+        run: npm ci --prefix lobby && npm run --prefix lobby typecheck
+
+  xr:
+    # The emulated-headset test drives an emulated Quest 3 through the IWSDK
+    # dev runtime; it is the longest job, so it starts as soon as it can.
+    needs: plan
+    if: needs.plan.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/playwright-chromium
+      - name: Emulated-headset test
         run: npm run test:xr
-      # Stop the emulated headset first: its browser keeps rendering and the
-      # runner's two CPUs are needed for the four software-rendered pages.
       - name: Stop the dev runtime
         if: always()
         run: npx iwsdk dev down || true
-      - name: Two-player network test
-        run: npm run test:net
-      - name: Typecheck the lobby worker
-        run: npm ci --prefix lobby && npm run --prefix lobby typecheck
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: test-artifacts
+          name: xr-artifacts
+          path: artifacts/*.png
+          if-no-files-found: ignore
+
+  net:
+    # Two Playwright browsers play together against `vite preview` and the
+    # local lobby, on a runner of their own.
+    needs: plan
+    if: needs.plan.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: ./.github/actions/playwright-chromium
+      - name: Two-player network test
+        run: npm run test:net
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: net-artifacts
           path: |
             artifacts/*.png
             artifacts/net-report.json
           if-no-files-found: ignore
 
+  check:
+    # The status check the main ruleset requires. A job skipped because a job
+    # it needs failed counts as passed, so this one runs whatever happened
+    # above and fails unless every test job passed or was skipped on purpose.
+    needs: [plan, quick, xr, net]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every test passed
+        env:
+          PLAN: ${{ needs.plan.result }}
+          TESTS: ${{ needs.plan.outputs.tests }}
+          BROWSER: ${{ needs.plan.outputs.browser }}
+          QUICK: ${{ needs.quick.result }}
+          XR: ${{ needs.xr.result }}
+          NET: ${{ needs.net.result }}
+        run: |
+          echo "plan $PLAN (tests $TESTS, browser $BROWSER), quick $QUICK, xr $XR, net $NET"
+          ok=true
+          [ "$PLAN" = success ] || ok=false
+          want() { # job result, whether it was meant to run
+            if [ "$2" = true ]; then [ "$1" = success ]; else [ "$1" = skipped ]; fi
+          }
+          want "$QUICK" "$TESTS" || ok=false
+          want "$XR" "$BROWSER" || ok=false
+          want "$NET" "$BROWSER" || ok=false
+          if [ "$ok" != true ]; then
+            echo "::error::A test job failed or was cancelled (see the jobs above)."
+            exit 1
+          fi
+      # Records that these exact files passed every test, so main can deploy
+      # this merge without testing it again (see the plan job).
+      - name: Mark these files as tested
+        if: github.event_name == 'pull_request' && needs.plan.outputs.browser == 'true'
+        run: echo "${{ github.sha }}" > tested.txt
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request' && needs.plan.outputs.browser == 'true'
+        with:
+          name: tested-tree-${{ needs.plan.outputs.tree }}
+          path: tested.txt
+          retention-days: 30
+          overwrite: true
+
   lobby:
     # Deploys the crew lobby (lobby/) to Cloudflare Workers. Until the
     # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets exist this job only
     # leaves a notice, so main stays green before Cloudflare is set up.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # It names check's result itself: by default a job is skipped when any job
+    # further up was skipped, as the tests are when main's files were already
+    # tested on their pull request.
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.check.result == 'success'
     needs: check
     runs-on: ubuntu-latest
     outputs:

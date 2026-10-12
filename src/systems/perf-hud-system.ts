@@ -9,9 +9,11 @@ import {
   VisibilityState,
 } from '@iwsdk/core';
 import { PerfRecorder } from '../perf/perf-recorder.js';
+import { changeSetting, LIVE_ITEMS, onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
 import { estimateRefreshHz } from '../perf/refresh-rate.js';
 import { platformInfo, summarize } from '../perf/platform-report.js';
+import { body } from './body-height-system.js';
 import { budgetHz, frameRateInfo } from './frame-rate-system.js';
 import { poseName } from '../sim/hand-pose.js';
 import { fingerInputs, grip, handCurls, handGrips, Touch } from './grip-system.js';
@@ -72,9 +74,8 @@ export class PerfHudSystem extends createSystem({}) {
       new MeshBasicMaterial({ map: this.texture, toneMapped: false }),
     );
     this.panel.name = 'PerfHud';
-    // Above the left fist, clear of the glove's cuff and sleeve (which
-    // leave the fist up and back along the grip's +Y and +Z), tilted
-    // towards the eyes.
+    // Above the left fist, clear of the glove's cuff (which leaves the
+    // fist up and back along the grip's +Y and +Z), tilted towards the eyes.
     this.panel.position.set(-0.04, 0.16, 0.06);
     this.panel.rotation.set(-1.2, 0, 0);
     this.world.createTransformEntity(this.panel, {
@@ -106,12 +107,19 @@ export class PerfHudSystem extends createSystem({}) {
     this.cleanupFuncs.push(() => this.overlay?.remove());
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'h' || event.key === 'H') {
-        this.visible = !this.visible;
+      if ((event.key === 'h' || event.key === 'H') && !event.repeat) {
+        toggleHud();
       }
     };
     window.addEventListener('keydown', onKey);
-    this.cleanupFuncs.push(() => window.removeEventListener('keydown', onKey));
+    this.cleanupFuncs.push(
+      () => window.removeEventListener('keydown', onKey),
+      onSettingChange((key) => {
+        if (key === 'hud') {
+          this.visible = settings.hud;
+        }
+      }),
+    );
 
     perf.label = settings.label.replace(/[,\n]/g, ' ');
     (window as PerfWindow).__perf = {
@@ -151,7 +159,7 @@ export class PerfHudSystem extends createSystem({}) {
       this.immersiveFrames++;
       frameRateInfo.actual = this.world.session.frameRate ?? frameRateInfo.actual;
       if (this.input.xr.gamepads.left?.getButtonDown(InputComponent.X_Button)) {
-        this.visible = !this.visible;
+        toggleHud();
       }
     } else {
       this.immersiveFrames = 0;
@@ -227,7 +235,7 @@ export class PerfHudSystem extends createSystem({}) {
       graphTop + graphH + 112,
     );
     ctx.fillText(
-      `rtt ${Number.isNaN(s.rttMs) ? '-' : s.rttMs.toFixed(0) + ' ms'}  ${perf.label}`,
+      `rtt ${Number.isNaN(s.rttMs) ? '-' : s.rttMs.toFixed(0) + ' ms'}  eyes ${eyeText(body.eye)}/${eyeText(body.crewEye)} m  ${perf.label}`,
       10,
       graphTop + graphH + 138,
     );
@@ -277,6 +285,11 @@ export class PerfHudSystem extends createSystem({}) {
   }
 }
 
+/** An eye height for the HUD: "1.62", or "-" before it's known. */
+function eyeText(eye: number): string {
+  return Number.isNaN(eye) ? '-' : eye.toFixed(2);
+}
+
 function heapMb(): number {
   const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
   return memory ? memory.usedJSHeapSize / 1048576 : Number.NaN;
@@ -290,4 +303,12 @@ function downloadCsv(text: string): void {
   link.download = `patchwork-perf-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Show or hide the HUD through its setting, so the game menu agrees and the choice is kept. */
+function toggleHud(): void {
+  const item = LIVE_ITEMS.find((i) => i.key === 'hud');
+  if (item) {
+    changeSetting(item, settings.hud ? '0' : '1');
+  }
 }
