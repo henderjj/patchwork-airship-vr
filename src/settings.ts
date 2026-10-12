@@ -72,7 +72,7 @@ export interface Settings {
   bot: boolean;
   /** Character height, m: the player's eyes are put at this height less 0.13 m when upright; 0 keeps their own (src/sim/body-height.ts). */
   height: number;
-  /** Playing seated: the view is raised to standing eye height. */
+  /** Playing seated: the view is raised to a little under an average standing eye height. */
   seated: boolean;
 }
 

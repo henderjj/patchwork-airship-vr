@@ -8,10 +8,13 @@ import {
   MAX_OWN_EYE,
   MAX_RAISE,
   rigOffset,
+  SEATED_EYE,
   targetEyeHeight,
   UprightEye,
 } from '../src/sim/body-height.js';
 import { parseSettings } from '../src/settings.js';
+import { CRANK_RADIUS } from '../src/scene-assets/crank.scene-asset.js';
+import { CRANK_AXLE_HEIGHT, FUEL_CRATE_POSITION, FUEL_CRATE_SIZE } from '../src/scene-assets/gondola.scene-asset.js';
 
 /** Feed `seconds` of a steady head height at 90 Hz. */
 function hold(eye: UprightEye, headY: number, seconds: number): void {
@@ -49,7 +52,7 @@ describe('upright eye height', () => {
 
 describe('rig offset', () => {
   it('leaves a player standing at their own height alone', () => {
-    const target = targetEyeHeight({ height: 0, seated: false }, null);
+    const target = targetEyeHeight({ height: 0, seated: false });
     expect(target).toBeNull();
     expect(rigOffset(target, 1.72)).toBe(0);
     expect(rigOffset(target, 1.2)).toBe(0);
@@ -60,18 +63,26 @@ describe('rig offset', () => {
   });
 
   it('puts the eyes at a chosen height, whoever is wearing the headset', () => {
-    const target = targetEyeHeight({ height: 1.6, seated: false }, null)!;
+    const target = targetEyeHeight({ height: 1.6, seated: false })!;
     expect(target).toBeCloseTo(1.6 - EYES_BELOW_TOP, 6);
     expect(1.75 + rigOffset(target, 1.75)).toBeCloseTo(target, 6);
     expect(1.3 + rigOffset(target, 1.3)).toBeCloseTo(target, 6);
   });
 
-  it('raises a seated player to their standing eyes, or the default character', () => {
-    expect(1.15 + rigOffset(targetEyeHeight({ height: 0, seated: true }, 1.68), 1.15)).toBeCloseTo(1.68, 6);
-    const fallback = DEFAULT_CHARACTER_HEIGHT - EYES_BELOW_TOP;
-    expect(1.15 + rigOffset(targetEyeHeight({ height: 0, seated: true }, null), 1.15)).toBeCloseTo(fallback, 6);
-    // A chosen height wins over the remembered one.
-    expect(1.15 + rigOffset(targetEyeHeight({ height: 1.9, seated: true }, 1.5), 1.15)).toBeCloseTo(1.9 - EYES_BELOW_TOP, 6);
+  it('raises a seated player to a little under average eye height, unless they chose a height', () => {
+    expect(SEATED_EYE).toBeLessThan(DEFAULT_CHARACTER_HEIGHT - EYES_BELOW_TOP);
+    expect(1.15 + rigOffset(targetEyeHeight({ height: 0, seated: true }), 1.15)).toBeCloseTo(SEATED_EYE, 6);
+    expect(1.15 + rigOffset(targetEyeHeight({ height: 1.9, seated: true }), 1.15)).toBeCloseTo(1.9 - EYES_BELOW_TOP, 6);
+  });
+
+  it('keeps the crank and the fuel crate in reach from a chair when seated', () => {
+    // A seated player's hands reach from about 0.45 m (beside the chair) to 1.4 m above their floor.
+    const raised = rigOffset(targetEyeHeight({ height: 0, seated: true }), 1.2);
+    const crankLow = CRANK_AXLE_HEIGHT - CRANK_RADIUS;
+    const crateTop = FUEL_CRATE_POSITION[1] + FUEL_CRATE_SIZE[1];
+    expect(crankLow - raised).toBeGreaterThan(0.45);
+    expect(crateTop - raised).toBeGreaterThan(0.45);
+    expect(CRANK_AXLE_HEIGHT + CRANK_RADIUS - raised).toBeLessThan(1.4);
   });
 
   it('never lifts the rig more than its limit', () => {

@@ -13,15 +13,23 @@
  *   above `MAX_OWN_EYE`) is pulled down to that.
  * - A chosen height: eyes at that height less `EYES_BELOW_TOP`, whatever the
  *   player's real height or a wrongly set floor.
- * - Seated: the player's seated eyes are raised to their standing eye height
- *   (measured when they last played standing, else the default character's),
- *   or to the chosen height's, so every control is in reach from a chair.
+ * - Seated: the player's seated eyes are raised to `SEATED_EYE`, a little
+ *   shorter than the default character, or to the chosen height's. Raising
+ *   a seated player to full standing height left the crank's low point and
+ *   the fuel crate too far down to reach from a chair (John, 2026-10-12).
  */
 
 /** The default character's height, m (the crew avatar is built for it). */
 export const DEFAULT_CHARACTER_HEIGHT = 1.75;
 /** How far the eyes are below the top of the head, m (as on the crew avatar: eyes at 1.62 m). */
 export const EYES_BELOW_TOP = 0.13;
+/**
+ * Eye height for seated play at the player's own height, m: a 1.58 m
+ * character's. A chair-height upright head (about 1.2 m) is raised about
+ * 0.25 m, so the crank turns between knee and chest and the crate is in
+ * reach beside the chair.
+ */
+export const SEATED_EYE = 1.45;
 /** Heights a player may choose, m. */
 export const MIN_CHARACTER_HEIGHT = 1.4;
 export const MAX_CHARACTER_HEIGHT = 2.0;
@@ -37,8 +45,6 @@ const SMOOTH_SECONDS = 0.5;
 /** Head heights outside this band aren't counted (headset off, on the floor, or tracking lost), m. */
 const MIN_HEAD = 0.6;
 const MAX_HEAD = 2.6;
-/** Upright for this long standing before the eye height is kept for seated play, s. */
-export const STANDING_KEEP_SECONDS = 20;
 
 /** What the player chose: a character height in metres (0 for their own) and whether they sit. */
 export interface BodyChoice {
@@ -85,18 +91,14 @@ export class UprightEye {
   }
 }
 
-/**
- * The eye height a choice asks for when upright, m, or null for "as measured"
- * (own height, standing). `standingEye` is the player's measured standing eye
- * height from an earlier session, if known.
- */
-export function targetEyeHeight(choice: BodyChoice, standingEye: number | null): number | null {
+/** The eye height a choice asks for when upright, m, or null for "as measured" (own height, standing). */
+export function targetEyeHeight(choice: BodyChoice): number | null {
   const height = clampCharacterHeight(choice.height);
   if (height > 0) {
     return height - EYES_BELOW_TOP;
   }
   if (choice.seated) {
-    return standingEye === null ? DEFAULT_CHARACTER_HEIGHT - EYES_BELOW_TOP : Math.min(MAX_OWN_EYE, standingEye);
+    return SEATED_EYE;
   }
   return null;
 }
