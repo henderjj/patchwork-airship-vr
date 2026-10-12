@@ -125,19 +125,24 @@ describe('route', () => {
   });
 
   it('scores a quick, clean run better than a slow one that missed a ring', () => {
-    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0 });
-    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1 });
+    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0, cargo: 100 });
+    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1, cargo: 100 });
     expect(clean.score).toBeGreaterThan(messy.score);
     expect(clean.stars).toBe(3);
     expect(messy.stars).toBeLessThan(2);
   });
 
   it('costs 100 points each time the grapple is torn off the post', () => {
-    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2 };
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, cargo: 100 };
     expect(scoreRun({ ...base, tears: 0 }).score - scoreRun({ ...base, tears: 2 }).score).toBe(200);
   });
 
-  it('times a run from lift-off, counts rings, and finishes after being made fast at island B', () => {
+  it('costs 4 points for each percent of the crate lost', () => {
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0 };
+    expect(scoreRun({ ...base, cargo: 100 }).score - scoreRun({ ...base, cargo: 75 }).score).toBe(100);
+  });
+
+  it('times a run from lift-off, counts rings, and finishes after being made fast at island B with the crate delivered', () => {
     const run = new RouteRun(CALM_SKIES);
     const s = { x: 0, y: restingDeck(CALM_SKIES.start), z: 0, time: 0 };
     expect(run.step(s, true, false, 0, 0, DT, false)).toBe(false);
@@ -163,11 +168,17 @@ describe('route', () => {
     const d = CALM_SKIES.dock;
     Object.assign(s, { x: d.x + 2, y: d.y + 1.5, z: d.z + 1 });
     const steps = Math.ceil(FAST_HOLD_SECONDS / DT) + 1;
-    for (let i = 0; i < steps && run.phase === 'flying'; i++) {
-      run.step(s, false, true, 5, 1, DT, false);
+    // ...once the crate has been lowered there too.
+    const crate = { delivered: false, condition: 100 };
+    for (let i = 0; i < steps; i++) {
+      run.step(s, false, true, 5, 1, DT, false, crate);
     }
+    expect(run.phase).toBe('flying');
+    crate.delivered = true;
+    crate.condition = 82.4;
+    run.step(s, false, true, 5, 1, DT, false, crate);
     expect(run.phase).toBe('finished');
-    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1 });
+    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1, cargo: 82 });
     run.reset();
     expect(run.phase).toBe('ready');
     expect(run.result).toBeNull();

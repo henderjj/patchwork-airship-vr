@@ -4,7 +4,8 @@ import type { FingerCurls } from '../sim/hand-pose.js';
 
 /**
  * Grip locking (Phase 3 step 0, see docs/hands.md): while a hand holds the
- * crank, the mooring line, the tiller, the vent cord or the bell lanyard,
+ * crank, the mooring line, the tiller, the vent cord, the bell lanyard, the
+ * cargo winch or the hatch lever,
  * its glove is drawn closed on the handle rather than at the controller,
  * with the handle through the middle of the fist, turned only as far as
  * that takes, so it keeps the twist of the player's real hand. It eases
@@ -26,6 +27,12 @@ export const HoldKind = {
   Bell: 5,
   /** The grapple (docking): it is drawn in the hand, so the hand isn't locked to anything. */
   Grapple: 6,
+  /** The cargo winch's handle. */
+  Winch: 7,
+  /** The cargo tag line's toggle: drawn on the line's end at the hand, so the hand isn't locked. */
+  Tag: 8,
+  /** The cargo hatch's lever. */
+  Lever: 9,
 } as const;
 
 /**

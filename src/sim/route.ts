@@ -34,6 +34,11 @@ export interface Route {
   finish: LandingIsland;
   /** The mooring post at the end of the finish island's jetty. */
   dock: DockPost;
+  /**
+   * The cargo stage (Phase 3 cargo, docs/cargo.md): a plank platform on a
+   * small floating rock under the jetty's end, where the crate is set down.
+   */
+  cargo: Island;
 }
 
 const DEG = Math.PI / 180;
@@ -50,7 +55,14 @@ export const CALM_SKIES: Route = {
   // 7 m jetty: a ship made fast there has its keel above the island's top and
   // clear of its rock.
   dock: { x: -181.96, y: 108, z: -451.36, height: 2.2 },
+  // 6 m below the jetty, 1.5 m further out than the post: a ship made fast at
+  // the post has its cargo hatch over it whichever way it lies.
+  cargo: { x: -181.24, y: 102, z: -450.05, radius: 4.5, depth: 6 },
 };
+
+/** The jetty's planks: this wide, their tops this far above the island's top, m. */
+export const JETTY_WIDTH = 1.6;
+export const JETTY_TOP = 0.1;
 
 /** Where the jetty leaves the island's rim, along the way from the island's middle to the post. */
 export function jettyRoot(route: Route): { x: number; z: number } {
@@ -59,6 +71,17 @@ export function jettyRoot(route: Route): { x: number; z: number } {
   const d = Math.hypot(dx, dz);
   const r = route.finish.radius - 1;
   return { x: route.finish.x + (dx / d) * r, z: route.finish.z + (dz / d) * r };
+}
+
+/** Whether world (x, z) is on the jetty's planks, between the post and where it leaves the island. */
+export function onJetty(route: Route, x: number, z: number): boolean {
+  const root = jettyRoot(route);
+  const ex = root.x - route.dock.x;
+  const ez = root.z - route.dock.z;
+  const length = Math.hypot(ex, ez);
+  const along = ((x - route.dock.x) * ex + (z - route.dock.z) * ez) / length;
+  const across = Math.abs(((x - route.dock.x) * ez - (z - route.dock.z) * ex) / length);
+  return along > -0.3 && along < length + 1 && across < JETTY_WIDTH / 2;
 }
 
 /** The ring is passed when the middle of the ship crosses it this far inside its rim, m. */
@@ -72,9 +95,9 @@ export const HAZE_HEIGHT = 40;
 /** The run is lost this far from the route, m. */
 export const LOST_DISTANCE = 450;
 
-/** The route's islands, for resting on and running into. */
+/** The route's islands, for resting on and running into (the cargo stage's rock is one). */
 export function routeIslands(route: Route): Island[] {
-  return [route.start, route.finish];
+  return [route.start, route.finish, route.cargo];
 }
 
 /** Way through a ring: its unit normal in world space. */
@@ -124,17 +147,32 @@ export interface RouteResult {
   ringsTotal: number;
   /** Times the grapple was torn or yanked off the post. */
   tears: number;
+  /** The crate's condition when delivered, %. */
+  cargo: number;
   score: number;
   stars: number;
 }
 
-/** Points: 1000, less time, fuel, missed rings, and the grapple torn off the post. */
+/** Points lost per percent of the crate's condition lost. */
+export const CARGO_POINTS = 4;
+
+/** Points: 1000, less time, fuel, missed rings, the grapple torn off the post, and damage to the crate. */
 export function scoreRun(r: Omit<RouteResult, 'score' | 'stars'>): { score: number; stars: number } {
   const missed = r.ringsTotal - r.rings;
-  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears));
+  const damage = CARGO_POINTS * (100 - Math.max(0, Math.min(100, r.cargo)));
+  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears - damage));
   const stars = score >= 600 ? 3 : score >= 450 ? 2 : score >= 250 ? 1 : 0;
   return { score, stars };
 }
+
+/** The crate, as the route needs it: delivered yet, and its condition (%). */
+export interface RouteCargo {
+  delivered: boolean;
+  condition: number;
+}
+
+/** For a run with no crate to deliver (tests of the rest of the route). */
+export const NO_CARGO: RouteCargo = { delivered: true, condition: 100 };
 
 /** What the ship is doing, as the route needs it. */
 export interface RouteShip {
@@ -147,9 +185,9 @@ export interface RouteShip {
 
 /**
  * One attempt at the route. The timer starts when the ship lifts off island
- * A; the run finishes after the ship has been made fast to island B's
- * mooring post for `FAST_HOLD_SECONDS` (src/sim/docking.ts), and
- * is lost if the ship hits an island's rock, sinks into the haze, or strays
+ * A; the run finishes once the ship has been made fast to island B's
+ * mooring post for `FAST_HOLD_SECONDS` (src/sim/docking.ts) and the crate
+ * has been delivered (src/sim/cargo.ts), and is lost if the ship hits an island's rock, sinks into the haze, or strays
  * far from the route. Rings may be flown in any order; each missed one
  * costs points.
  */
@@ -196,10 +234,11 @@ export class RouteRun {
    * Advance the run after the ship has moved. `grounded` is whether it rests
    * on an island's top, `fast` whether it is made fast to island B's post,
    * `tears` how often the grapple has been torn off it, and `crashed`
-   * whether it has run into an island's rock (src/sim/islands.ts). Returns
+   * whether it has run into an island's rock (src/sim/islands.ts), and
+   * `cargo` whether the crate has been delivered and its condition. Returns
    * true if anything the crew should see changed (phase or rings).
    */
-  step(s: RouteShip, grounded: boolean, fast: boolean, bricks: number, tears: number, dt: number, crashed: boolean): boolean {
+  step(s: RouteShip, grounded: boolean, fast: boolean, bricks: number, tears: number, dt: number, crashed: boolean, cargo: RouteCargo = NO_CARGO): boolean {
     const route = this.route;
     let changed = false;
     if (this.phase === 'ready') {
@@ -227,11 +266,11 @@ export class RouteRun {
     }
     this.remember(s);
 
-    // Made fast to island B's post.
+    // Made fast to island B's post, with the crate delivered.
     if (fast) {
       this.fastFor += dt;
-      if (this.fastFor >= FAST_HOLD_SECONDS) {
-        this.finish(bricks, tears);
+      if (this.fastFor >= FAST_HOLD_SECONDS && cargo.delivered) {
+        this.finish(bricks, tears, cargo.condition);
         return true;
       }
     } else {
@@ -255,13 +294,14 @@ export class RouteRun {
     return changed;
   }
 
-  private finish(bricks: number, tears: number): void {
+  private finish(bricks: number, tears: number, cargo: number): void {
     const base = {
       seconds: this.seconds,
       bricks,
       rings: this.rings,
       ringsTotal: this.route.rings.length,
       tears,
+      cargo: Math.round(cargo),
     };
     this.result = { ...base, ...scoreRun(base) };
     this.phase = 'finished';

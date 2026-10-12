@@ -183,10 +183,22 @@ export class SkyWorldSystem extends createSystem({}) {
     // Island B's jetty and mooring post, out from its rim towards the way in (docking).
     const dock = ROUTE.dock;
     const root = jettyRoot(ROUTE);
-    const jetty = new Mesh(createJettyGeometry(Math.hypot(root.x - dock.x, root.z - dock.z), dock.height), material);
+    // The cargo stage below the jetty's end (cargo), in the jetty's own space.
+    const turn = Math.atan2(root.x - dock.x, root.z - dock.z);
+    const stage = ROUTE.cargo;
+    const sx = stage.x - dock.x;
+    const sz = stage.z - dock.z;
+    const place = {
+      x: sx * Math.cos(turn) - sz * Math.sin(turn),
+      y: stage.y - dock.y,
+      z: sx * Math.sin(turn) + sz * Math.cos(turn),
+      radius: stage.radius,
+      depth: stage.depth,
+    };
+    const jetty = new Mesh(createJettyGeometry(Math.hypot(root.x - dock.x, root.z - dock.z), dock.height, place), material);
     jetty.name = 'Mooring Post';
     jetty.position.set(dock.x, dock.y, dock.z);
-    jetty.rotation.y = Math.atan2(root.x - dock.x, root.z - dock.z);
+    jetty.rotation.y = turn;
     this.route.add(jetty);
     this.route.visible = false;
   }

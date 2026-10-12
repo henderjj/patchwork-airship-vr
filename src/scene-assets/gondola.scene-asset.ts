@@ -9,6 +9,18 @@ import {
 } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, pick, rng, shade } from './lowpoly.js';
 import {
+  BLOCK,
+  DERRICK_ARM_Y,
+  DERRICK_HEIGHT,
+  DERRICK_POST,
+  DRUM_RADIUS,
+  HATCH,
+  LEVER_PIVOT,
+  TAG_RING,
+  TRUNK_DEPTH,
+  WINCH_AXLE,
+} from '../sim/cargo.js';
+import {
   BURNER_POSITION,
   BURNER_SIZE,
   DECK_LENGTH,
@@ -99,6 +111,16 @@ export const GONDOLA_COLLIDERS: BoxCollider[] = [
     center: [CRANK_POSITION[0], half(CRANK_AXLE_HEIGHT), CRANK_POSITION[2]],
     size: [0.14, CRANK_AXLE_HEIGHT, 0.14],
   },
+  {
+    name: 'derrick-post',
+    center: [DERRICK_POST[0], DERRICK_HEIGHT / 2, DERRICK_POST[1]],
+    size: [0.09, DERRICK_HEIGHT, 0.09],
+  },
+  {
+    name: 'winch',
+    center: [WINCH_AXLE[0], (WINCH_AXLE[1] + 0.08) / 2, WINCH_AXLE[2]],
+    size: [0.28, WINCH_AXLE[1] + 0.08, 0.16],
+  },
   ...crateColliders(),
 ];
 
@@ -139,10 +161,20 @@ function deckParts(): Part[] {
   const plankWidth = DECK_WIDTH / planks;
   for (let i = 0; i < planks; i++) {
     const x = -DECK_WIDTH / 2 + plankWidth * (i + 0.5);
-    parts.push(box([plankWidth - 0.01, 0.06, DECK_LENGTH], [x, -0.03, 0], i % 2 ? WOOD : WOOD_LIGHT));
+    const color = i % 2 ? WOOD : WOOD_LIGHT;
+    if (x > HATCH.x0 && x < HATCH.x1) {
+      // The cargo hatch's opening: these planks stop either side of it.
+      const bow = HATCH.z0 + DECK_LENGTH / 2;
+      const stern = DECK_LENGTH / 2 - HATCH.z1;
+      parts.push(box([plankWidth - 0.01, 0.06, bow], [x, -0.03, -DECK_LENGTH / 2 + bow / 2], color));
+      parts.push(box([plankWidth - 0.01, 0.06, stern], [x, -0.03, DECK_LENGTH / 2 - stern / 2], color));
+    } else {
+      parts.push(box([plankWidth - 0.01, 0.06, DECK_LENGTH], [x, -0.03, 0], color));
+    }
   }
-  // Hull below the deck, tapering to a keel.
-  const hull = new CylinderGeometry(1, 0.55, 0.5, 4, 1);
+  // Hull below the deck, tapering to a keel. Open-ended: the planks cover its
+  // top, and with no cap there the cargo hatch looks down through it.
+  const hull = new CylinderGeometry(1, 0.55, 0.5, 4, 1, true);
   hull.rotateY(Math.PI / 4);
   hull.scale(DECK_WIDTH / Math.SQRT2, 1, DECK_LENGTH / Math.SQRT2);
   parts.push({ geometry: hull, color: WOOD_DARK, position: [0, -0.31, 0] });
@@ -404,6 +436,72 @@ function tillerPostParts(): Part[] {
   return [box([0.1, 0.8, 0.1], [0, 0.4, DECK_LENGTH / 2 - 0.15], WOOD_DARK)];
 }
 
+/**
+ * The cargo hatch (docs/cargo.md): a low coaming round the opening in the
+ * deck, and a plank trunk down through the hull, as deep as the crate, whose
+ * floor is the hatch door (CargoSystem's).
+ */
+function hatchParts(): Part[] {
+  const { x0, x1, z0, z1 } = HATCH;
+  const w = x1 - x0;
+  const d = z1 - z0;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const t = 0.03;
+  const h = 0.04;
+  const coaming = shade(WOOD_DARK, 0.85);
+  const trunk = shade(WOOD_DARK, 0.7);
+  return [
+    box([t, h, d + 2 * t], [x0 - t / 2, h / 2, cz], coaming),
+    box([t, h, d + 2 * t], [x1 + t / 2, h / 2, cz], coaming),
+    box([w, h, t], [cx, h / 2, z0 - t / 2], coaming),
+    box([w, h, t], [cx, h / 2, z1 + t / 2], coaming),
+    box([0.02, TRUNK_DEPTH, d], [x0 - 0.01, -TRUNK_DEPTH / 2, cz], trunk),
+    box([0.02, TRUNK_DEPTH, d], [x1 + 0.01, -TRUNK_DEPTH / 2, cz], trunk),
+    box([w + 0.04, TRUNK_DEPTH, 0.02], [cx, -TRUNK_DEPTH / 2, z0 - 0.01], trunk),
+    box([w + 0.04, TRUNK_DEPTH, 0.02], [cx, -TRUNK_DEPTH / 2, z1 + 0.01], trunk),
+  ];
+}
+
+/**
+ * The cargo derrick in the stern starboard corner: a post with an arm out
+ * over the hatch and the block the hoist line hangs from; the winch's
+ * frame at the post's foot and the line from its drum up the post and
+ * along the arm to the block; the post the tag line's toggle hangs on; and
+ * the hatch lever's iron quadrant. The drum, the lever and everything that
+ * moves are CargoSystem's.
+ */
+function cargoRigParts(): Part[] {
+  const [px, pz] = DERRICK_POST;
+  const [bx, by, bz] = BLOCK;
+  const [wx, wy, wz] = WINCH_AXLE;
+  const armEnd: [number, number, number] = [bx, DERRICK_ARM_Y - 0.04, bz];
+  const sheave: [number, number, number] = [px - 0.06, DERRICK_ARM_Y - 0.02, pz - 0.05];
+  return [
+    box([0.09, DERRICK_HEIGHT, 0.09], [px, DERRICK_HEIGHT / 2, pz], WOOD_DARK),
+    box([0.13, 0.04, 0.13], [px, DERRICK_HEIGHT + 0.02, pz], IRON),
+    beam([px, DERRICK_ARM_Y, pz], armEnd, 0.035, WOOD, 6),
+    beam([px, DERRICK_ARM_Y - 0.5, pz], [(px + bx) / 2, DERRICK_ARM_Y - 0.03, (pz + bz) / 2], 0.02, WOOD, 5),
+    // The block under the arm's end, on an iron strop.
+    beam(armEnd, [bx, by + 0.07, bz], 0.008, IRON, 4),
+    box([0.05, 0.12, 0.08], [bx, by + 0.02, bz], WOOD_LIGHT),
+    { geometry: new CylinderGeometry(0.045, 0.045, 0.055, 8), color: BRASS, position: [bx, by + 0.02, bz], rotation: [0, 0, Math.PI / 2] },
+    // A sheave at the post's top, and the hoist line from the drum up to it and along the arm to the block.
+    { geometry: new CylinderGeometry(0.04, 0.04, 0.03, 8), color: BRASS, position: sheave, rotation: [0, 0, Math.PI / 2] },
+    beam([wx + 0.04, wy + DRUM_RADIUS + 0.015, wz + 0.02], sheave, 0.009, ROPE, 5),
+    beam(sheave, [bx + 0.02, by + 0.08, bz + 0.02], 0.009, ROPE, 5),
+    // The winch's frame: two iron cheeks on a timber sole, the drum's axle between them.
+    box([0.32, 0.05, 0.2], [wx, 0.025, wz], WOOD_DARK),
+    box([0.025, wy + 0.05, 0.12], [wx - 0.12, (wy + 0.05) / 2, wz], IRON),
+    box([0.025, wy + 0.05, 0.12], [wx + 0.11, (wy + 0.05) / 2, wz], IRON),
+    // The tag line's post and the brass ring its toggle hangs on.
+    box([0.05, TAG_RING[1] + 0.04, 0.05], [TAG_RING[0], (TAG_RING[1] + 0.04) / 2, TAG_RING[2]], WOOD),
+    { geometry: new TorusGeometry(0.03, 0.006, 4, 10), color: BRASS, position: [TAG_RING[0] + 0.03, TAG_RING[1], TAG_RING[2]], rotation: [0, Math.PI / 2, 0] },
+    // The hatch lever's quadrant, an iron plate it swings over.
+    box([0.03, 0.12, 0.22], [LEVER_PIVOT[0] + 0.03, 0.06, LEVER_PIVOT[2] + 0.06], IRON),
+  ];
+}
+
 const gondolaMaterial = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
 /**
@@ -412,12 +510,12 @@ const gondolaMaterial = new MeshLambertMaterial({ vertexColors: true, flatShadin
  * src/sim/deck-walk.ts).
  */
 export function createGondolaHull(): Mesh {
-  const mesh = new Mesh(mergeParts([...deckParts(), ...bulwarkParts()]), gondolaMaterial);
+  const mesh = new Mesh(mergeParts([...deckParts(), ...bulwarkParts(), ...hatchParts()]), gondolaMaterial);
   mesh.name = 'Gondola Hull';
   return mesh;
 }
 
-/** Everything else that is static: envelope, rigging, burner, crate, pedestals. */
+/** Everything else that is static: envelope, rigging, burner, crate, pedestals, the cargo derrick. */
 export function createGondolaRigging(): Mesh {
   const mesh = new Mesh(
     mergeParts([
@@ -430,6 +528,7 @@ export function createGondolaRigging(): Mesh {
       ...crankPedestalParts(),
       ...crankArrowParts(),
       ...tillerPostParts(),
+      ...cargoRigParts(),
     ]),
     gondolaMaterial,
   );

@@ -989,9 +989,55 @@ async function main() {
   check('Hauling in draws the ship to the post until it is made fast', fast !== null && fast.lineOut <= 1.3 && Math.abs(fast.heightOff) <= 1,
     JSON.stringify(fast ?? dockedState));
   evalInApp("(window.__rope.setTestHand('left', null), window.__rope.setTestHand('right', null))");
+  // 6f. Cargo (docs/cargo.md): made fast, the run waits for the crate. Open
+  // the hatch with the lever (a real emulated hand), then lower the crate
+  // onto the stage below B's jetty with the winch and the tag line (scripted
+  // hands: the emulator can't wind a handle round at CI frame rates).
+  await sleep(3500);
+  const waiting = evalInApp('window.__route.run.phase');
+  const lowerBoard = boardAfterRedraw('__route');
+  check('Made fast with the crate still aboard, the run waits and the board says to lower it',
+    waiting === 'flying' && lowerBoard[2] === 'MADE FAST' && lowerBoard[3].trim() === 'LOWER THE CRATE' && evalInApp('window.__cargo.state().phase') === 'aboard',
+    `${waiting}, board: ${lowerBoard.join(' | ')}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.1, 1.6, 0.05]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.6, y: 0.6, z: 0.9 } });
+  await move(evalInApp("window.__cargo.grabPoint('lever')"));
+  await squeeze(1);
+  const leverHeld = evalInApp('window.__cargo.state().held.right');
+  // Pull the lever aft, round its pivot, and let go.
+  await move([0.64, 0.02 + 0.72 * Math.cos(0.7), 0.52 + 0.72 * Math.sin(0.7)], 0.6);
+  const leverPulled = evalInApp('window.__cargo.state()');
+  await squeeze(0);
+  await move([0.3, 1.1, 0.1]);
+  check('Pulling the hatch lever aft opens the hatch under the crate', leverHeld === 'lever' && leverPulled.lever > 0.6 && leverPulled.door && leverPulled.phase === 'hanging' && leverPulled.condition === 100,
+    `held by ${leverHeld}, lever ${leverPulled.lever.toFixed(2)} rad, door ${leverPulled.door ? 'open' : 'shut'}, crate ${leverPulled.phase} ${leverPulled.condition}%`);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-cargo-gear.png'], {});
+  // Lower briskly to just above the stage, then gently, with a hand on the tag line over the hatch.
+  evalInApp(`(() => {
+    let last = performance.now();
+    window.__cargo.setTagHand([0.25, 0.75]);
+    window.__cargo.setWinchHand((now) => {
+      const s = window.__cargo.state();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (s.phase === 'delivered') return null;
+      const rate = s.phase === 'hanging' && s.toGo > 1.2 ? 8 : 2.5;
+      return s.winch + Math.min(0.8, rate * dt);
+    });
+  })()`);
+  await waitFor('the crate to be halfway down', () => evalInApp("window.__cargo.state().toGo < 3"), 60000, 500).catch(() => null);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.1, 1.5, 0.55]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.3, y: -6.5, z: 0.8 } });
+  await sleep(600);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-cargo-lowering.png'], {});
+  const delivered = await waitFor('the crate to be delivered', () => evalInApp("window.__cargo.state().phase === 'delivered' ? window.__cargo.state() : null"), 90000, 500).catch(() => null);
+  evalInApp('(window.__cargo.setWinchHand(null), window.__cargo.setTagHand(null))');
+  check('Winding the winch lowers the crate through the hatch onto the stage below the jetty, delivered once the line is slack',
+    delivered !== null && delivered.condition >= 70 && delivered.line > 7, JSON.stringify(delivered ?? evalInApp('window.__cargo.state()')));
   const finished = await waitFor('the run to finish', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 10000).catch(() => null);
   const scoreBoard = boardAfterRedraw('__route');
-  check('Made fast at island B finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 && scoreBoard[0].startsWith('MADE FAST'),
+  check('Made fast at island B with the crate delivered finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 &&
+      finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crate ${finished.cargo}%`,
     scoreBoard.join(' | '));
   evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__wind)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.45, 1.55, -0.55]) });
@@ -1051,6 +1097,15 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -11, y: -1.2, z: -1.35 } });
   await sleep(800);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-jetty-root.png'], {});
+  // Practice cargo from the game menu: made fast at B, both rings flown, the crate aboard.
+  evalInApp("window.__gameMenu.click('menu-cargo')");
+  await sleep(400);
+  const practiceCargo = evalInApp('({ phase: window.__route.run.phase, rings: window.__route.run.ringMask, dock: window.__dock.state(), cargo: window.__cargo.state() })');
+  const cargoBoard = boardAfterRedraw('__route');
+  check("The menu's practice cargo starts made fast at B with the crate aboard",
+    practiceCargo.phase === 'flying' && practiceCargo.rings === 3 && practiceCargo.dock.phase === 'fast' && practiceCargo.cargo.phase === 'aboard' &&
+      practiceCargo.cargo.condition === 100 && !practiceCargo.cargo.door && cargoBoard[2] === 'MADE FAST' && cargoBoard[3].trim() === 'LOWER THE CRATE',
+    `${practiceCargo.phase}, rings ${practiceCargo.rings}, docking ${practiceCargo.dock.phase}, crate ${practiceCargo.cargo.phase}, board: ${cargoBoard.join(' | ')}`);
   // The menu's wind setting stills or strengthens the breeze.
   evalInApp("window.__gameMenu.click('row-wind-0')");
   const stillAir = evalInApp('[window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation]');
