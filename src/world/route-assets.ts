@@ -33,6 +33,12 @@ export function createLandingIslandGeometry(island: LandingIsland, flagColor: nu
   const rock = new ConeGeometry(r * 0.96, rockDepth, 16, 4);
   rock.rotateX(Math.PI);
   jitter(rock, r * 0.12, rng(seed * 4093 + 12));
+  // Keep the roughened rock below the grass: its top corners jittered up
+  // through the grass in brown wedges that flickered against it.
+  const rockPos = rock.getAttribute('position');
+  for (let i = 0; i < rockPos.count; i++) {
+    rockPos.setY(i, Math.min(rockPos.getY(i), rockDepth / 2 - 0.05));
+  }
   parts.push({
     geometry: rock,
     position: [0, -0.6 - rockDepth / 2, 0],
@@ -103,14 +109,15 @@ const POST_RED = 0xc8402c;
 export function createJettyGeometry(length: number, postHeight: number): BufferGeometry {
   const parts: Part[] = [];
   const width = 1.6;
-  // Planks across, on two stringers.
+  // Planks across, on two stringers. They sit a little above the island's
+  // grass where the jetty runs onto it (their tops level with it flickered).
   const planks = Math.round(length / 0.4);
   for (let i = 0; i < planks; i++) {
     const z = -0.3 + i * (length + 0.3) / planks;
-    parts.push({ geometry: new BoxGeometry(width, 0.08, 0.36), position: [0, -0.04, z + 0.18], color: i % 3 === 0 ? PLANK_DARK : PLANK });
+    parts.push({ geometry: new BoxGeometry(width, 0.08, 0.36), position: [0, 0.06, z + 0.18], color: i % 3 === 0 ? PLANK_DARK : PLANK });
   }
   for (const x of [-width / 2 + 0.15, width / 2 - 0.15]) {
-    parts.push({ geometry: new BoxGeometry(0.14, 0.2, length + 0.3), position: [x, -0.18, length / 2 - 0.15], color: PLANK_DARK });
+    parts.push({ geometry: new BoxGeometry(0.14, 0.2, length + 0.3), position: [x, -0.08, length / 2 - 0.15], color: PLANK_DARK });
     // Struts from under the jetty's outer half back down to the island's rock.
     parts.push(beam([x, -0.25, 0.2], [x * 0.6, -3.2, length + 2.5], 0.08, POLE, 5));
     parts.push(beam([x, -0.25, length * 0.45], [x * 0.6, -2.2, length + 1.6], 0.07, POLE, 5));

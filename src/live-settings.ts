@@ -58,6 +58,17 @@ export const LIVE_ITEMS: readonly LiveItem[] = [
     ],
     current: (s) => String(s.comfort),
   },
+  {
+    key: 'wind',
+    label: 'Wind',
+    options: [
+      ['0', 'Off'],
+      ['0.5', 'Half'],
+      ['1', 'Normal'],
+      ['2', 'Double'],
+    ],
+    current: (s) => String(s.wind),
+  },
 ];
 
 /** Most choices a setting may offer: the buttons in a menu row. */
