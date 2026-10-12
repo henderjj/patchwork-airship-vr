@@ -908,7 +908,7 @@ async function main() {
   //     its port side (the fairlead) to it, level with the post's top, and
   //     the envelope is kept at floating heat meanwhile.
   const dock = route.dock;
-  const FAIRLEAD = [-1.04, 1.07, -1.35];
+  const FAIRLEAD = [-1.04, 1.25, -1.35];
   const outward = (() => {
     const dx = dock.x - route.finish.x;
     const dz = dock.z - route.finish.z;
