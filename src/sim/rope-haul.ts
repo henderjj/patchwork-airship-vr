@@ -7,11 +7,11 @@
  * Whatever is on the far end pulls it back out with a steady load: the
  * grapple's weight while it hangs over the side, or the whole ship while
  * the grapple is on a mooring post and the line is tight (the docking
- * system sets `load` to suit). A hand that grabs the line
- * holds the bit of rope under it, and pulls that bit towards where the hand
- * is now, like a stiff spring. Each player can only pull so hard in total
- * (both hands together), and a hand that gets too far from its bit of rope
- * lets it slip through.
+ * system sets `load`, and for a light line `mass` and `damping`, to
+ * suit). A hand that grabs the line holds the bit of rope under it, and
+ * pulls that bit towards where the hand is now, like a stiff spring. Each
+ * player can only pull so hard in total (both hands together), and a hand
+ * that gets too far from its bit of rope lets it slip through.
  *
  * One player alone can haul, but slowly; pulling harder makes the line slip
  * through their hands. Two players can pull twice as hard, and when their
@@ -92,6 +92,10 @@ export class RopeHaulSim {
   readonly params: RopeParams;
   /** Steady pull on the line out (starts at the params' `load`; what it pulls on can change it). */
   load: number;
+  /** Effective mass of the line and what it pulls (starts at the params' `mass`; a light hanging grapple is less). */
+  mass: number;
+  /** Friction through the fairlead, force per m/s (starts at the params' `damping`). */
+  damping: number;
   /** The line never runs back out on its own (it is belayed between pulls). */
   ratchet = false;
   /** Metres hauled in. */
@@ -127,6 +131,8 @@ export class RopeHaulSim {
   constructor(params: RopeParams = DEFAULT_ROPE) {
     this.params = params;
     this.load = params.load;
+    this.mass = params.mass;
+    this.damping = params.damping;
   }
 
   /** Set how much line is out (it was paid out or hauled by other means), m. */
@@ -231,8 +237,8 @@ export class RopeHaulSim {
     this.heave = together;
 
     if (!this.allIn) {
-      const net = force - this.load - p.damping * this.speed;
-      this.speed += (net / p.mass) * dt;
+      const net = force - this.load - this.damping * this.speed;
+      this.speed += (net / this.mass) * dt;
       if (this.ratchet && this.speed < 0) {
         this.speed = 0;
       }

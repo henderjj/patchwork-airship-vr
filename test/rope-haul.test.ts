@@ -10,8 +10,14 @@ const DT = 1 / 90;
  * hand pulls. Player 1's rhythm can lag by `lagS`, and their input can
  * arrive `delayMs` late as over the network.
  */
-function haul(opts: { players: number; reach: number; strokeS: number; lagS?: number; delayMs?: number; seconds: number }) {
+function haul(opts: { players: number; reach: number; strokeS: number; lagS?: number; delayMs?: number; seconds: number; light?: boolean }) {
   const sim = new RopeHaulSim();
+  if (opts.light) {
+    // A hanging grapple or slack line, as GrappleSystem sets it.
+    sim.mass = 0.1;
+    sim.damping = 0.25;
+    sim.load = 0.1;
+  }
   const hands = [0, 1, 2, 3].map(() => createRopeHandInput());
   const slipped = [false, false, false, false];
   let lastStroke = [-1, -1, -1, -1];
@@ -50,6 +56,13 @@ describe('rope haul', () => {
     expect(sim.hauled).toBeGreaterThan(0.8);
     expect(anySlip).toEqual([false, false, false, false]);
     expect(sim.heaves).toBe(0);
+  });
+
+  it('one player hauls a light line (a missed grapple) in briskly, many times faster than the ship', () => {
+    const light = haul({ players: 1, reach: 0.5, strokeS: 0.4, seconds: 10, light: true });
+    const heavy = haul({ players: 1, reach: 0.5, strokeS: 0.4, seconds: 10 });
+    expect(light.sim.hauled).toBeGreaterThan(9);
+    expect(heavy.sim.hauled).toBeLessThan(light.sim.hauled / 3);
   });
 
   it('one player pulling hard has the line slip through their hands', () => {

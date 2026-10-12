@@ -67,9 +67,17 @@ const ON_POST_UP = 0.04;
 /** While the line strains, it creaks and the controllers buzz this often, ms. */
 const STRAIN_EVERY_MS = 420;
 /** The haul's load (src/sim/rope-haul.ts) for what the line pulls. */
-const LOAD_HANGING = 0.3;
-const LOAD_SLACK = 0.12;
+const LOAD_HANGING = 0.1;
+const LOAD_SLACK = 0.1;
 const LOAD_TIGHT = 0.6;
+/**
+ * A hanging grapple or a slack line is light: it answers brisk strokes
+ * without slipping through the hands, so 10 m comes in within about ten
+ * seconds of hauling. A tight line pulls the whole ship (the haul's own mass
+ * and friction).
+ */
+const LIGHT_MASS = 0.1;
+const LIGHT_DAMPING = 0.25;
 
 interface DockDebug {
   sim: typeof docking;
@@ -186,6 +194,9 @@ export class GrappleSystem extends createSystem({}) {
     const phase = docking.phase;
     sim.ratchet = phase === 'hooked' || phase === 'fast';
     sim.load = phase === 'hanging' ? LOAD_HANGING : phase === 'hooked' ? (docking.tight ? LOAD_TIGHT : LOAD_SLACK) : LOAD_SLACK;
+    const light = phase === 'hanging' || (phase === 'hooked' && !docking.tight);
+    sim.mass = light ? LIGHT_MASS : sim.params.mass;
+    sim.damping = light ? LIGHT_DAMPING : sim.params.damping;
     if (phase === 'fast') {
       // Made fast: the line is tied off.
       sim.setOut(this.fastLine);

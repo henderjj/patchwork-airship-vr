@@ -18,12 +18,13 @@ import {
   updateQuaternion,
 } from '../sim/ship-motion.js';
 import { alongsidePost, DockingSim } from '../sim/docking.js';
-import { createFlightControls, FlightSim } from '../sim/flight.js';
+import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
 import { groundBelow, islandHit, restingDeck } from '../sim/islands.js';
 import { type RoutePhase, type RouteResult, RouteRun } from '../sim/route.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { ROUTE, ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
+import { onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
 import {
@@ -47,7 +48,7 @@ export const ship: ShipState = createShipState();
 export const shipInfo = { motion: 'still', paused: false };
 
 /** Phase 2: the crew-controlled flight model (`?motion=flight`) and what the crew is doing to it. */
-export const flight = new FlightSim();
+export const flight = new FlightSim({ ...DEFAULT_FLIGHT });
 export const flightControls = createFlightControls();
 /** Seconds of full flame one fuel brick gives, and the most the burner holds at once. */
 export const BRICK_BURN_SECONDS = 20;
@@ -238,6 +239,19 @@ export class ShipSystem extends createSystem({
   private wasConnected = false;
 
   init(): void {
+    // The breeze's strength from the game menu (only the host's or a solo ship's matters).
+    const applyWind = () => {
+      flight.params.windSpeed = DEFAULT_FLIGHT.windSpeed * settings.wind;
+      flight.params.windVariation = DEFAULT_FLIGHT.windVariation * settings.wind;
+    };
+    applyWind();
+    this.cleanupFuncs.push(
+      onSettingChange((key) => {
+        if (key === 'wind') {
+          applyWind();
+        }
+      }),
+    );
     routeControl.restart = () => this.restart();
     routeControl.practiceDocking = () => this.practiceDocking();
     routeControl.ready = () => {

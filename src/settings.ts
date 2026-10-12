@@ -63,6 +63,8 @@ export interface Settings {
   motionGust: number;
   /** Spike S3: ask for a comfort rating this often while in VR, s; 0 never asks. */
   comfort: number;
+  /** The breeze's strength as a share of the usual (0 still air, 2 twice as strong); the host's counts in a crew. */
+  wind: number;
   /** A tag for this session (tester or variant) written into the perf and comfort logs. */
   label: string;
   /**
@@ -107,6 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motionTilt: Number.NaN,
   motionGust: Number.NaN,
   comfort: 0,
+  wind: 1,
   label: '',
   bot: false,
   height: 0,
@@ -168,6 +171,7 @@ export function parseSettings(search: string): Settings {
     motionTilt: num(params, 'tilt', d.motionTilt, 0, 20),
     motionGust: num(params, 'gust', d.motionGust, 0, 10),
     comfort: num(params, 'comfort', d.comfort, 0, 600),
+    wind: num(params, 'wind', d.wind, 0, 3),
     label: (params.get('label') ?? d.label).slice(0, 40),
     bot: bool(params, 'bot', d.bot),
     height: clampCharacterHeight(num(params, 'height', d.height, 0, 3)),

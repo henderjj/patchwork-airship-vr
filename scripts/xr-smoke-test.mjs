@@ -1046,6 +1046,20 @@ async function main() {
     practice.phase === 'flying' && practice.rings === 3 && practice.dock.phase === 'stowed' && Math.abs(practice.dock.across - 5) < 0.5 &&
       Math.abs(practice.dock.heightOff) < 0.5 && practiceBoard[2].startsWith('NEXT Post at B') && /LEVEL/.test(practiceBoard[3]),
     `${practice.phase}, rings ${practice.rings}, ${practice.dock.across.toFixed(2)} m out, ${practice.dock.heightOff.toFixed(2)} m off level, board: ${practiceBoard.join(' | ')}`);
+  // Where the jetty runs onto island B (its planks used to flicker against the grass).
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.6, 1.6, -1.2]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -11, y: -1.2, z: -1.35 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-jetty-root.png'], {});
+  // The menu's wind setting stills or strengthens the breeze.
+  evalInApp("window.__gameMenu.click('row-wind-0')");
+  const stillAir = evalInApp('[window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation]');
+  evalInApp("window.__gameMenu.click('row-wind-3')");
+  const doubled = evalInApp('window.__ship.flight.params.windSpeed');
+  evalInApp("window.__gameMenu.click('row-wind-2')");
+  const normal = evalInApp('window.__ship.flight.params.windSpeed');
+  check("The menu's wind setting stills, doubles and restores the breeze", stillAir[0] === 0 && stillAir[1] === 0 && doubled > normal * 1.9 && normal > 0,
+    `off ${stillAir.join('/')} m/s, double ${doubled} m/s, normal ${normal} m/s`);
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
 
   // 6e. Phase 2 audio: the ship's sounds played through the tests above
