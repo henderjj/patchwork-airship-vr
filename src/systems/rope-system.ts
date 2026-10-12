@@ -11,6 +11,8 @@ import {
 import { decodeRope, encodeRope, PacketType, type PoseSample, ROPE_PACKET_BYTES, type RopeStatePacket } from '../net/pose-codec.js';
 import {
   createRope,
+  HAUL_LAMP,
+  HAUL_LAMP_RADIUS,
   nearestOnRope,
   ROPE_OVERSIDE,
   ROPE_REACH,
@@ -32,7 +34,6 @@ import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
 import { docking, flightInfo, ship } from './ship-system.js';
 import { sounds } from './audio-system.js';
-import { RAIL_HEIGHT } from '../scene-assets/gondola.scene-asset.js';
 
 /**
  * Spike S6, part 2: hauling the mooring line hand over hand. Squeeze the grip
@@ -72,9 +73,6 @@ const TRAIL_MAX = 0.5;
 const OVERSIDE_RATE = 1.5;
 /** Time between the buzzes that make up the line's pull in the hand, ms (each runs a little longer, so they join up). */
 const BUZZ_GAP_MS = 80;
-/** The haul call's lamp: on the rail top halfway along the run, in front of the hauling crew. */
-const LAMP_RADIUS = 0.022;
-const LAMP_AT = [-1.04, RAIL_HEIGHT + 0.03 + LAMP_RADIUS, ROPE_Z0 + ROPE_RUN * 0.55] as const;
 
 type TestHand = (nowMs: number) => number | null;
 
@@ -131,9 +129,9 @@ export class RopeSystem extends createSystem({}) {
     this.overside = rope.overside;
     this.world.createTransformEntity(rope.overside);
     this.createSign();
-    this.lamp = new Mesh(new SphereGeometry(LAMP_RADIUS, 10, 6), new MeshBasicMaterial({ color: 0x5a4524, toneMapped: false }));
+    this.lamp = new Mesh(new SphereGeometry(HAUL_LAMP_RADIUS, 10, 6), new MeshBasicMaterial({ color: 0x5a4524, toneMapped: false }));
     this.lamp.name = 'Haul Call Lamp';
-    this.lamp.position.set(LAMP_AT[0], LAMP_AT[1], LAMP_AT[2]);
+    this.lamp.position.set(HAUL_LAMP[0], HAUL_LAMP[1], HAUL_LAMP[2]);
     this.world.createTransformEntity(this.lamp);
 
     netLink.handlers.set(PacketType.Rope, (view) => {
