@@ -1,12 +1,7 @@
 import { createSystem } from '@iwsdk/core';
-import { type BodyChoice, clampCharacterHeight, glide, rigOffset, STANDING_KEEP_SECONDS, targetEyeHeight, UprightEye } from '../sim/body-height.js';
+import { type BodyChoice, clampCharacterHeight, glide, rigOffset, targetEyeHeight, UprightEye } from '../sim/body-height.js';
 import { saveSettings, settings } from '../settings.js';
 import { netLink } from './net-system.js';
-
-/** Where this player's measured standing eye height is kept in the browser, for seated play later. */
-const STANDING_EYE_KEY = 'patchwork-airship.standing-eye';
-/** A new standing eye height is kept once it differs from the kept one by this much, m. */
-const KEEP_CHANGE = 0.01;
 
 /** Character height and seated play, for the HUD and menus. */
 export const body = {
@@ -36,23 +31,6 @@ export function chooseBody(choice: BodyChoice): void {
   saveSettings({ height: height > 0 ? String(height) : null, seated: choice.seated ? '1' : null });
 }
 
-function loadStandingEye(): number | null {
-  try {
-    const saved = Number(localStorage.getItem(STANDING_EYE_KEY));
-    return saved > 0 ? saved : null;
-  } catch {
-    return null;
-  }
-}
-
-function keepStandingEye(eye: number): void {
-  try {
-    localStorage.setItem(STANDING_EYE_KEY, eye.toFixed(3));
-  } catch {
-    // Private browsing: measured again next time.
-  }
-}
-
 /**
  * Puts the player's eyes at their character's height (src/sim/body-height.ts)
  * by raising or lowering the player rig, which carries the view and both
@@ -62,7 +40,6 @@ function keepStandingEye(eye: number): void {
 export class BodyHeightSystem extends createSystem({}) {
   private own = new UprightEye();
   private crew = new UprightEye();
-  private standingEye = loadStandingEye();
   private inVr = false;
   /** Jump to the next offset rather than glide (a new session or a new choice). */
   private snap = true;
@@ -72,7 +49,6 @@ export class BodyHeightSystem extends createSystem({}) {
       state: body,
       choose: chooseBody,
       upright: () => this.own.upright,
-      standingEye: () => this.standingEye,
     };
   }
 
@@ -99,12 +75,7 @@ export class BodyHeightSystem extends createSystem({}) {
     if (Number.isNaN(this.own.upright)) {
       return;
     }
-    const choice = body.choice;
-    if (!choice.seated && this.own.seconds > STANDING_KEEP_SECONDS && Math.abs(this.own.upright - (this.standingEye ?? 0)) > KEEP_CHANGE) {
-      this.standingEye = this.own.upright;
-      keepStandingEye(this.standingEye);
-    }
-    const want = rigOffset(targetEyeHeight(choice, this.standingEye), this.own.upright);
+    const want = rigOffset(targetEyeHeight(body.choice), this.own.upright);
     body.offset = this.snap ? want : glide(body.offset, want, delta);
     this.snap = false;
     player.position.y = body.offset;
