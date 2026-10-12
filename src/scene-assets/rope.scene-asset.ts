@@ -1,13 +1,14 @@
 import {
-  BoxGeometry,
   CanvasTexture,
   CylinderGeometry,
+  Euler,
   Mesh,
   MeshLambertMaterial,
+  Quaternion,
   RepeatWrapping,
-  SphereGeometry,
   SRGBColorSpace,
   TorusGeometry,
+  Vector3,
 } from '@iwsdk/core';
 import { FAIRLEAD } from '../sim/docking.js';
 import { DECK_WIDTH } from '../sim/gondola-layout.js';
@@ -18,8 +19,8 @@ import { beam, mergeParts, type Part, shade } from './lowpoly.js';
  * The mooring line for the hand-over-hand haul (spike S6, part 2). It comes
  * aboard over the port rail at the bow, through a brass fairlead, and runs
  * along the inside of the rail towards the stern, where it drops to a coil
- * on the deck, over a wooden cleat on the rail that holds it up there. Its
- * outboard end carries a small iron grapple, which hangs
+ * on the deck. Wherever it bends it runs through a brass ring. Its outboard
+ * end carries a small iron grapple, which hangs
  * on a hook on the bow rail beside the fairlead until it is thrown at a
  * mooring post (docking, Phase 3). Outboard, the line out hangs over the
  * side or runs to the grapple; hauling shortens it. Players stand on the
@@ -40,11 +41,7 @@ export const ROPE_RADIUS = 0.018;
 export const ROPE_REACH = 0.1;
 /** Metres of line per stripe repeat on the texture. */
 const STRIPE_METRES = 0.25;
-/**
- * Where the run turns down to the coil it rests on a wooden cleat bolted
- * to the inside of the rail's top, so it doesn't end in mid-air.
- */
-const CLEAT_Y = ROPE_Y - ROPE_RADIUS - 0.012;
+/** The inside face of the port rail's top bar. */
 const RAIL_INSIDE = -DECK_WIDTH / 2 + 0.07;
 /**
  * The coil's centre on the deck (x, z), clear of the fuel crate's locker. Its
@@ -58,7 +55,7 @@ const COIL_RISE = 0.03;
 const COIL_STEP = [0.01, -0.008] as const;
 /** Height of the top turn, where the dropping line meets the coil. */
 const COIL_TOP = 0.02 + (COIL_TURNS.length - 1) * COIL_RISE;
-/** Where the outboard line goes over the rail top and hangs down from (the docking fairlead). */
+/** Where the outboard line leaves the ship and hangs down from (the docking fairlead, above the rail). */
 export const ROPE_OVERSIDE = FAIRLEAD;
 /** The haul call's lamp (RopeSystem lights it): its radius, and its centre, sat in a brass cup on the port rail top halfway along the run, in front of the hauling crew. */
 export const HAUL_LAMP_RADIUS = 0.022;
@@ -75,7 +72,6 @@ const SHANK = 0.32;
 
 const ROPE_COLOR = 0xd8c39a;
 const BRASS = 0xc9a03a;
-const CLEAT = 0x7a5532;
 const IRON = 0x4c525c;
 
 /** Distance from a ship-space point to the inboard run, and its position along it. */
@@ -93,6 +89,28 @@ export interface RopeMeshes {
   /** The line hanging over the side: 1 m long down from its origin; scale Y to its length and turn it to the felt gravity. */
   overside: Mesh;
   texture: CanvasTexture;
+}
+
+const ringTurn = new Quaternion();
+const ringRim = new Vector3();
+const ringAxis = new Vector3();
+
+/**
+ * A brass ring where the line bends, centred on the bend and square to the
+ * mean of the line's directions in and out of it, so the line goes through
+ * its middle; plus a brass stay from its rim to a mount on the rail.
+ */
+function bendRing(at: Vector3, comingIn: Vector3, goingOut: Vector3, radius: number, mount: Vector3): Part[] {
+  ringAxis.addVectors(comingIn, goingOut).normalize();
+  ringTurn.setFromUnitVectors(new Vector3(0, 0, 1), ringAxis);
+  const [rx, ry, rz] = new Euler().setFromQuaternion(ringTurn).toArray() as [number, number, number];
+  // The stay leaves the rim at the point nearest the mount.
+  ringRim.subVectors(mount, at);
+  ringRim.addScaledVector(ringAxis, -ringRim.dot(ringAxis)).setLength(radius).add(at);
+  return [
+    { geometry: new TorusGeometry(radius, 0.011, 6, 14), color: BRASS, position: at.toArray(), rotation: [rx, ry, rz] },
+    beam(ringRim.toArray(), mount.toArray(), 0.01, BRASS, 5),
+  ];
 }
 
 export function createRope(): RopeMeshes {
@@ -123,22 +141,20 @@ export function createRope(): RopeMeshes {
   run.position.set(ROPE_X, ROPE_Y, (ROPE_Z0 + ROPE_Z1) / 2);
   run.name = 'Mooring Line';
 
-  const [ox, oy, oz] = ROPE_OVERSIDE;
   const flat: [number, number, number] = [Math.PI / 2, 0, 0];
-  // Rope bends get a ball of the rope's thickness, so no corner shows a gap.
-  const joint = (x: number, y: number, z: number): Part => ({ geometry: new SphereGeometry(ROPE_RADIUS, 6, 4), color: ROPE_COLOR, position: [x, y, z] });
-  // Over the rail's inner edge, clear of its top.
-  const over = [RAIL_INSIDE, oy - 0.005, ROPE_Z0] as const;
+  const bowEnd = new Vector3(ROPE_X, ROPE_Y, ROPE_Z0);
+  const sternEnd = new Vector3(ROPE_X, ROPE_Y, ROPE_Z1);
+  const fairlead = new Vector3(...ROPE_OVERSIDE);
+  const up = new Vector3().subVectors(fairlead, bowEnd).normalize();
   const parts: Part[] = [
-    // From the guide ring at the run's bow end up over the rail top to the fairlead, where the line leaves the ship.
-    beam([ROPE_X, ROPE_Y, ROPE_Z0], over, ROPE_RADIUS, ROPE_COLOR, 6),
-    joint(over[0], over[1], over[2]),
-    beam(over, [ox, oy, oz], ROPE_RADIUS, ROPE_COLOR, 6),
-    joint(ox, oy, oz),
-    // Guide ring at the run's bow end, on a bracket from the rail, and the fairlead on the rail top's outboard edge.
-    { geometry: new TorusGeometry(0.04, 0.012, 6, 12), color: BRASS, position: [ROPE_X, ROPE_Y, ROPE_Z0] },
-    beam([RAIL_INSIDE - 0.02, ROPE_Y - 0.052, ROPE_Z0], [ROPE_X, ROPE_Y - 0.052, ROPE_Z0], 0.01, BRASS, 5),
-    { geometry: new TorusGeometry(0.035, 0.011, 6, 12), color: BRASS, position: [ox + 0.01, oy, oz], rotation: [0, Math.PI / 2, 0] },
+    // From the bow end of the run up over the rail to the fairlead, where the line leaves the ship.
+    beam(bowEnd.toArray(), fairlead.toArray(), ROPE_RADIUS, ROPE_COLOR, 6),
+    // A brass ring at each bend, centred on it. The line from the fairlead
+    // runs out level to a moored post or hangs down overside, so that ring
+    // faces between the two.
+    ...bendRing(bowEnd, new Vector3(0, 0, -1), up, 0.045, new Vector3(RAIL_INSIDE - 0.01, RAIL_HEIGHT - 0.01, ROPE_Z0)),
+    ...bendRing(fairlead, up, new Vector3(-1, -0.6, 0).normalize(), 0.05, new Vector3(fairlead.x + 0.045, RAIL_HEIGHT + 0.03, ROPE_Z0)),
+    ...bendRing(sternEnd, new Vector3(0, 0, 1), new Vector3(0, -1, 0), 0.045, new Vector3(RAIL_INSIDE - 0.01, RAIL_HEIGHT - 0.01, ROPE_Z1)),
     // The haul lamp's cup on the rail top.
     {
       geometry: new CylinderGeometry(HAUL_LAMP_RADIUS * 1.1, HAUL_LAMP_RADIUS * 0.8, LAMP_CUP_HEIGHT, 10),
@@ -148,13 +164,7 @@ export function createRope(): RopeMeshes {
     // The grapple's hook: an iron peg out of the bow rail's inside face, turned up at its end.
     beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] - 0.05], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.012, GRAPPLE_HOOK[2] + 0.02], 0.008, IRON, 5),
     beam([GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.008, GRAPPLE_HOOK[2] + 0.02], [GRAPPLE_HOOK[0], GRAPPLE_HOOK[1] + 0.04, GRAPPLE_HOOK[2] + 0.025], 0.007, IRON, 5),
-    // The cleat at the run's stern end: an arm out from the rail under the line, with a horn each side of it.
-    { geometry: new BoxGeometry(ROPE_X + 0.07 - RAIL_INSIDE, 0.024, 0.07), color: CLEAT, position: [(RAIL_INSIDE + ROPE_X + 0.07) / 2, CLEAT_Y - 0.012, ROPE_Z1] },
-    beam([ROPE_X - 0.045, CLEAT_Y, ROPE_Z1], [ROPE_X - 0.045, CLEAT_Y + 0.05, ROPE_Z1], 0.011, CLEAT, 5),
-    beam([ROPE_X + 0.045, CLEAT_Y, ROPE_Z1], [ROPE_X + 0.045, CLEAT_Y + 0.05, ROPE_Z1], 0.011, CLEAT, 5),
-    beam([RAIL_INSIDE, CLEAT_Y - 0.03, ROPE_Z1], [RAIL_INSIDE, RAIL_HEIGHT - 0.03, ROPE_Z1], 0.012, CLEAT, 5),
-    // The bend over the cleat, then the line dropping onto the top turn of the coil.
-    joint(ROPE_X, ROPE_Y, ROPE_Z1),
+    // The line dropping from the stern end of the run onto the top turn of the coil.
     {
       geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, ROPE_Y - COIL_TOP, 6, 1, true),
       color: ROPE_COLOR,
@@ -175,7 +185,7 @@ export function createRope(): RopeMeshes {
     mergeParts([{ geometry: new CylinderGeometry(ROPE_RADIUS, ROPE_RADIUS, 1, 6, 1, true), color: ROPE_COLOR, position: [0, -0.5, 0] }]),
     new MeshLambertMaterial({ vertexColors: true, flatShading: true }),
   );
-  overside.position.set(ox, oy, oz);
+  overside.position.set(...ROPE_OVERSIDE);
   overside.name = 'Mooring Line Overside';
   return { run, fittings, overside, texture };
 }
