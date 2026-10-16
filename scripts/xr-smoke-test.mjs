@@ -1012,10 +1012,11 @@ async function main() {
   check('Pulling the hatch lever aft opens the hatch under the crate', leverHeld === 'lever' && leverPulled.lever > 0.6 && leverPulled.door && leverPulled.phase === 'hanging' && leverPulled.condition === 100,
     `held by ${leverHeld}, lever ${leverPulled.lever.toFixed(2)} rad, door ${leverPulled.door ? 'open' : 'shut'}, crate ${leverPulled.phase} ${leverPulled.condition}%`);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-cargo-gear.png'], {});
-  // Lower briskly to just above the stage, then gently, with a hand on the tag line over the hatch.
+  // Lower briskly to just above the stage, then gently, with a hand working the tag line.
   evalInApp(`(() => {
     let last = performance.now();
-    window.__cargo.setTagHand([0.25, 0.75]);
+    // Work the tag line: the hand moves against the crate's swing.
+    window.__cargo.setTagHand((() => { let x = 0.25; let z = 0.75; let last = performance.now(); return (now) => { const dt = Math.min(0.1, (now - last) / 1000); last = now; const [vx, vz] = window.__cargo.state().vel; x = Math.max(-0.05, Math.min(0.55, x - vx * dt)); z = Math.max(0.45, Math.min(1.05, z - vz * dt)); return [x, z]; }; })());
     window.__cargo.setWinchHand((now) => {
       const s = window.__cargo.state();
       const dt = Math.min(0.1, (now - last) / 1000);

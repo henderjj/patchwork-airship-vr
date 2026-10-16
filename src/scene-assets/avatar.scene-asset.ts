@@ -56,7 +56,7 @@ function headParts(): Part[] {
     { geometry: new IcosahedronGeometry(0.07, 1), color: SKIN, position: [0, -0.055, 0.035], scale: [0.95, 0.8, 1] },
     { geometry: new ConeGeometry(0.014, 0.03, 4), color: shade(SKIN, 0.92), position: [0, -0.028, -0.034], rotation: [-Math.PI / 2 - 0.35, 0, 0] },
     // Leather flying cap with ear flaps.
-    { geometry: new IcosahedronGeometry(0.105, 1), color: LEATHER, position: [0, 0.06, 0.07], scale: [0.88, 0.72, 0.98] },
+    { geometry: new IcosahedronGeometry(0.108, 1), color: LEATHER, position: [0, 0.06, 0.07], scale: [0.88, 0.72, 0.98] },
     { geometry: new BoxGeometry(0.025, 0.08, 0.06), color: LEATHER, position: [-0.083, -0.015, 0.07] },
     { geometry: new BoxGeometry(0.025, 0.08, 0.06), color: LEATHER, position: [0.083, -0.015, 0.07] },
     // Goggles over the eyes.
@@ -80,7 +80,7 @@ function torsoParts(coat: number): Part[] {
     { geometry: new CylinderGeometry(0.15, 0.2, 0.4, 8), color: shade(coat, 0.85), position: [0, -0.81, z], scale: [1, 1, 0.7] },
     // Belt and buckle.
     { geometry: new CylinderGeometry(0.157, 0.157, 0.04, 8), color: LEATHER, position: [0, -0.6, z], scale: [1, 1, 0.65] },
-    { geometry: new BoxGeometry(0.05, 0.035, 0.012), color: BRASS, position: [0, -0.6, z - 0.1] },
+    { geometry: new BoxGeometry(0.05, 0.03, 0.012), color: BRASS, position: [0, -0.6, z - 0.1] },
     // Scarf round the neck with one end hanging down the chest.
     { geometry: new CylinderGeometry(0.07, 0.115, 0.08, 8), color: SCARF, position: [0, -0.19, z - 0.01], scale: [1, 1, 0.8] },
     { geometry: new BoxGeometry(0.055, 0.17, 0.015), color: SCARF, position: [0.05, -0.31, z - 0.115], rotation: [0.12, 0, 0.1] },

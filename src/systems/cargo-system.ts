@@ -105,11 +105,15 @@ const LEVER_RETURN_RATE = 4;
 /** Swinging faster than this creaks, this often, m/s and ms. */
 const CREAK_SWING = 0.3;
 const CREAK_EVERY_MS = 700;
+/** The hand on the tag line feels the crate's swing as a buzz this often, ms, stronger the faster it swings. */
+const TUG_EVERY_MS = 100;
 /** The tag line is tied to the crate's top corner nearest its ring. */
 const TAG_CORNER = [-CRATE_SIZE / 2 + 0.03, -0.04, -CRATE_SIZE / 2 + 0.03] as const;
 
-/** Scripted hands for tests: the winch angle a hand turns it to at a time (null lets go), and a tag line hand's position across the deck. */
+/** A scripted hand on the winch (tests): the angle it turns it to at a time, or null to let go. */
 type WinchScript = (nowMs: number) => number | null;
+/** A scripted hand on the tag line: where it is across the deck at a time, or null to let go. */
+type TagScript = (nowMs: number) => [number, number] | null;
 
 interface CargoDebug {
   sim: typeof cargo;
@@ -126,13 +130,15 @@ interface CargoDebug {
     toGo: number;
     swing: number;
     pos: [number, number, number];
+    /** How fast it swings across the deck, ship space, m/s. */
+    vel: [number, number];
   };
   /** Where a hand takes hold of each piece of gear (ship space). */
   grabPoint(gear: Gear): [number, number, number];
   /** Turn the winch with a scripted hand (an angle for a time), or let go with null. */
   setWinchHand(hand: WinchScript | null): void;
-  /** Hold the tag line with a scripted hand at (x, z) across the deck, or let go with null. */
-  setTagHand(at: [number, number] | null): void;
+  /** Hold the tag line with a scripted hand at (x, z) across the deck (or where a function of the time puts it each frame), or let go with null. */
+  setTagHand(at: [number, number] | TagScript | null): void;
   /** Hold the hatch lever with a scripted hand at an angle (rad, 0 shut, LEVER_OPEN open), or let go with null. */
   setLeverHand(angle: number | null): void;
   /** What the cargo sign says. */
@@ -159,6 +165,7 @@ export class CargoSystem extends createSystem({}) {
   private held: Record<Side, Gear | null> = { left: null, right: null };
   private winchScript: WinchScript | null = null;
   private tagScript: [number, number] | null = null;
+  private tagScriptFn: TagScript | null = null;
   private leverScript: number | null = null;
   private seenResets = -1;
   private groundOut: CargoGround = { y: 0, delivery: false };
@@ -199,6 +206,7 @@ export class CargoSystem extends createSystem({}) {
   private heardKnocks = 0;
   private lastClick = 0;
   private lastCreak = 0;
+  private lastTug = 0;
   private handPos = new Vector3();
   private dir = new Vector3();
   private up = new Vector3(0, 1, 0);
@@ -267,6 +275,7 @@ export class CargoSystem extends createSystem({}) {
         toGo: cargo.heightAboveGround(ship, this.groundAt),
         swing: cargo.swing,
         pos: [cargo.pos.x, cargo.pos.y, cargo.pos.z],
+        vel: [cargo.vel.x, cargo.vel.z],
       }),
       grabPoint: (gear) => {
         if (gear === 'winch') {
@@ -282,7 +291,8 @@ export class CargoSystem extends createSystem({}) {
         this.winchScript = hand;
       },
       setTagHand: (at) => {
-        this.tagScript = at;
+        this.tagScriptFn = typeof at === 'function' ? at : null;
+        this.tagScript = typeof at === 'function' ? at(performance.now()) : at;
       },
       setLeverHand: (angle) => {
         this.leverScript = angle;
@@ -404,6 +414,11 @@ export class CargoSystem extends createSystem({}) {
 
   private updateHands(dt: number): void {
     const now = performance.now();
+    // A scripted tag line hand (tests) that moves.
+    if (this.tagScriptFn) {
+      this.tagScript = this.tagScriptFn(now);
+      if (this.tagScript === null) this.tagScriptFn = null;
+    }
     // A scripted winch hand (tests) turns it as a hand on the handle would.
     if (this.winchScript) {
       const angle = this.winchScript(now);
@@ -595,6 +610,11 @@ export class CargoSystem extends createSystem({}) {
         sounds.ratchet(0.4);
       }
       this.lastClick = eighth;
+    }
+    const tagSide = this.sideHolding('tag');
+    if (tagSide && cargo.phase === 'hanging' && cargo.swing > 0.05 && now - this.lastTug > TUG_EVERY_MS) {
+      this.lastTug = now;
+      this.pulse(tagSide, Math.min(0.6, cargo.swing * 0.8), 40);
     }
     if (cargo.phase === 'hanging' && cargo.swing > CREAK_SWING && now - this.lastCreak > CREAK_EVERY_MS) {
       this.lastCreak = now;

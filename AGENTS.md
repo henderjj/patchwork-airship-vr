@@ -202,6 +202,7 @@ renderer imports; systems import the declarations, never the reverse.
 - Create entities with `world.createTransformEntity(...)`, never `scene.add()`.
 - Use the `RayInteractable` component, never a manual `Raycaster`.
 - VR targets 72–90 fps: 11–14 ms per frame. Treat per-frame allocation as a bug.
+- Faces of different colours that face the same way must be at least 3 mm apart (8 mm in the world) or they flicker in the headset; add every new model to `test/z-fighting.test.ts` ([docs/testing.md](docs/testing.md#z-fighting)).
 
 ## Deep reference
 
