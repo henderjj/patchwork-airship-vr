@@ -37,6 +37,7 @@ export const sounds = new ShipSounds(
     crank: [CRANK_POSITION[0], CRANK_AXLE_HEIGHT, CRANK_POSITION[2]],
     bell: [BELL_CENTER[0], BELL_CENTER[1], BELL_CENTER[2]],
     haul: [ROPE_X, ROPE_Y, ROPE_Z0 + ROPE_RUN / 2],
+    fairlead: [ROPE_X, ROPE_Y, ROPE_Z0],
   },
   settings.audio,
 );

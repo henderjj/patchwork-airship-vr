@@ -35,6 +35,7 @@ import {
 import { grip, handUse } from './grip-system.js';
 import { inHopper } from '../sim/gondola-controls.js';
 import { feedBurner } from './ship-system.js';
+import { buzz } from './haptics.js';
 
 /**
  * Spike S7: picking up, throwing and catching loose objects (the fuel
@@ -827,10 +828,7 @@ export class ThrowablesSystem extends createSystem({}) {
     if (this.testHands[side]) {
       return;
     }
-    const actuator = this.input.xr.gamepads[side]?.gamepad.hapticActuators?.[0] as
-      | { pulse?: (value: number, duration: number) => Promise<boolean> }
-      | undefined;
-    void actuator?.pulse?.(intensity, ms)?.catch(() => undefined);
+    buzz(this.input.xr.gamepads[side]?.gamepad, side, intensity, ms);
   }
 }
 

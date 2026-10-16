@@ -49,6 +49,8 @@ export const lockResolvers = new Map<number, LockResolver>();
 export const LOCK_EASE = 0.08;
 /** A hand further than this from what it holds lets go, so the drawn hand never stretches far from the real one, m. */
 export const LOCK_SLIP = 0.25;
+/** The same for the crank, more forgiving: a hand going round fast wanders off the handle's circle, m. */
+export const LOCK_SLIP_CRANK = 0.4;
 /** The pose a hand takes on a handle. */
 const CLOSED: FingerCurls = { index: 0.9, grip: 1, thumb: 1 };
 

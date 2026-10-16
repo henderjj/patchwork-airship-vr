@@ -4,77 +4,147 @@ import {
   callLampLevel,
   type CrankAdvice,
   crankAdvice,
-  crankBalanceMs,
+  crankPace,
   HAUL_CALL_PERIOD_MS,
   HaulCall,
   haulCallFraction,
   haulCallPhase,
+  lineCreakGapMs,
   lineTension,
   msToNextHeave,
+  PACE_LEAD_S,
+  PaceTarget,
+  paceWindow,
   ropeBuzz,
+  TARGET_SPRINT,
+  TARGET_START,
 } from '../src/sim/crew-sync.js';
 import { DEFAULT_ROPE } from '../src/sim/rope-haul.js';
 
 const DT = 1 / 90;
 const W = DEFAULT_CRANK.syncWindowMs;
 
-/** Two players crank for `seconds`, each hand leading its handle by its own amount (radians); returns the crank and player 0's advice over time. */
-function crank(lead0: number, lead1: number, seconds: number) {
+/**
+ * Two players crank for `seconds`, each following the sign's advice the way
+ * a person would: a hand told to push leads its handle a little more each
+ * moment, one told to ease off a little less. Player 1's hand reaches the
+ * crank `delayMs` late, as over the network.
+ */
+function crankOnAdvice(start: [number, number], seconds: number, delayMs = 0) {
   const sim = new CrankSim();
   const inputs = [createHandleInput(), createHandleInput()];
-  let advice: CrankAdvice = 'even';
-  let balance = 0;
+  const leads = [...start];
+  const paces = [0, 0];
+  const advice: CrankAdvice[] = ['even', 'even'];
+  const target = new PaceTarget();
+  let gearFrames = 0;
+  let frames = 0;
+  const history: { at: number; angle: number }[] = [];
   for (let t = 0; t < seconds; t += DT) {
     const now = t * 1000;
+    history.push({ at: now, angle: sim.angle });
     inputs.forEach((input, i) => {
+      const at = now - (i === 1 ? delayMs : 0);
+      const then = [...history].reverse().find((h) => h.at <= at) ?? history[0];
       input.holding = true;
       input.player = i;
-      input.handAngle = sim.angle + Math.PI * i + (i === 0 ? lead0 : lead1);
-      input.atMs = now;
+      input.handAngle = then.angle + Math.PI * i + leads[i];
+      input.atMs = then.at;
     });
     sim.step(DT, now, inputs);
-    balance += (crankBalanceMs(sim.lead[0], sim.lead[1], sim.omega) - balance) * Math.min(1, DT / 0.2);
-    advice = crankAdvice(balance, W, advice);
+    target.step(DT, sim.inSync);
+    for (let i = 0; i < 2; i++) {
+      paces[i] += (crankPace(sim.lead[i], sim.omega, 1) - paces[i]) * Math.min(1, DT / 0.2);
+      advice[i] = crankAdvice(paces[i] - target.pace, paceWindow(sim.omega, W) / 2, advice[i]);
+      // A person takes a moment to respond and doesn't jump: about 0.4 rad a second.
+      leads[i] = Math.max(-0.5, Math.min(0.9, leads[i] + (advice[i] === 'push' ? 0.4 : advice[i] === 'ease' ? -0.4 : 0) * DT));
+    }
+    if (t > seconds - 2) {
+      frames++;
+      if (sim.gear > 0.95) gearFrames++;
+    }
   }
-  return { sim, advice, balance };
+  return { sim, paces, target, gearShare: gearFrames / frames };
 }
 
-describe('crank balance and advice', () => {
-  it('reads even when both players push alike, and they reach high gear', () => {
-    const { sim, advice, balance } = crank(0.3, 0.3, 4);
-    expect(Math.abs(balance)).toBeLessThan(10);
-    expect(advice).toBe('even');
-    expect(sim.gear).toBeGreaterThan(0.95);
+describe('crank pace, target and advice', () => {
+  it("measures a hand's pace as the crank's speed plus its lead", () => {
+    expect(crankPace(0, 2 * Math.PI, 1)).toBeCloseTo(1);
+    expect(crankPace(0.3, 0, 1)).toBeCloseTo(1 / (PACE_LEAD_S * 2 * Math.PI) * 0.3);
+    // Astern, a hand further back is going faster astern.
+    expect(crankPace(-0.3, -2 * Math.PI, -1)).toBeCloseTo(1 + 0.3 / PACE_LEAD_S / (2 * Math.PI));
+    // Two hands in the sync window are a window's pace apart at most.
+    const omega = 3;
+    const dLead = (W / 1000) * omega;
+    expect(crankPace(0.2 + dLead, omega, 1) - crankPace(0.2, omega, 1)).toBeCloseTo(paceWindow(omega, W));
   });
 
-  it('tells the player pushing harder to ease off, and the other to push', () => {
-    const ahead = crank(0.9, 0.1, 3);
-    expect(ahead.balance).toBeGreaterThan(0.6 * W);
-    expect(ahead.advice).toBe('ease');
-    const behind = crank(0.1, 0.9, 3);
-    expect(behind.balance).toBeLessThan(-0.6 * W);
-    expect(behind.advice).toBe('push');
+  it('starts at an easy target, climbs towards a sprint while in step, and falls back once out of step for a while', () => {
+    const target = new PaceTarget();
+    expect(target.pace).toBe(TARGET_START);
+    for (let t = 0; t < 3; t += DT) target.step(DT, true);
+    expect(target.pace).toBeGreaterThan(TARGET_START + 0.4);
+    const high = target.pace;
+    for (let t = 0; t < 0.8; t += DT) target.step(DT, false);
+    expect(target.pace).toBeCloseTo(high);
+    for (let t = 0; t < 4; t += DT) target.step(DT, false);
+    expect(target.pace).toBe(TARGET_START);
+    for (let t = 0; t < 20; t += DT) target.step(DT, true);
+    expect(target.pace).toBe(TARGET_SPRINT);
   });
 
-  it('warns before the pair drops out of the sync window', () => {
-    // Just inside the window: still in step, but drifting far enough to be told.
-    expect(crankAdvice(0.7 * W, W, 'even')).toBe('ease');
-    expect(crankAdvice(-0.7 * W, W, 'even')).toBe('push');
-    expect(crankAdvice(0.3 * W, W, 'even')).toBe('even');
+  it('two players following the advice from very different efforts fall into step and sprint', () => {
+    const { sim, paces, gearShare } = crankOnAdvice([0.05, 0.8], 14);
+    expect(gearShare).toBeGreaterThan(0.8);
+    expect(Math.abs(paces[0] - paces[1])).toBeLessThan(paceWindow(sim.omega, W));
+    expect(sim.omega / (2 * Math.PI)).toBeGreaterThan(1);
+  });
+
+  it('still converges with the crewmate 100 ms behind on the network', () => {
+    const { gearShare } = crankOnAdvice([0.8, 0.05], 14, 100);
+    expect(gearShare).toBeGreaterThan(0.8);
   });
 
   it("doesn't flicker at the edge", () => {
-    expect(crankAdvice(0.5 * W, W, 'ease')).toBe('ease');
-    expect(crankAdvice(0.5 * W, W, 'even')).toBe('even');
-    expect(crankAdvice(-0.5 * W, W, 'push')).toBe('push');
-    expect(crankAdvice(0.3 * W, W, 'ease')).toBe('even');
+    expect(crankAdvice(0.7, 1, 'even')).toBe('ease');
+    expect(crankAdvice(-0.7, 1, 'even')).toBe('push');
+    expect(crankAdvice(0.5, 1, 'ease')).toBe('ease');
+    expect(crankAdvice(0.5, 1, 'even')).toBe('even');
+    expect(crankAdvice(-0.5, 1, 'push')).toBe('push');
+    expect(crankAdvice(0.3, 1, 'ease')).toBe('even');
+  });
+});
+
+describe('the crank grip', () => {
+  it('keeps hold of a hand that falls well behind for a moment', () => {
+    const sim = new CrankSim();
+    const inputs = [createHandleInput(), createHandleInput()];
+    let slipped = false;
+    for (let t = 0; t < 3; t += DT) {
+      // Cranking steadily, then the hand drops 1.3 rad (about 29 cm) behind for 0.4 s.
+      const lag = t > 1.5 && t < 1.9 ? -1.3 : 0.3;
+      inputs[0].holding = true;
+      inputs[0].handAngle = sim.angle + lag;
+      inputs[0].atMs = t * 1000;
+      sim.step(DT, t * 1000, inputs);
+      slipped ||= sim.slipped[0];
+    }
+    expect(slipped).toBe(false);
   });
 
-  it('measures the balance the way the crank measures sync, with a sign', () => {
-    expect(crankBalanceMs(0.5, 0.2, 3)).toBeCloseTo(100);
-    expect(crankBalanceMs(0.2, 0.5, 3)).toBeCloseTo(-100);
-    // Cranking astern, leading means further back.
-    expect(crankBalanceMs(-0.5, -0.2, -3)).toBeCloseTo(100);
+  it('lets go of a hand that stays far off its handle', () => {
+    const sim = new CrankSim();
+    const inputs = [createHandleInput(), createHandleInput()];
+    let slippedAt = -1;
+    for (let t = 0; t < 2 && slippedAt < 0; t += DT) {
+      inputs[0].holding = true;
+      inputs[0].handAngle = sim.angle + (t > 0.5 ? 1.8 : 0.2);
+      inputs[0].atMs = t * 1000;
+      sim.step(DT, t * 1000, inputs);
+      if (sim.slipped[0]) slippedAt = t;
+    }
+    expect(slippedAt).toBeGreaterThan(0.5 + DEFAULT_CRANK.slipGraceSeconds - 0.02);
+    expect(slippedAt).toBeLessThan(0.5 + DEFAULT_CRANK.slipGraceSeconds + 0.05);
   });
 });
 
@@ -91,6 +161,13 @@ describe('the line in the hand', () => {
     expect(slipping).toBeGreaterThan(firm);
     expect(slipping).toBeGreaterThan(0.7);
     expect(ropeBuzz(1, 5)).toBeLessThanOrEqual(1);
+  });
+
+  it('creaks through the fairlead under a firm pull, faster the harder it is pulled', () => {
+    expect(lineCreakGapMs(0.2, 0.5)).toBeNaN();
+    expect(lineCreakGapMs(0.5, 0)).toBeNaN();
+    expect(lineCreakGapMs(0.8, 0)).toBeGreaterThan(0);
+    expect(lineCreakGapMs(0.95, 0.4)).toBeLessThan(lineCreakGapMs(0.5, 0.4));
   });
 });
 

@@ -39,8 +39,9 @@ export interface CrankParams {
   syncWindowMs: number;
   /** Seconds for high gear to engage fully (and to drop out). */
   syncRampSeconds: number;
-  /** A hand further than this from its handle (radians) lets go. */
+  /** A hand further than this from its handle (radians) for longer than `slipGraceSeconds` lets go. */
   slipAngle: number;
+  slipGraceSeconds: number;
 }
 
 export const DEFAULT_CRANK: CrankParams = {
@@ -54,8 +55,12 @@ export const DEFAULT_CRANK: CrankParams = {
   syncDragDivisor: 4.5,
   syncWindowMs: 150,
   syncRampSeconds: 0.4,
-  // About 22 cm along the handle's circle.
-  slipAngle: 1.0,
+  // About 33 cm along the handle's circle, for a quarter of a second: a
+  // hand that falls behind for a moment, or reaches well ahead, keeps hold
+  // (John's two-player playtest found hands came off too easily at 22 cm
+  // and no grace).
+  slipAngle: 1.5,
+  slipGraceSeconds: 0.25,
 };
 
 /** Handle offsets around the axle: handle 0 at angle θ, handle 1 half a turn on. */
@@ -112,6 +117,8 @@ export class CrankSim {
   private prevHand = [Number.NaN, Number.NaN];
   private prevHandTime = [0, 0];
   private handSpeed = [0, 0];
+  /** Seconds each hand has been further than the slip angle from its handle. */
+  private overFor = [0, 0];
 
   constructor(params: CrankParams = DEFAULT_CRANK) {
     this.params = params;
@@ -158,6 +165,7 @@ export class CrankSim {
       if (!input?.holding) {
         this.prevHand[i] = Number.NaN;
         this.lead[i] = 0;
+        this.overFor[i] = 0;
         continue;
       }
       // Hand speed from successive samples (inputs may arrive at their own rate).
@@ -173,9 +181,11 @@ export class CrankSim {
       const crankThen = this.angleAt(input.atMs) + HANDLE_OFFSETS[i];
       const lead = wrapAngle(input.handAngle - crankThen);
       this.lead[i] = lead;
-      if (Math.abs(lead) > p.slipAngle) {
+      this.overFor[i] = Math.abs(lead) > p.slipAngle ? this.overFor[i] + dt : 0;
+      if (this.overFor[i] > p.slipGraceSeconds) {
         this.slipped[i] = true;
         this.prevHand[i] = Number.NaN;
+        this.overFor[i] = 0;
         continue;
       }
       holders++;
