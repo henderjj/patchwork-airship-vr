@@ -6,6 +6,7 @@ import {
   MeshLambertMaterial,
   Quaternion,
   RepeatWrapping,
+  SphereGeometry,
   SRGBColorSpace,
   TorusGeometry,
   Vector3,
@@ -155,6 +156,10 @@ export function createRope(): RopeMeshes {
     ...bendRing(bowEnd, new Vector3(0, 0, -1), up, 0.045, new Vector3(RAIL_INSIDE - 0.01, RAIL_HEIGHT - 0.01, ROPE_Z0)),
     ...bendRing(fairlead, up, new Vector3(-1, -0.6, 0).normalize(), 0.05, new Vector3(fairlead.x + 0.045, RAIL_HEIGHT + 0.03, ROPE_Z0)),
     ...bendRing(sternEnd, new Vector3(0, 0, 1), new Vector3(0, -1, 0), 0.045, new Vector3(RAIL_INSIDE - 0.01, RAIL_HEIGHT - 0.01, ROPE_Z1)),
+    // The rope's pieces are open tubes, so each bend gets a ball a touch
+    // thicker than the rope to close the corner; without it the open ends
+    // show through on the outside of the bend.
+    ...[bowEnd, fairlead, sternEnd].map((at): Part => ({ geometry: new SphereGeometry(ROPE_RADIUS * 1.08, 8, 6), color: ROPE_COLOR, position: at.toArray() })),
     // The haul lamp's cup on the rail top.
     {
       geometry: new CylinderGeometry(HAUL_LAMP_RADIUS * 1.1, HAUL_LAMP_RADIUS * 0.8, LAMP_CUP_HEIGHT, 10),
