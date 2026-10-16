@@ -283,6 +283,27 @@ async function startScreenAndMenu() {
   check('The game menu picks seated or standing play, and steps the character height 5 cm at a time',
     seated && standing && up1 > 0 && Math.abs(up2 - up1 - 0.05) < 1e-6 && own === 0,
     `seated ${seated}, standing ${standing}, height ${up1} then ${up2} m, then ${own === 0 ? 'their own' : own}`);
+
+  // B on the right controller backs out of the menu without stopping the ship;
+  // with the menu shut it stops the ship, and a sign says so until B starts it again.
+  const bButton = async () => {
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: 4, value: 1 }] });
+    await sleep(300);
+    iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: 4, value: 0 }] });
+    await sleep(300);
+  };
+  const stopState = () => evalInApp('({ menu: window.__gameMenu.open, sign: window.__crew.signVisible ? window.__crew.signText : "" })');
+  await menuButton();
+  const reopened = evalInApp('window.__gameMenu.open');
+  await bButton();
+  const backedOut = stopState();
+  await bButton();
+  const stoppedShip = stopState();
+  await bButton();
+  const goingAgain = stopState();
+  check('B closes the game menu without stopping the ship; with the menu shut it stops the ship, with a sign saying so',
+    reopened && !backedOut.menu && backedOut.sign === '' && stoppedShip.sign === 'The ship is stopped' && goingAgain.sign === '',
+    `menu ${reopened ? 'reopened' : 'not reopened'}, after B ${JSON.stringify(backedOut)}, then ${JSON.stringify(stoppedShip)}, then ${JSON.stringify(goingAgain)}`);
   iwsdk(['xr', 'set-device-state'], {});
 }
 
@@ -870,7 +891,7 @@ async function main() {
   check('The lantern swings towards the low side of the deck', swing.z > 0.03, `swung ${((swing.z * 180) / Math.PI).toFixed(1)}° to starboard with the deck 4° starboard-down`);
 
   // 6d. Phase 2 route: rest on island A, lift off, fly through a ring, make
-  //     fast at island B (6e) for a score, ring the bell to start again, and lose a run.
+  //     fast at island B (6e) for a score, ring the bell, start again from the menu, and lose a run.
   //     The ship is moved between the route's points to keep the test short.
   evalInApp('window.__ship.fly()');
   const route = evalInApp('window.__route.run.route');
@@ -1061,29 +1082,30 @@ async function main() {
   const swungBack = evalInApp('window.__controls.bell()');
   await squeeze(0);
   await move([-0.3, 1.2, -0.5]);
-  check('Pulling the bell lanyard swings the clapper to strike, side to side rings twice, and it starts again from island A',
-    lanyardHeld === 'bell' && beforePull === 'finished' && rung.phase === 'ready' && rung.x === route.start.x && rung.y === atStart.y && rung.z === route.start.z &&
+  // The bell no longer restarts a run (John, 2026-10-16): the game menu's Restart does.
+  const afterRings = evalInApp('window.__route.run.phase');
+  evalInApp("window.__gameMenu.click('menu-restart')");
+  await sleep(300);
+  const restarted = evalInApp('({ phase: window.__route.run.phase, x: window.__ship.state.x, y: window.__ship.state.y, z: window.__ship.state.z })');
+  check('Pulling the bell lanyard swings the clapper to strike, side to side rings twice, and the menu\'s Restart starts again from island A',
+    lanyardHeld === 'bell' && beforePull === 'finished' && rung.phase === 'finished' && afterRings === 'finished' &&
+      restarted.phase === 'ready' && restarted.x === route.start.x && restarted.y === atStart.y && restarted.z === route.start.z &&
       rung.bell.strikes === bellBefore + 1 && rung.bell.peak > 0.3 && swungBack.strikes === bellBefore + 2,
-    `held by ${lanyardHeld}, ${beforePull} then ${rung.phase} at ${fmt([rung.x, rung.y, rung.z])}, clapper swung ${((rung.bell.peak * 180) / Math.PI).toFixed(0)}°, ${swungBack.strikes - bellBefore} strikes`);
-  // Mid-run, one ring only asks; sinking into the haze loses the run; N (the keyboard's bell) restarts.
-  // First let the lanyard's last ring age past the bell's 3 s second-ring
-  // window (RING_AGAIN_MS), or the next ring counts as a second one.
-  await sleep(3200);
+    `held by ${lanyardHeld}, ${beforePull} then ${afterRings} after ringing, then ${restarted.phase} at ${fmt([restarted.x, restarted.y, restarted.z])}, clapper swung ${((rung.bell.peak * 180) / Math.PI).toFixed(0)}°, ${swungBack.strikes - bellBefore} strikes`);
+  // Mid-run, ringing on doesn't restart; sinking into the haze loses the run; the menu's Restart starts again.
   evalInApp('window.__ship.place(0, 126, -40)');
   await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
-  // In one call, since each CLI call takes long enough for the second-ring window to pass.
-  const asked = evalInApp(`(window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n' })),
-    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'n' })),
-    new Promise((resolve) => setTimeout(() => resolve({ phase: window.__route.run.phase, board: window.__route.boardText() }), 400)))`);
+  const pealed = evalInApp(`(['n', 'n', 'n'].forEach((k) => { window.dispatchEvent(new KeyboardEvent('keydown', { key: k })); window.dispatchEvent(new KeyboardEvent('keyup', { key: k })); }),
+    new Promise((resolve) => setTimeout(() => resolve(window.__route.run.phase), 400)))`);
   evalInApp('window.__ship.place(0, 35, -60)');
   // Lost, and the board (redrawn every 250 ms) has caught up.
   const lost = await waitFor('lost run', () => evalInApp("window.__route.run.phase === 'lost' && !window.__route.boardText()[0].startsWith('TIME') ? window.__route.boardText() : null"), 5000).catch(() => null);
-  key('keydown', 'n');
-  key('keyup', 'n');
+  evalInApp("window.__gameMenu.click('menu-restart')");
+  await sleep(300);
   const again = evalInApp('window.__route.run.phase');
-  check('Mid-run the bell asks first, a sunk run is lost, and the bell restarts it',
-    asked.phase === 'flying' && asked.board[5] === 'Ring again to restart' && lost?.[1] === 'Sank into the haze' && again === 'ready',
-    `one ring: ${asked.phase} "${asked.board[5]}", then ${lost ? lost.slice(0, 2).join(' / ') : 'not lost'}, then ${again}`);
+  check('Mid-run the bell rings without restarting, a sunk run is lost, and the menu\'s Restart starts again',
+    pealed === 'flying' && lost?.[1] === 'Sank into the haze' && lost?.[3] === 'Game menu: Restart to start' && again === 'ready',
+    `rung three times: ${pealed}, then ${lost ? lost.join(' / ') : 'not lost'}, then ${again}`);
   // Practice docking from the game menu: a fresh run, both rings flown, beside B's post and level with it.
   evalInApp("window.__gameMenu.click('menu-dock')");
   await sleep(400);

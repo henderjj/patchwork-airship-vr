@@ -21,10 +21,10 @@ import { CargoSim, CRATE_KG } from '../sim/cargo.js';
 import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
-import { groundBelow, islandHit, restingDeck } from '../sim/islands.js';
+import { fendOff, groundBelow, islandHit, restingDeck } from '../sim/islands.js';
 import { type RoutePhase, type RouteResult, RouteRun } from '../sim/route.js';
 import { wrapNear } from '../sim/world-tile.js';
-import { ROUTE, ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
+import { ROUTE, SHIP_ISLANDS, sceneryIslands } from '../world/route-world.js';
 import { onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
 import { crewPresence } from '../net/crew-presence.js';
@@ -45,8 +45,19 @@ import { netLink } from './net-system.js';
 /** The ship's current world pose, read by the sky and trim systems. */
 export const ship: ShipState = createShipState();
 
-/** The motion profile in use and whether the ship is held still, for the comfort log. */
-export const shipInfo = { motion: 'still', paused: false };
+/**
+ * The motion profile in use and whether the ship is held still, for the
+ * comfort log; `stopped` is whether a player stopped it with B (or P), as
+ * against waiting for a crewmate who can't play (CrewStatusSystem says which).
+ */
+export const shipInfo = { motion: 'still', paused: false, stopped: false };
+
+/**
+ * While the game menu is open, B closes it instead of stopping the ship.
+ * GameMenuSystem keeps `menuOpen`, and sets `usedByMenu` in a frame where B
+ * closed it (whichever of the two systems runs first that frame).
+ */
+export const stopButton = { menuOpen: false, usedByMenu: false };
 
 /** Phase 2: the crew-controlled flight model (`?motion=flight`) and what the crew is doing to it. */
 export const flight = new FlightSim({ ...DEFAULT_FLIGHT });
@@ -528,6 +539,7 @@ export class ShipSystem extends createSystem({
     shipInfo.motion = this.flying ? 'flight' : this.profile.name;
     // Spike S10: the ship also waits while the crewmate can't play.
     shipInfo.paused = this.paused || crewPresence.paused;
+    shipInfo.stopped = this.paused;
     flightInfo.flying = this.flying;
     if (!shipInfo.paused) {
       if (this.flying) {
@@ -546,9 +558,10 @@ export class ShipSystem extends createSystem({
         // Run into an island and the ship stops there until the crew starts again.
         if (route.phase !== 'lost') {
           const ground = Math.max(
-            groundBelow(ROUTE_ISLANDS, ship.x, ship.z, ship.y),
+            groundBelow(SHIP_ISLANDS, ship.x, ship.z, ship.y),
             groundBelow(sceneryIslands, ship.x, ship.z, ship.y, wrapNear),
           );
+          const fromY = ship.y;
           flight.step(ship, c, dt, ground, moored());
           // On the line to island B's post: held in by it, and held still once made fast.
           docking.constrain(ship, docking.lineOut, dt);
@@ -556,9 +569,12 @@ export class ShipSystem extends createSystem({
             flight.airspeed = 0;
             flight.climb = 0;
             flight.yawRate = 0;
+          } else if (fendOff(ROUTE.cargo, ship, fromY, dt)) {
+            // Sitting on the cargo stage's planks: it rises again as soon as it has lift.
+            flight.climb = Math.max(0, flight.climb);
           }
         }
-        const crashed = islandHit(ROUTE_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
+        const crashed = islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
         this.routeCargo.delivered = cargo.phase === 'delivered';
         this.routeCargo.condition = cargo.condition;
         if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, this.routeCargo)) {
@@ -631,10 +647,12 @@ export class ShipSystem extends createSystem({
 
   update(delta: number): void {
     // B on the right controller stops the ship at once, and starts it again
-    // (a comfort escape for playtests; P does the same on a keyboard).
-    if (this.input.xr.gamepads.right?.getButtonDown(InputComponent.B_Button)) {
+    // (a comfort escape for playtests; P does the same on a keyboard). With
+    // the game menu open, B closes the menu instead.
+    if (this.input.xr.gamepads.right?.getButtonDown(InputComponent.B_Button) && !stopButton.menuOpen && !stopButton.usedByMenu) {
       this.togglePause();
     }
+    stopButton.usedByMenu = false;
     const dt = Math.min(delta, 0.1);
     const guest = netLink.connected && !netLink.isHost;
     if (guest !== this.following) {
@@ -646,6 +664,8 @@ export class ShipSystem extends createSystem({
       this.follower.update(ship, performance.now(), dt);
       const h = this.follower.latest;
       shipInfo.paused = this.follower.paused;
+      // The host's flag also covers waiting for a crewmate, which this page's own presence shows.
+      shipInfo.stopped = this.follower.paused && !crewPresence.paused;
       flightInfo.flying = h.heat > 0;
       flightInfo.heat = h.heat;
       flightInfo.airspeed = h.airspeed;

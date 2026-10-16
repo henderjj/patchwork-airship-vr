@@ -533,13 +533,18 @@ async function shipSyncChecks(host, guest) {
     await host.page.waitForTimeout(300);
     return (await pose(host.page)).time === t0 ? true : null;
   }, 5000).catch(() => false);
+  // Both players see that the ship is stopped, and how to carry on (a silent stop looked like a ship that won't fly).
+  const stopSigns = await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__crew.signVisible ? window.__crew.signText : '')));
   await guest.page.evaluate(() => window.__ship.togglePause());
   const going = await waitFor('the host ship to go again', async () => {
     const t0 = (await pose(host.page)).time;
     await host.page.waitForTimeout(300);
     return (await pose(host.page)).time > t0 ? true : null;
   }, 5000).catch(() => false);
-  check('The guest can stop and restart the ship', stopped === true && going === true);
+  const signsAfter = await Promise.all([host, guest].map((p) => p.page.evaluate(() => window.__crew.signVisible)));
+  check('The guest can stop and restart the ship, and both see a sign while it is stopped',
+    stopped === true && going === true && stopSigns.every((t) => t === 'The ship is stopped') && signsAfter.every((v) => !v),
+    `stopped ${stopped}, going again ${going}, signs "${stopSigns.join('" / "')}", then ${signsAfter.some((v) => v) ? 'still showing' : 'gone'}`);
 
   // The guest works the controls: the host's ship responds.
   const hostInfo = () => host.page.evaluate(() => ({ ...window.__ship.info, rudder: window.__ship.controls.rudder, ballastKg: window.__ship.controls.ballastDropped }));
@@ -571,7 +576,7 @@ async function shipSyncChecks(host, guest) {
     working ? `vent ${(working.ventOpen * 100).toFixed(0)}%, rudder ${working.rudder.toFixed(2)} (stays ${letGo?.rudder.toFixed(2)} let go), ` +
       `${fed ? `brick burned, ${fed.ballastKg} kg ballast dropped` : 'brick or ballast lost'}, host saw the bag ${hostBag ? 'fall' : 'stay'}` : 'vent or tiller never reached the host');
 
-  // The route: the host's run shows on the guest's board, and the guest's bell restarts it.
+  // The route: the host's run shows on the guest's board, ringing the bell mid-run leaves it be, and the guest's menu Restart restarts it.
   const run = (page) => page.evaluate(() => ({ phase: window.__route.run.phase, seconds: window.__route.run.seconds, result: window.__route.run.result,
     board: window.__route.boardText(), y: window.__ship.state.y }));
   await host.page.evaluate(() => {
@@ -586,7 +591,10 @@ async function shipSyncChecks(host, guest) {
     window.__route.ring();
     window.__route.ring();
   });
-  const restarted = await waitFor('the guest\'s bell to restart the host\'s run', async () => {
+  await host.page.waitForTimeout(500);
+  const rungOn = (await run(host.page)).phase;
+  await guest.page.evaluate(() => window.__gameMenu.click('menu-restart'));
+  const restarted = await waitFor('the guest\'s Restart to restart the host\'s run', async () => {
     const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
     return h.phase === 'ready' && g.phase === 'ready' ? h : null;
   }, 5000).catch(() => null);
@@ -684,10 +692,10 @@ async function shipSyncChecks(host, guest) {
     midLower !== null && Math.abs(midLower.h.pos[1] - midLower.g.pos[1]) < 0.4 && docked !== null && docked.h.result.cargo === docked.g.result.cargo,
     `${midLower ? `part way down at ${midLower.h.pos[1].toFixed(2)} / ${midLower.g.pos[1].toFixed(2)} m` : `never lowered: host ${JSON.stringify(await cargoState(host.page))}`}, ` +
       `${docked ? `${docked.g.board[0]}, crate ${docked.h.result.cargo}% / ${docked.g.result.cargo}%` : `not finished: ${JSON.stringify(await cargoState(host.page))}`}`);
-  check('The guest sees the host\'s run, rings the bell for both, and sees the same score',
-    guestFlying !== null && restarted !== null && docked !== null && docked.g.result.score === docked.h.result.score,
-    `${guestFlying ? `guest clock ${guestFlying.seconds.toFixed(1)} s` : 'guest never saw the run start'}, ` +
-      `${restarted ? 'restarted' : 'bell ignored'}, ${docked ? `scores ${docked.h.result.score} / ${docked.g.result.score}` : 'finish not seen'}`);
+  check('The guest sees the host\'s run, rings the bell without restarting it, restarts it from the menu for both, and sees the same score',
+    guestFlying !== null && rungOn === 'flying' && restarted !== null && docked !== null && docked.g.result.score === docked.h.result.score,
+    `${guestFlying ? `guest clock ${guestFlying.seconds.toFixed(1)} s` : 'guest never saw the run start'}, ${rungOn} after two rings, ` +
+      `${restarted ? 'restarted' : 'restart ignored'}, ${docked ? `scores ${docked.h.result.score} / ${docked.g.result.score}` : 'finish not seen'}`);
 
   // Back to a ship standing still for the checks that follow.
   await host.page.evaluate(() => {

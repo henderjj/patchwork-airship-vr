@@ -10,10 +10,13 @@ import {
   VisibilityState,
 } from '@iwsdk/core';
 import { type CrewStatus, crewPresence } from '../net/crew-presence.js';
+import { shipInfo } from './ship-system.js';
 
 /** How far in front of the player the sign floats, m, and how quickly it follows their gaze (per second). */
 const SIGN_DISTANCE = 1.2;
 const FOLLOW_RATE = 3;
+/** What the sign says while a player has stopped the ship. */
+const STOPPED_TEXT = 'The ship is stopped';
 
 interface CrewStatusDebug {
   readonly status: CrewStatus;
@@ -21,6 +24,8 @@ interface CrewStatusDebug {
   readonly message: string;
   /** The sign is showing. */
   readonly signVisible: boolean;
+  /** What the sign says. */
+  readonly signText: string;
   /** The last few statuses, oldest first, so tests can see short ones. */
   readonly history: CrewStatus[];
   /** How many statuses `history` has ever held, so a test can find the new ones once old ones have dropped off. */
@@ -31,7 +36,9 @@ interface CrewStatusDebug {
  * Spike S10: while the shared game is on hold, a sign floats in front of the
  * player saying why ("Your crewmate stepped away", "Reconnecting..."). It
  * follows the head's heading slowly rather than being fixed to the face, so
- * it stays readable without feeling stuck to the eyes.
+ * it stays readable without feeling stuck to the eyes. The same sign says
+ * so when a player has stopped the ship with B (or P), which otherwise
+ * looks like a ship that won't fly.
  */
 export class CrewStatusSystem extends createSystem({}) {
   private sign!: Mesh;
@@ -39,6 +46,8 @@ export class CrewStatusSystem extends createSystem({}) {
   private ctx!: CanvasRenderingContext2D;
   private texture!: CanvasTexture;
   private shown: CrewStatus = 'solo';
+  /** What the sign says now ('' while hidden). */
+  private signText = '';
   private history: CrewStatus[] = ['solo'];
   private changes = 1;
   private placed = false;
@@ -69,6 +78,7 @@ export class CrewStatusSystem extends createSystem({}) {
       get paused() { return crewPresence.paused; },
       get message() { return crewPresence.message(); },
       get signVisible() { return self.sign.visible; },
+      get signText() { return self.signText; },
       history: this.history,
       get changes() { return self.changes; },
     };
@@ -83,10 +93,16 @@ export class CrewStatusSystem extends createSystem({}) {
       if (this.history.length > 16) {
         this.history.shift();
       }
-      this.sign.visible = crewPresence.paused;
+    }
+    // Waiting for the crewmate comes first: the ship is held for that whatever B says.
+    const text = crewPresence.paused ? crewPresence.message() : shipInfo.stopped ? STOPPED_TEXT : '';
+    if (text !== this.signText) {
+      this.signText = text;
+      this.sign.visible = text !== '';
       this.placed = false;
       if (this.sign.visible) {
-        this.draw(crewPresence.message());
+        const keyboard = this.world.visibilityState.peek() === VisibilityState.NonImmersive;
+        this.draw(text, crewPresence.paused ? 'The ship waits until you are both back' : keyboard ? 'Press P to carry on' : 'Press B on the right controller to carry on');
       }
     }
     if (this.sign.visible) {
@@ -116,7 +132,7 @@ export class CrewStatusSystem extends createSystem({}) {
     this.sign.lookAt(this.headPos.x, this.sign.position.y, this.headPos.z);
   }
 
-  private draw(message: string): void {
+  private draw(message: string, note: string): void {
     const { ctx } = this;
     ctx.clearRect(0, 0, 512, 128);
     ctx.fillStyle = 'rgba(43, 29, 18, 0.92)';
@@ -130,7 +146,7 @@ export class CrewStatusSystem extends createSystem({}) {
     ctx.fillText(message, 256, 58, 480);
     ctx.font = '20px sans-serif';
     ctx.fillStyle = '#c9b48a';
-    ctx.fillText('The ship waits until you are both back', 256, 96, 480);
+    ctx.fillText(note, 256, 96, 480);
     this.texture.needsUpdate = true;
   }
 }
