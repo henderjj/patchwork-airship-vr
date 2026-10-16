@@ -17,7 +17,7 @@ In a crew the crew page says what is happening (joining, waiting, connecting, fu
 
 ## The game menu
 
-**Y** on the left controller opens and closes the game menu (`public/ui/menu.uikitml`, `src/systems/game-menu-system.ts`) in front of the player. The menu button (≡) does too where the browser passes it on, but John pointed out that SteamVR and others often keep that button, so Y is the one to rely on. On a PC page, **M** or the **Game menu** button opens it and **Escape** closes it. Nothing pauses while it is open.
+**Y** on the left controller opens and closes the game menu (`public/ui/menu.uikitml`, `src/systems/game-menu-system.ts`) in front of the player. The menu button (≡) does too where the browser passes it on, but John pointed out that SteamVR and others often keep that button, so Y is the one to rely on. On a PC page, **M** or the **Game menu** button opens it and **Escape** closes it. **B** on the right controller also closes it, as it backs out elsewhere on the headset, instead of stopping the ship as it does with the menu shut. Nothing pauses while it is open.
 
 ### How it should look and work
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../src/sim/flight.js';
 import { KEEL_DEPTH } from '../src/sim/gondola-layout.js';
-import { groundBelow, hitsIsland, type Island, islandDepth, layoutIslands, restingDeck, SHIP_RADIUS } from '../src/sim/islands.js';
-import { CALM_SKIES, crossesRing, distanceFromRoute, FAST_HOLD_SECONDS, RouteRun, scoreRun } from '../src/sim/route.js';
+import { alongsidePost } from '../src/sim/docking.js';
+import { fendOff, groundBelow, HULL_RADIUS, hitsIsland, type Island, islandDepth, islandHit, layoutIslands, restingDeck, SHIP_RADIUS } from '../src/sim/islands.js';
+import { CALM_SKIES, crossesRing, distanceFromRoute, FAST_HOLD_SECONDS, RouteRun, routeIslands, scoreRun } from '../src/sim/route.js';
 import { createShipState } from '../src/sim/ship-motion.js';
 
 const DT = 1 / 90;
@@ -208,5 +209,99 @@ describe('route', () => {
       expect(hitsIsland(finish, r.x, r.y, r.z)).toBe(false);
     }
     expect(finish.y).toBeLessThan(start.y);
+  });
+});
+
+describe('cargo stage', () => {
+  const STAGE = CALM_SKIES.cargo;
+  const SHIP_ISLANDS = routeIslands(CALM_SKIES).filter((island) => island !== STAGE);
+
+  /** Fly the ship as ShipSystem does near island B: flight, then the stage fending it off. */
+  function fly(flight: FlightSim, ship: ReturnType<typeof createShipState>, controls: ReturnType<typeof createFlightControls>, seconds: number, each?: () => void) {
+    for (let t = 0; t < seconds; t += DT) {
+      const fromY = ship.y;
+      flight.step(ship, controls, DT, groundBelow(SHIP_ISLANDS, ship.x, ship.z, ship.y));
+      if (fendOff(STAGE, ship, fromY, DT)) {
+        flight.climb = Math.max(0, flight.climb);
+      }
+      each?.();
+    }
+  }
+
+  it('fends off a ship sinking beside it under the post, where it used to wreck the run', () => {
+    // Practice docking's start with no wind: the untended ship sinks straight down past the stage.
+    const at = alongsidePost(CALM_SKIES.dock, CALM_SKIES.finish.x, CALM_SKIES.finish.z, 5);
+    const flight = new FlightSim(CALM);
+    const ship = createShipState();
+    flight.reset(ship, at.x, at.y, at.z, at.yaw);
+    const controls = createFlightControls();
+    let wouldHaveHit = false;
+    let crashed = false;
+    let closest = Infinity;
+    fly(flight, ship, controls, 60, () => {
+      wouldHaveHit ||= hitsIsland(STAGE, ship.x, ship.y, ship.z);
+      crashed ||= islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z) >= 0;
+      if (ship.y - KEEL_DEPTH < STAGE.y - 0.5 && ship.y - KEEL_DEPTH > STAGE.y - 2) {
+        closest = Math.min(closest, Math.hypot(ship.x - STAGE.x, ship.z - STAGE.z));
+      }
+    });
+    expect(wouldHaveHit).toBe(true);
+    expect(crashed).toBe(false);
+    // Level with the planks, the gondola stayed (almost) clear of the rock's rim.
+    expect(closest).toBeGreaterThan(STAGE.radius + HULL_RADIUS - 0.6);
+    // And it carried on down past the stage rather than sticking there.
+    expect(ship.y).toBeLessThan(STAGE.y - STAGE.depth);
+  });
+
+  it('lets a ship that comes down on its planks rest there, slide off with the breeze, and rise again with lift', () => {
+    const flight = new FlightSim({ ...DEFAULT_FLIGHT, windVariation: 0 });
+    const ship = createShipState();
+    // Upwind of its middle, 30 cm above the planks.
+    flight.reset(ship, STAGE.x + 1.5, STAGE.y + KEEL_DEPTH + 0.3, STAGE.z - 1.5, 0);
+    flight.heat -= 10;
+    const controls = createFlightControls();
+    let rested = 0;
+    fly(flight, ship, controls, 4, () => {
+      if (Math.abs(ship.y - KEEL_DEPTH - STAGE.y) < 1e-6) rested++;
+    });
+    expect(rested).toBeGreaterThan(0);
+    expect(ship.y - KEEL_DEPTH).toBeGreaterThanOrEqual(STAGE.y - 1e-6);
+    // Not held: the breeze moves it while it sits there.
+    const x0 = ship.x;
+    const z0 = ship.z;
+    fly(flight, ship, controls, 2);
+    expect(Math.hypot(ship.x - x0, ship.z - z0)).toBeGreaterThan(0.5);
+    // With the burner going it climbs away.
+    controls.burner = 1;
+    fly(flight, ship, controls, 40);
+    expect(ship.y - KEEL_DEPTH).toBeGreaterThan(STAGE.y + 2);
+  });
+
+  it('eases a ship flying at its side round it instead of stopping the run', () => {
+    const flight = new FlightSim(CALM);
+    const ship = createShipState();
+    // 20 m off, keel 1 m below the planks, heading straight at it.
+    const yaw = Math.atan2(20, 0); // bow (-Z turned by yaw) points towards -X
+    flight.reset(ship, STAGE.x + 20, STAGE.y + KEEL_DEPTH - 1, STAGE.z + 0.5, yaw);
+    flight.heat = flight.balanceHeat(0);
+    const controls = createFlightControls();
+    controls.crankSpeed = 4;
+    let closest = Infinity;
+    fly(flight, ship, controls, 25, () => {
+      closest = Math.min(closest, Math.hypot(ship.x - STAGE.x, ship.z - STAGE.z));
+      expect(islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z)).toBe(-1);
+    });
+    expect(closest).toBeGreaterThan(STAGE.radius + HULL_RADIUS - 0.2);
+    // It slid round and got past.
+    expect(ship.x).toBeLessThan(STAGE.x - 5);
+  });
+
+  it('leaves a ship made fast at the post alone', () => {
+    const at = alongsidePost(CALM_SKIES.dock, CALM_SKIES.finish.x, CALM_SKIES.finish.z, 1.2);
+    const ship = createShipState();
+    new FlightSim().reset(ship, at.x, at.y, at.z, at.yaw);
+    const before = { x: ship.x, y: ship.y, z: ship.z };
+    expect(fendOff(STAGE, ship, ship.y, DT)).toBe(false);
+    expect(ship).toMatchObject(before);
   });
 });

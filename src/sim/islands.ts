@@ -142,3 +142,61 @@ export function islandHit(islands: readonly Island[], x: number, y: number, z: n
   }
   return -1;
 }
+
+/** The gondola's reach from the ship's middle across its deck (the deck's half-diagonal, with the rail), m. */
+export const HULL_RADIUS = 1.9;
+/** From the keel up to the envelope's bottom: the part of the ship that is only the gondola and its rigging, m. */
+export const HULL_HEIGHT = 4.9;
+/** A ship bumping a platform's side is eased away from it this fast (beyond cancelling its way in), m/s. */
+export const FEND_SPEED = 1.5;
+
+/**
+ * Keep a ship clear of a small platform that it can neither run aground on
+ * nor be wrecked by: island B's cargo stage, right under the mooring post,
+ * where a ship working at the post can easily sink onto it (John's
+ * two-player playtest, 2026-10-16: touching it stopped the ship for good).
+ * Coming down on its top, the ship rests there without being held, so the
+ * wind or the crank carry it off the edge; level with its rock, it is eased
+ * away sideways. `fromY` is the deck's height before this step. Moves the
+ * ship in `state` and returns true while it sits on the top.
+ */
+export function fendOff(
+  island: Island,
+  state: { x: number; y: number; z: number; vx: number; vy: number; vz: number },
+  fromY: number,
+  dt: number,
+): boolean {
+  const dx = state.x - island.x;
+  const dz = state.z - island.z;
+  const d = Math.hypot(dx, dz);
+  const keel = state.y - KEEL_DEPTH;
+  if (keel >= island.y) {
+    return false;
+  }
+  if (d < island.radius * GROUND_FRACTION && fromY - KEEL_DEPTH >= island.y - GROUND_SLOP) {
+    // Down onto the planks: it settles there, free to slide off.
+    state.y = island.y + KEEL_DEPTH;
+    state.vy = Math.max(0, state.vy);
+    return true;
+  }
+  // Beside the rock: as in `hitsIsland`, the highest part of the ship that is level with it.
+  const level = Math.min(island.y, keel + SHIP_HEIGHT);
+  const below = island.y - level;
+  if (below >= island.depth) {
+    return false;
+  }
+  const reach = island.radius * (1 - below / island.depth) + (level - keel < HULL_HEIGHT ? HULL_RADIUS : SHIP_RADIUS);
+  if (d >= reach) {
+    return false;
+  }
+  // Straight out from the rock's middle (away from +X if right over it).
+  const nx = d > 1e-6 ? dx / d : 1;
+  const nz = d > 1e-6 ? dz / d : 0;
+  const inward = Math.max(0, -(state.vx * nx + state.vz * nz));
+  const step = Math.min(reach - d, (inward + FEND_SPEED) * dt);
+  state.x += nx * step;
+  state.z += nz * step;
+  state.vx += nx * inward;
+  state.vz += nz * inward;
+  return false;
+}

@@ -5,6 +5,12 @@ import { settings } from '../settings.js';
 /** The route this build flies (Phase 2 has one). */
 export const ROUTE = CALM_SKIES;
 export const ROUTE_ISLANDS = routeIslands(ROUTE);
+/**
+ * The route's islands the ship itself can rest on and run into: not the
+ * cargo stage, which only fends the ship off (`fendOff` in src/sim/islands.ts).
+ * Crates, the grapple and a hanging line still land on it (ROUTE_ISLANDS).
+ */
+export const SHIP_ISLANDS = ROUTE_ISLANDS.filter((island) => island !== ROUTE.cargo);
 
 /** Scenery islands stay this far (plus their radius) from the route's path, m. */
 const ROUTE_CLEARANCE = 45;

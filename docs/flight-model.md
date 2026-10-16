@@ -36,7 +36,7 @@ Whatever the crew does, the model caps the motion at the `tour` comfort profile 
 
 ## Two players
 
-The host flies the ship and sends its state 20 times a second (an 86-byte packet: position, heading, tilt, velocity, acceleration, turn rate, heat, airspeed, rudder, vent, burner time and ballast). The guest moves its own copy on at the host's velocity every frame and steers it gently onto the host's latest state, moved on by that state's age, so the sky neither stutters at the packet rate nor jumps when a packet is late. A disagreement of more than 25 m or about 30° snaps instead. The guest's B button (P on a keyboard) asks the host to stop or start the ship.
+The host flies the ship and sends its state 20 times a second (an 86-byte packet: position, heading, tilt, velocity, acceleration, turn rate, heat, airspeed, rudder, vent, burner time and ballast). The guest moves its own copy on at the host's velocity every frame and steers it gently onto the host's latest state, moved on by that state's age, so the sky neither stutters at the packet rate nor jumps when a packet is late. A disagreement of more than 25 m or about 30° snaps instead. The guest's B button (P on a keyboard) asks the host to stop or start the ship, and both players see a sign saying the ship is stopped until it goes again.
 
 This applies to the scripted profiles too: before, each player's browser flew its own copy of the scripted path, so the two skies drifted apart.
 

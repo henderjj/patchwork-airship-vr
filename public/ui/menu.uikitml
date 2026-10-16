@@ -291,6 +291,15 @@
     </div>
   </div>
   <div class="section">
+    <div class="section-title">RUN</div>
+    <div class="setting">
+      <div class="label">Start again</div>
+      <div class="choices">
+        <Button id="menu-restart" class="choice" size="sm" variant="secondary">Restart from island A</Button>
+      </div>
+    </div>
+  </div>
+  <div class="section">
     <div class="section-title">PRACTICE</div>
     <div class="setting">
       <div class="label">Docking</div>
@@ -320,5 +329,5 @@
     <Button id="menu-start" class="wide" variant="secondary">Back to start screen</Button>
     <Button id="menu-exit" class="wide" variant="negative">Exit VR</Button>
   </div>
-  <div id="menu-hint" class="hint">Y: close. Hold A: control labels. X: perf HUD. B: stop or start the ship.</div>
+  <div id="menu-hint" class="hint">Y or B: close. Hold A: control labels. X: perf HUD. B with the menu shut: stop or start the ship.</div>
 </Panel>

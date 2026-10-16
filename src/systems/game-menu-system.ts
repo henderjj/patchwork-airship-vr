@@ -8,7 +8,7 @@ import { DEFAULT_CHARACTER_HEIGHT, EYES_BELOW_TOP, MAX_CHARACTER_HEIGHT, MIN_CHA
 import { body, chooseBody } from './body-height-system.js';
 import { OPEN_MENU_EVENT } from './net-system.js';
 import { PanelUi } from './panel-ui.js';
-import { practiceCargo, practiceDocking } from './ship-system.js';
+import { practiceCargo, practiceDocking, restartRoute, stopButton } from './ship-system.js';
 import { startScreen } from './start-screen-system.js';
 
 /** Where the menu stands in VR when opened: ahead of the head and a little below the eyes, m. */
@@ -168,6 +168,10 @@ export class GameMenuSystem extends createSystem({}) {
       this.setOpen(false);
       startScreen.show();
     });
+    ui.on('menu-restart', () => {
+      this.setOpen(false);
+      restartRoute();
+    });
     ui.on('menu-dock', () => {
       this.setOpen(false);
       practiceDocking();
@@ -227,6 +231,10 @@ export class GameMenuSystem extends createSystem({}) {
     const left = this.input.xr.gamepads.left;
     if (left && (left.getButtonDown(InputComponent.Y_Button) || left.getButtonDown(InputComponent.Menu))) {
       this.setOpen(!this.open);
+    } else if (this.open && this.input.xr.gamepads.right?.getButtonDown(InputComponent.B_Button)) {
+      // B backs out of the menu, as it does elsewhere on the headset (ShipSystem leaves the ship going).
+      stopButton.usedByMenu = true;
+      this.setOpen(false);
     }
   }
 
@@ -236,6 +244,7 @@ export class GameMenuSystem extends createSystem({}) {
       return;
     }
     this.open = open;
+    stopButton.menuOpen = open;
     if (open) {
       this.render();
       if (this.world.visibilityState.peek() !== VisibilityState.NonImmersive) {

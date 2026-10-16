@@ -12,8 +12,6 @@ import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute,
 const BOARD_SIZE = [0.42, 0.26] as const;
 const CANVAS = [512, 320] as const;
 const BOARD_REFRESH_MS = 250;
-/** Mid-run, a second ring within this long starts again, ms. */
-const RING_AGAIN_MS = 3000;
 /** Where the best score is kept in this browser. */
 const BEST_KEY = 'patchwork-airship.best';
 
@@ -27,12 +25,14 @@ export const bell = { ring: (): void => undefined, knock: (): void => undefined 
 /**
  * Phase 2's route on deck: a board on the bow side of the burner flue that
  * shows the run (waiting on island A, the timer and the way to the next ring
- * or island B, then the score), and the ship's bell, which starts the route
- * again from island A. Its clapper and lanyard are in ControlsSystem, which
- * calls `bell.ring` for each ring. Mid-run it takes two rings, so a knock
- * doesn't throw a good run away. With a crewmate, ringing it on island A
- * says you're ready, and the ship stays moored until both have. The host
- * runs the route itself (ShipSystem).
+ * or island B, then the score), and the ship's bell. Its clapper and
+ * lanyard are in ControlsSystem, which calls `bell.ring` for each ring. With
+ * a crewmate, ringing it on island A says you're ready, and the ship stays
+ * moored until both have; otherwise it is just a bell to play with. Starting
+ * again from island A is in the game menu (John, 2026-10-16: restarting on
+ * two rings stopped the crew playing with the bell on the move, and sent a
+ * ship that had just cast off back to island A). The host runs the route
+ * itself (ShipSystem).
  */
 export class RouteSystem extends createSystem({}) {
   private bell!: Mesh;
@@ -41,9 +41,6 @@ export class RouteSystem extends createSystem({}) {
   private face!: Mesh;
   private board!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; lines: string[] };
   private lastDraw = 0;
-  private lastRing = Number.NEGATIVE_INFINITY;
-  /** The bell was last rung for the ready check on island A: ringing on as the ship casts off doesn't count mid-run. */
-  private rungBeforeRun = false;
   private best = 0;
   private scored: unknown = null;
 
@@ -77,34 +74,18 @@ export class RouteSystem extends createSystem({}) {
     (window as { __route?: unknown }).__route = {
       run: route,
       ring: () => this.ring(),
+      /** What the game menu's Restart does (the guest asks the host). */
+      restart: () => restartRoute(),
       boardText: () => [...this.board.lines],
     };
   }
 
-  /**
-   * The bell was rung: on island A with a crewmate, this player is ready to
-   * cast off; otherwise start again if the run is over, or on a second ring
-   * mid-run. Ringing on from the ready check as the crew casts off (rings
-   * no more than a few seconds apart since island A) doesn't count mid-run.
-   */
+  /** The bell was rung: on island A with a crewmate, this player is ready to cast off. */
   private ring(): void {
-    const now = performance.now();
-    const pealing = now - this.lastRing < RING_AGAIN_MS;
-    if (route.phase === 'flying' && this.rungBeforeRun && pealing) {
-      this.lastRing = now;
-      return;
-    }
-    this.rungBeforeRun = route.phase === 'ready' && netLink.connected;
     if (route.phase === 'ready' && netLink.connected) {
       markReady();
-      this.lastRing = now;
-    } else if (route.phase === 'finished' || route.phase === 'lost' || (route.phase === 'flying' && pealing)) {
-      restartRoute();
-      this.lastRing = Number.NEGATIVE_INFINITY;
-    } else {
-      this.lastRing = now;
+      this.lastDraw = 0;
     }
-    this.lastDraw = 0;
   }
 
   update(): void {
@@ -130,7 +111,7 @@ export class RouteSystem extends createSystem({}) {
     const now = performance.now();
     if (now - this.lastDraw > BOARD_REFRESH_MS) {
       this.lastDraw = now;
-      this.drawBoard(now);
+      this.drawBoard();
     }
   }
 
@@ -156,9 +137,8 @@ export class RouteSystem extends createSystem({}) {
     this.board = { ctx, texture, lines: [] };
   }
 
-  private boardLines(now: number): string[] {
+  private boardLines(): string[] {
     const best = this.best > 0 ? `Best score ${this.best}` : '';
-    const ringAgain = !this.rungBeforeRun && now - this.lastRing < RING_AGAIN_MS;
     switch (route.phase) {
       case 'ready': {
         if (netLink.connected) {
@@ -174,10 +154,10 @@ export class RouteSystem extends createSystem({}) {
         const top = [`TIME ${clock(route.seconds)}  CRATE ${Math.round(cargo.condition)}%`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
         const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`;
         if (docking.phase === 'fast') {
-          return [...top, 'MADE FAST', cargo.phase === 'delivered' ? '     CRATE DELIVERED' : '     LOWER THE CRATE', fuel, ringAgain ? 'Ring again to restart' : ''];
+          return [...top, 'MADE FAST', cargo.phase === 'delivered' ? '     CRATE DELIVERED' : '     LOWER THE CRATE', fuel, ''];
         }
         if (docking.phase === 'hooked') {
-          return [...top, `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, ringAgain ? 'Ring again to restart' : ''];
+          return [...top, `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, ''];
         }
         const next = this.nextTarget();
         return [
@@ -185,7 +165,7 @@ export class RouteSystem extends createSystem({}) {
           `NEXT ${next.name}  ${next.distance} m`,
           `     ${next.bearing}  ${next.height}`,
           fuel,
-          ringAgain ? 'Ring again to restart' : '',
+          '',
         ];
       }
       case 'finished': {
@@ -196,11 +176,11 @@ export class RouteSystem extends createSystem({}) {
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
           `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
           `Crate ${r.cargo ?? 100}%`,
-          'Ring the bell to fly again',
+          'Game menu: Restart to fly again',
         ];
       }
       case 'lost':
-        return ['RUN OVER', route.lostReason, '', 'Ring the bell to start', 'again from island A.', best];
+        return ['RUN OVER', route.lostReason, '', 'Game menu: Restart to start', 'again from island A.', best];
     }
   }
 
@@ -234,8 +214,8 @@ export class RouteSystem extends createSystem({}) {
     return { name, distance: Math.round(Math.hypot(dx, dz)), bearing, height };
   }
 
-  private drawBoard(now: number): void {
-    const lines = this.boardLines(now);
+  private drawBoard(): void {
+    const lines = this.boardLines();
     if (lines.every((line, i) => line === this.board.lines[i])) {
       return;
     }
