@@ -14,7 +14,7 @@ Status: built and tested in the emulated headset and between two networked brows
 - **Latency.** As with the crank, every hand input carries the time the hand was there. It is measured against where the line was at that moment, and stroke starts are timed by the hand's own time, so a crewmate's delay doesn't spoil the rhythm.
 - **Network.** The host runs the line and sends a 16-byte state 45 times a second. The guest predicts and blends towards it. A player's grip on the line travels in two more spare bits of the pose packet.
 - **The sign** at the stern end of the run shows metres hauled out of 8 and the heave count, and "ALL IN!" when the whole line is in.
-- **The haul call and the line's pull in the hand** (added after the 2026-10-10 two-player playtest): while both players hold the line a drum beats "heave" once a second on the shared clock, a rail lamp flashes with it, and the buzz in each hand grows with how hard it pulls. See [../crew-sync.md](../crew-sync.md).
+- **The haul call and the line's pull in the hand** (added after the 2026-10-10 two-player playtest): while both players hold the line a wooden mallet knocks "heave" once a second on the shared clock, a rail lamp flashes with it, the buzz in each hand grows with how hard it pulls, and the line creaks through the fairlead under a firm pull. See [../crew-sync.md](../crew-sync.md).
 
 ## Results in the cloud
 

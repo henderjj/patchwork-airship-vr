@@ -15,6 +15,7 @@ import { estimateRefreshHz } from '../perf/refresh-rate.js';
 import { platformInfo, summarize } from '../perf/platform-report.js';
 import { body } from './body-height-system.js';
 import { budgetHz, frameRateInfo } from './frame-rate-system.js';
+import { hapticsSummary } from './haptics.js';
 import { poseName } from '../sim/hand-pose.js';
 import { fingerInputs, grip, handCurls, handGrips, Touch } from './grip-system.js';
 
@@ -228,7 +229,13 @@ export class PerfHudSystem extends createSystem({}) {
       10,
       graphTop + graphH + 60,
     );
-    ctx.fillText(`cpu ${s.cpuAvg.toFixed(2)} p95 ${s.cpuP95.toFixed(2)} ms  drop ${s.dropped}`, 10, graphTop + graphH + 86);
+    // How the controllers buzz: Chrome on a PC may offer no way at all (haptics.ts).
+    const pads = this.input.xr.gamepads;
+    ctx.fillText(
+      `cpu ${s.cpuAvg.toFixed(2)} p95 ${s.cpuP95.toFixed(2)} ms  drop ${s.dropped}  ${hapticsSummary(pads.left?.gamepad, pads.right?.gamepad)}`,
+      10,
+      graphTop + graphH + 86,
+    );
     ctx.fillText(
       `calls ${s.drawCalls}  tris ${(s.triangles / 1000).toFixed(0)}k  heap ${Number.isNaN(s.heapMb) ? '-' : s.heapMb.toFixed(0)}MB`,
       10,

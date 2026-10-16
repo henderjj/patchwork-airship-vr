@@ -55,6 +55,7 @@ import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, net
 import { bell } from './route-system.js';
 import { cargo, dropBallast, flightControls, flightInfo, ship, stations } from './ship-system.js';
 import { CARGO_TRIM_WEIGHT, HATCH_CENTER } from '../sim/cargo.js';
+import { buzz } from './haptics.js';
 
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -652,9 +653,6 @@ export class ControlsSystem extends createSystem({}) {
   }
 
   private pulse(side: Side, intensity: number, ms: number): void {
-    const actuator = this.input.xr.gamepads[side]?.gamepad.hapticActuators?.[0] as
-      | { pulse?: (value: number, duration: number) => Promise<boolean> }
-      | undefined;
-    void actuator?.pulse?.(intensity, ms)?.catch(() => undefined);
+    buzz(this.input.xr.gamepads[side]?.gamepad, side, intensity, ms);
   }
 }

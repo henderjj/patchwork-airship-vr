@@ -9,36 +9,89 @@
  */
 
 /**
- * How far this player's crank hand leads the crewmate's, ms: positive when
- * this player pushes harder (their hand further ahead of its handle),
- * negative when the crewmate does and the crank is pulling this player's
- * handle away from their hand. Same measure as the crank's sync offset
- * (src/sim/crank.ts), with a sign.
+ * How long ahead a hand's lead over its handle counts towards its pace, s:
+ * a hand 0.3 rad ahead of its handle is going for 1 rad/s more than the
+ * crank is turning now.
  */
-export function crankBalanceMs(myLead: number, theirLead: number, omega: number): number {
-  const dir = omega >= 0 ? 1 : -1;
-  const speed = Math.max(Math.abs(omega), 0.5);
-  return (((myLead - theirLead) * dir) / speed) * 1000;
+export const PACE_LEAD_S = 0.3;
+
+/**
+ * The pace a hand on the crank is going for, turns/s in the crank's
+ * direction (`dir` +1 ahead, -1 astern): the crank's speed now plus how far
+ * the hand leads its handle. The crank is one piece, so both handles turn
+ * at its speed, but a hand pushing harder leads further and is going for a
+ * faster pace. Two hands going for the same pace lead by the same amount,
+ * which is what puts the crank in step.
+ */
+export function crankPace(lead: number, omega: number, dir: number): number {
+  return (dir * (omega + lead / PACE_LEAD_S)) / (2 * Math.PI);
+}
+
+/**
+ * How far apart two hands' paces may be and still be in step, turns/s: the
+ * crank's 150 ms sync window, turned into pace at the crank's speed now.
+ */
+export function paceWindow(omega: number, syncWindowMs: number): number {
+  return ((syncWindowMs / 1000) * Math.max(Math.abs(omega), 0.5)) / PACE_LEAD_S / (2 * Math.PI);
+}
+
+/** The pace target, turns/s: an easy pace to find the step at, rising to a sprint while the pair stays in step. */
+export const TARGET_START = 0.45;
+export const TARGET_SPRINT = 1.3;
+/** How fast the target rises while the pair is in step, and falls back while they aren't, turns/s per s. */
+const TARGET_RISE = 0.15;
+const TARGET_FALL = 0.5;
+/** The target only falls once the pair has been out of step this long, s (a wobble doesn't reset it). */
+const TARGET_GRACE_S = 1;
+
+/**
+ * The pace both players aim for. Chasing each other's pace is hard because
+ * each correction moves the thing the other is aiming at, so the sign gives
+ * both one target: an easy pace to fall into step, which then climbs
+ * towards a sprint as long as they stay in step, and drops back if they
+ * fall out of step for more than a second.
+ */
+export class PaceTarget {
+  /** The target, turns/s. */
+  pace = TARGET_START;
+  private outFor = 0;
+
+  /** Advance by `dt` s with whether the pair is in step. */
+  step(dt: number, inStep: boolean): void {
+    if (inStep) {
+      this.outFor = 0;
+      this.pace = Math.min(TARGET_SPRINT, this.pace + TARGET_RISE * dt);
+      return;
+    }
+    this.outFor += dt;
+    if (this.outFor > TARGET_GRACE_S) {
+      this.pace = Math.max(TARGET_START, this.pace - TARGET_FALL * dt);
+    }
+  }
+
+  reset(): void {
+    this.pace = TARGET_START;
+    this.outFor = 0;
+  }
 }
 
 export type CrankAdvice = 'even' | 'push' | 'ease';
 
-/** A balance this far out of the sync window's fraction starts advice; it stops again inside the smaller one. */
+/** A pace this far (as a fraction of the window) from the target starts advice; it stops again inside the smaller one. */
 const ADVICE_ON = 0.6;
 const ADVICE_OFF = 0.4;
 
 /**
- * What to tell a player from their (smoothed) crank balance: push harder
- * when the crewmate leads, ease off when they lead, with a little
- * hysteresis so the advice doesn't flicker at the edge. It starts well
- * inside the sync window, so a pair hears about drifting apart before
- * they fall out of high gear.
+ * What to tell a player from how far their (smoothed) pace is from the
+ * target (`offset`, positive when faster) and the window it should be
+ * within: push harder when slower, ease off when faster, with a little
+ * hysteresis so the advice doesn't flicker at the edge.
  */
-export function crankAdvice(balanceMs: number, windowMs: number, previous: CrankAdvice): CrankAdvice {
-  const on = ADVICE_ON * windowMs;
-  const off = ADVICE_OFF * windowMs;
-  if (balanceMs > on || (previous === 'ease' && balanceMs > off)) return 'ease';
-  if (balanceMs < -on || (previous === 'push' && balanceMs < -off)) return 'push';
+export function crankAdvice(offset: number, window: number, previous: CrankAdvice): CrankAdvice {
+  const on = ADVICE_ON * window;
+  const off = ADVICE_OFF * window;
+  if (offset > on || (previous === 'ease' && offset > off)) return 'ease';
+  if (offset < -on || (previous === 'push' && offset < -off)) return 'push';
   return 'even';
 }
 
@@ -58,6 +111,18 @@ export function ropeBuzz(tension: number, lineSpeed: number): number {
   const buzz = 0.12 * Math.min(1, Math.abs(lineSpeed)) + 0.8 * tension * tension;
   // A slack line lying still in the hand doesn't buzz at all.
   return buzz < 0.03 ? 0 : Math.min(1, 0.05 + buzz);
+}
+
+/**
+ * Time to the line's next creak through the fairlead, ms, under the
+ * hardest pull on it (`tension`, 0 to 1) with the line running at
+ * `lineSpeed` (m/s), or NaN when it isn't straining enough to creak: it
+ * creaks while it runs under a firm pull, or even standing still near the
+ * point it slips, faster the harder it is pulled.
+ */
+export function lineCreakGapMs(tension: number, lineSpeed: number): number {
+  const straining = tension > 0.45 && (Math.abs(lineSpeed) > 0.03 || tension > 0.7);
+  return straining ? 700 - 400 * Math.min(1, tension) : Number.NaN;
 }
 
 /** Time between the haul call's heaves, ms: pull on the beat, reach forward on the off-beat. */

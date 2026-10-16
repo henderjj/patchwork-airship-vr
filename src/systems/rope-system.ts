@@ -24,7 +24,7 @@ import {
 } from '../scene-assets/rope.scene-asset.js';
 import { groundBelow } from '../sim/islands.js';
 import { KEEL_DEPTH } from '../sim/gondola-layout.js';
-import { callLampLevel, HaulCall, haulCallFraction, haulCallPhase, lineTension, msToNextHeave, ropeBuzz } from '../sim/crew-sync.js';
+import { callLampLevel, HaulCall, haulCallFraction, haulCallPhase, lineCreakGapMs, lineTension, msToNextHeave, ropeBuzz } from '../sim/crew-sync.js';
 import { createRopeHandInput, ROPE_SLOTS, RopeHaulSim } from '../sim/rope-haul.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
@@ -34,6 +34,7 @@ import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
 import { docking, flightInfo, ship } from './ship-system.js';
 import { sounds } from './audio-system.js';
+import { buzz } from './haptics.js';
 
 /**
  * Spike S6, part 2: hauling the mooring line hand over hand. Squeeze the grip
@@ -42,7 +43,9 @@ import { sounds } from './audio-system.js';
  * (src/sim/rope-haul.ts) with both players' hands and sends the line's
  * state 45 times a second; the guest predicts and blends, as for the crank.
  *
- * Feedback: a buzz in the hand that grows with how hard it pulls on the
+ * Feedback: the line creaks through the fairlead under strain (from either
+ * player's pull, so both hear it, and a player whose controllers can't
+ * buzz still hears the line's resistance), a buzz in the hand that grows with how hard it pulls on the
  * line (steeply near the point the line slips, easing when the crewmate
  * pulls too), a double pulse on a heave (both players' strokes starting
  * together) and a sharp pulse when the line slips through a hand. A sign at
@@ -50,8 +53,8 @@ import { sounds } from './audio-system.js';
  * doing.
  *
  * The haul call (src/sim/crew-sync.ts): while both players have a hand on
- * the line, a drum beats "heave" once a second on the shared clock, with a
- * soft tock on the off-beat to reach forward. Both hear it at the same
+ * the line, a mallet knocks "heave" on a timber once a second on the shared
+ * clock, with a light tap on the off-beat to reach forward. Both hear it at the same
  * moment whatever the network delay, so starting strokes on it heaves. A
  * lamp on the rail flashes on each heave and the controllers tick with it.
  *
@@ -113,6 +116,8 @@ export class RopeSystem extends createSystem({}) {
   private blendError = Number.NaN;
   private wasHeave = false;
   private lastBuzz = 0;
+  /** When the line next creaks under strain, local ms (0 while it isn't straining: the first creak waits a gap). */
+  private nextCreakMs = 0;
   /** The haul call, and its lamp. */
   readonly call = new HaulCall();
   private lamp!: Mesh<SphereGeometry, MeshBasicMaterial>;
@@ -433,17 +438,26 @@ export class RopeSystem extends createSystem({}) {
       this.lastBuzz = now;
       for (const side of SIDES) {
         if (!this.hold[side]) continue;
-        const buzz = ropeBuzz(lineTension(this.sim.lead[me * 2 + (side === 'left' ? 0 : 1)], this.sim.params.slipDistance), this.sim.speed);
-        if (buzz > 0) this.pulse(side, buzz, BUZZ_GAP_MS + 15);
+        const strength = ropeBuzz(lineTension(this.sim.lead[me * 2 + (side === 'left' ? 0 : 1)], this.sim.params.slipDistance), this.sim.speed);
+        if (strength > 0) this.pulse(side, strength, BUZZ_GAP_MS + 15);
       }
+    }
+    // The line creaks under the hardest pull on it, whoever's.
+    let tension = 0;
+    for (let i = 0; i < ROPE_SLOTS; i++) {
+      if (this.hands[i].holding) tension = Math.max(tension, lineTension(this.sim.lead[i], this.sim.params.slipDistance));
+    }
+    const gap = lineCreakGapMs(tension, this.sim.speed);
+    if (Number.isNaN(gap)) {
+      this.nextCreakMs = 0;
+    } else if (now >= this.nextCreakMs) {
+      if (this.nextCreakMs > 0) sounds.lineCreak(tension);
+      this.nextCreakMs = now + gap * (0.8 + 0.4 * Math.random());
     }
   }
 
   private pulse(side: Side, intensity: number, ms: number): void {
-    const actuator = this.input.xr.gamepads[side]?.gamepad.hapticActuators?.[0] as
-      | { pulse?: (value: number, duration: number) => Promise<boolean> }
-      | undefined;
-    void actuator?.pulse?.(intensity, ms)?.catch(() => undefined);
+    buzz(this.input.xr.gamepads[side]?.gamepad, side, intensity, ms);
   }
 
   private createSign(): void {

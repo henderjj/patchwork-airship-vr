@@ -230,7 +230,7 @@ async function crankTogether(host, guest, rate, guestLagS, seconds) {
     p.page.evaluate(
       () =>
         new Promise((resolve) => {
-          const out = { gearFrames: 0, frames: 0, maxError: 0, omega: 0, gear: 0, held: null, solo: 0, advice: { even: 0, push: 0, ease: 0, none: 0 } };
+          const out = { gearFrames: 0, frames: 0, maxError: 0, omega: 0, gear: 0, held: null, solo: 0, advice: { even: 0, push: 0, ease: 0, none: 0 }, paceGap: 0, paceFrames: 0, pace: null };
           const end = performance.now() + 1000;
           const tick = () => {
             const c = window.__crank;
@@ -242,7 +242,13 @@ async function crankTogether(host, guest, rate, guestLagS, seconds) {
             out.gear = c.sim.gear;
             out.held = c.holders().sim;
             out.solo = c.sim.soloTopSpeed;
-            out.advice[c.balance().advice ?? 'none']++;
+            const p = c.pace();
+            out.advice[p.advice ?? 'none']++;
+            if (p.advice) {
+              out.paceGap += Math.abs(p.me - p.crew);
+              out.paceFrames++;
+              out.pace = p;
+            }
             if (performance.now() < end) requestAnimationFrame(tick);
             else resolve(out);
           };
@@ -1285,8 +1291,9 @@ async function main() {
     check('Cranking in step engages high gear on the host',
       together.host.gearFrames / together.host.frames > 0.9 && together.host.omega > 2.5 * together.host.solo,
       `${(together.host.omega / (2 * Math.PI)).toFixed(2)} turns/s (solo top ${(together.host.solo / (2 * Math.PI)).toFixed(2)}), high gear ${((100 * together.host.gearFrames) / together.host.frames).toFixed(0)}% of frames, handles held ${JSON.stringify(together.host.held)}`);
-    check('Both crank signs read in step', together.host.advice.even / together.host.frames > 0.9 && together.guest.advice.even / together.guest.frames > 0.9,
-      `host ${JSON.stringify(together.host.advice)}, guest ${JSON.stringify(together.guest.advice)}`);
+    const gap = (r) => (r.paceFrames ? r.paceGap / r.paceFrames : Number.NaN);
+    check("Both crank signs show the two players' paces together", gap(together.host) < 0.12 && gap(together.guest) < 0.12 && together.host.pace?.target > 0.6,
+      `pace gap host ${gap(together.host).toFixed(2)}, guest ${gap(together.guest).toFixed(2)} turns/s; host sign ${JSON.stringify(together.host.pace)}, advice host ${JSON.stringify(together.host.advice)}, guest ${JSON.stringify(together.guest.advice)}`);
     check('Guest crank stays with the host', together.guest.maxError < 0.35 && Math.abs(together.guest.omega - together.host.omega) < 1.5,
       `largest gap ${((together.guest.maxError * 180) / Math.PI).toFixed(1)}°, guest ${(together.guest.omega / (2 * Math.PI)).toFixed(2)} turns/s`);
     const apart = await crankTogether(b, a2, 6, 0.25, 6);

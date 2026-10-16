@@ -2,7 +2,8 @@
  * The ship's sounds (Phase 2), made in Web Audio rather than recorded, to
  * keep the download small: the burner's roar, wind that grows with speed,
  * timber creaks, the crank's ratchet, the ship's bell, a chime for a ring
- * flown through, a thump on touchdown and the haul call's drum.
+ * flown through, a thump on touchdown, the haul call's mallet knock and
+ * the mooring line creaking under strain.
  *
  * Sources sit at fixed places in ship space (the gondola doesn't move in
  * the player's tracking space), so only the listener moves each frame.
@@ -21,6 +22,11 @@ const MASTER_GAIN = 0.55;
 const NOISE_SECONDS = 5;
 /** How quickly the looped sounds follow their targets, s (time constant). */
 const FOLLOW = 0.12;
+/** A timber's body resonances for the haul call's knock: frequency (Hz), Q, starting gain and how long it rings (s). */
+const WOOD_MODES: readonly (readonly [number, number, number, number])[] = [
+  [620, 9, 2.2, 0.11],
+  [1650, 12, 1.1, 0.06],
+];
 
 export class ShipSounds {
   private ctx: AudioContext | null = null;
@@ -34,11 +40,12 @@ export class ShipSounds {
   private ratchetOut!: AudioNode;
   private bellOut!: AudioNode;
   private haulOut!: AudioNode;
+  private lineOut!: AudioNode;
   /** Sounds played so far, by name (tests and the HUD). */
-  readonly played: Record<string, number> = { ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0 };
+  readonly played: Record<string, number> = { ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0, lineCreak: 0 };
 
   constructor(
-    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3 },
+    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3 },
     private on = true,
   ) {}
 
@@ -131,6 +138,7 @@ export class ShipSounds {
     this.ratchetOut = ratchetFilter;
     this.bellOut = this.panner(this.places.bell);
     this.haulOut = this.panner(this.places.haul);
+    this.lineOut = this.panner(this.places.fairlead);
   }
 
   /** Looped noise into `filter`; returns the filter to connect onwards. */
@@ -271,8 +279,11 @@ export class ShipSounds {
   }
 
   /**
-   * The haul call, at the hauling run: a deep drum beat on the heave (start
-   * the stroke) and a soft wooden tock on the off-beat (reach forward).
+   * The haul call, at the hauling run: a wooden mallet knocked on a
+   * timber, a firm knock on the heave (start the stroke) and a light tap on
+   * the off-beat (reach forward). Natural sounds rather than a drum: a
+   * click of noise for the strike, through the timber's two body
+   * resonances, each dying away fast as wood does.
    */
   haulCall(beat: 'heave' | 'reach'): void {
     const ctx = this.live;
@@ -280,24 +291,57 @@ export class ShipSounds {
       return;
     }
     const t = ctx.currentTime;
-    if (beat === 'reach') {
-      this.tone(660, 'triangle', 0.08, 0.003, 0.06, this.haulOut, t);
+    const heave = beat === 'heave';
+    // A little variety, so a minute of hauling doesn't sound like a metronome.
+    const pitch = (heave ? 1 : 1.35) * (0.97 + Math.random() * 0.06);
+    const strike = ctx.createBufferSource();
+    strike.buffer = this.noise;
+    const level = heave ? 1 : 0.35;
+    for (const [freq, q, gainAt, decay] of WOOD_MODES) {
+      const body = ctx.createBiquadFilter();
+      body.type = 'bandpass';
+      body.frequency.value = freq * pitch;
+      body.Q.value = q;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(gainAt * level, t);
+      gain.gain.exponentialRampToValueAtTime(0.0005, t + decay);
+      strike.connect(body).connect(gain).connect(this.haulOut);
+    }
+    strike.start(t, Math.random() * (NOISE_SECONDS - 0.2), 0.012);
+    // The knock's thud, felt more than heard, on the heave only.
+    if (heave) {
+      this.tone(95 * pitch, 'sine', 0.25, 0.003, 0.09, this.haulOut, t);
+      this.played.heave++;
+    }
+  }
+
+  /** The mooring line creaking through the fairlead under strain, harder and lower with `tension` (0 to 1). */
+  lineCreak(tension: number): void {
+    const ctx = this.live;
+    if (!ctx) {
       return;
     }
+    const t = ctx.currentTime;
+    const k = Math.max(0, Math.min(1, tension));
+    const duration = 0.12 + 0.18 * k + Math.random() * 0.08;
+    const pitch = 420 - 160 * k + Math.random() * 60;
+    // Fibres catching and slipping: a fast, uneven train of clicks through a narrow band.
     const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(140, t);
-    osc.frequency.exponentialRampToValueAtTime(70, t + 0.18);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(28 + 20 * k, t);
+    osc.frequency.linearRampToValueAtTime(18 + 12 * k, t + duration);
+    const body = ctx.createBiquadFilter();
+    body.type = 'bandpass';
+    body.frequency.value = pitch;
+    body.Q.value = 8;
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.7, t + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-    osc.connect(gain).connect(this.haulOut);
+    gain.gain.exponentialRampToValueAtTime(0.12 + 0.2 * k, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    osc.connect(body).connect(gain).connect(this.lineOut);
     osc.start(t);
-    osc.stop(t + 0.35);
-    // The skin's slap on top, so the beat is sharp enough to time a pull to.
-    this.tone(330, 'triangle', 0.18, 0.002, 0.05, this.haulOut, t);
-    this.played.heave++;
+    osc.stop(t + duration + 0.05);
+    this.played.lineCreak++;
   }
 
   /** The gondola settling onto the ground, harder with a faster `speed` (m/s). */
