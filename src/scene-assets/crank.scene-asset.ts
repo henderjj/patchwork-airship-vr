@@ -96,7 +96,7 @@ export function createPropeller(): Mesh {
       rotation: [0, 0.44, -a],
     });
     parts.push({
-      geometry: new BoxGeometry(0.09, 0.08, 0.022),
+      geometry: new BoxGeometry(0.09, 0.08, 0.03),
       color: i === 0 ? 0xc4553f : 0xe8dcc0,
       position: [Math.sin(a) * (PROPELLER_RADIUS - 0.04), Math.cos(a) * (PROPELLER_RADIUS - 0.04), 0],
       rotation: [0, 0.44, -a],

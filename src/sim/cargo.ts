@@ -101,9 +101,18 @@ const DRAG = 0.25;
 const STILL_DAMPING = 0.05;
 /** Eddies below the keel at the usual wind, m/s². */
 export const EDDY_ACCEL = 0.12;
-/** The tag line: pull towards the point under the hand per m, damping per m/s, and the most it pulls, m/s². */
-const TAG_PULL = 1.2;
-const TAG_DAMPING = 2.0;
+/**
+ * The tag line. Held still, it only draws the crate gently towards the point
+ * under the hand (per m) and takes a little out of its swing (per m/s), so it
+ * keeps swinging. What steadies it is working the line: the hand's own
+ * movement across the deck tugs the crate (per m/s of hand speed, its speed
+ * smoothed over TAG_SMOOTHING s), so pulling against each swing stops it.
+ * At most TAG_MAX m/s² in all.
+ */
+const TAG_PULL = 0.3;
+const TAG_DAMPING = 0.15;
+const TAG_TUG = 3.0;
+const TAG_SMOOTHING = 0.1;
 const TAG_MAX = 1.5;
 /** Steps of at most this long, s. */
 const STEP = 1 / 120;
@@ -224,6 +233,8 @@ export class CargoSim {
   private tmp = { x: 0, y: 0, z: 0 };
   private tmp2 = { x: 0, y: 0, z: 0 };
   private gust = { x: 0, z: 0 };
+  /** The hand on the tag line: where it was last step and how fast it moves across the deck (smoothed), m/s. */
+  private tagWas: { held: boolean; x: number; z: number; vx: number; vz: number } = { held: false, x: 0, z: 0, vx: 0, vz: 0 };
 
   reset(): void {
     this.resets++;
@@ -264,6 +275,17 @@ export class CargoSim {
     const before = this.line;
     this.line = Math.max(LINE_MIN, Math.min(LINE_MAX, input.line));
     this.lineRate = dt > 0 ? Math.max(0, (this.line - before) / dt) : 0;
+    const tag = this.tagWas;
+    if (input.tagHeld && tag.held && dt > 0) {
+      const k = Math.min(1, dt / TAG_SMOOTHING);
+      tag.vx += ((input.tagX - tag.x) / dt - tag.vx) * k;
+      tag.vz += ((input.tagZ - tag.z) / dt - tag.vz) * k;
+    } else {
+      tag.vx = tag.vz = 0;
+    }
+    tag.held = input.tagHeld;
+    tag.x = input.tagX;
+    tag.z = input.tagZ;
     this.doorOpen = input.doorOpen;
     const knocksBefore = this.knocks;
     const steps = Math.min(30, Math.max(1, Math.ceil(dt / STEP)));
@@ -373,8 +395,8 @@ export class CargoSim {
       az -= STILL_DAMPING * v.z;
     }
     if (input.tagHeld) {
-      let tx = TAG_PULL * (input.tagX - p.x) - TAG_DAMPING * v.x;
-      let tz = TAG_PULL * (input.tagZ - p.z) - TAG_DAMPING * v.z;
+      let tx = TAG_PULL * (input.tagX - p.x) - TAG_DAMPING * v.x + TAG_TUG * this.tagWas.vx;
+      let tz = TAG_PULL * (input.tagZ - p.z) - TAG_DAMPING * v.z + TAG_TUG * this.tagWas.vz;
       const t = Math.hypot(tx, tz);
       if (t > TAG_MAX) {
         tx *= TAG_MAX / t;

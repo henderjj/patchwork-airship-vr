@@ -142,32 +142,48 @@ describe('cargo', () => {
     expect(sim.condition).toBeGreaterThan(40);
   });
 
-  it('swings in the eddies below the keel, and a hand holding the tag line still over the hatch steadies it', () => {
-    const swingOver = (tag: boolean, scale: number) => {
+  it('swings in the eddies below the keel; a hand held still on the tag line only slows it, and one working against the swing steadies it', () => {
+    const swingOver = (hand: 'none' | 'still' | 'working', scale: number) => {
       const { sim, ship, input } = calm();
       input.doorOpen = true;
       input.windScale = scale;
       input.windX = 0.4 * scale;
       // Lower it to 5 m under the block, then watch it.
       run(sim, ship, input, 25, (t) => Math.min(LINE_ABOARD + 0.2 * t, 5));
-      input.tagHeld = tag;
+      input.tagHeld = hand !== 'none';
       input.tagX = HATCH_CENTER[0];
       input.tagZ = HATCH_CENTER[1];
-      let most = 0;
-      run(sim, ship, input, 10);
-      run(sim, ship, input, 20, undefined, () => {
-        most = Math.max(most, Math.hypot(sim.pos.x - BLOCK[0], sim.pos.z - BLOCK[2]));
+      // Working the line: the hand moves against the crate's swing as fast as it, staying within 30 cm of over the hatch.
+      const work = () => {
+        if (hand !== 'working') return;
+        input.tagX = Math.max(HATCH_CENTER[0] - 0.3, Math.min(HATCH_CENTER[0] + 0.3, input.tagX - sim.vel.x * DT));
+        input.tagZ = Math.max(HATCH_CENTER[1] - 0.3, Math.min(HATCH_CENTER[1] + 0.3, input.tagZ - sim.vel.z * DT));
+      };
+      // How far it swings either side of where it hangs (the steady wind holds it a little to one side).
+      const lo = { x: Infinity, z: Infinity };
+      const hi = { x: -Infinity, z: -Infinity };
+      run(sim, ship, input, 10, undefined, work);
+      run(sim, ship, input, 30, undefined, () => {
+        work();
+        lo.x = Math.min(lo.x, sim.pos.x);
+        lo.z = Math.min(lo.z, sim.pos.z);
+        hi.x = Math.max(hi.x, sim.pos.x);
+        hi.z = Math.max(hi.z, sim.pos.z);
       });
-      return { most, knocks: sim.knocks };
+      return Math.hypot(hi.x - lo.x, hi.z - lo.z) / 2;
     };
-    const still = swingOver(false, 0);
-    const normal = swingOver(false, 1);
-    const double = swingOver(false, 2);
-    const steadied = swingOver(true, 2);
-    expect(still.most).toBeLessThan(0.05);
-    expect(normal.most).toBeGreaterThan(0.12);
-    expect(double.most).toBeGreaterThan(normal.most);
-    expect(steadied.most).toBeLessThan(double.most / 3);
+    const calmAir = swingOver('none', 0);
+    const normal = swingOver('none', 1);
+    const double = swingOver('none', 2);
+    const held = swingOver('still', 2);
+    const worked = swingOver('working', 2);
+    expect(calmAir).toBeLessThan(0.05);
+    expect(normal).toBeGreaterThan(0.12);
+    expect(double).toBeGreaterThan(normal);
+    // Held still, it still swings more than half as far...
+    expect(held).toBeGreaterThan(double * 0.55);
+    // ...but worked against, it settles to less than a third.
+    expect(worked).toBeLessThan(double / 3);
   });
 
   it('scrapes the trunk when a swinging crate is hoisted back in', () => {

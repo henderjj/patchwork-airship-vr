@@ -654,7 +654,8 @@ async function shipSyncChecks(host, guest) {
   check('The guest\'s hand on the hatch lever opens the hatch on the host, and the run waits for the crate',
     notYet.phase === 'flying' && opened !== null && opened.h.condition === 100,
     `${notYet.phase} when made fast, ${opened ? `door open on both, crate ${opened.h.phase}` : `not opened: host ${JSON.stringify(await cargoState(host.page))}`}`);
-  await host.page.evaluate(() => window.__cargo.setTagHand([0.25, 0.75]));
+  // The host works the tag line, moving its hand against the crate's swing.
+  await host.page.evaluate(() => window.__cargo.setTagHand((() => { let x = 0.25; let z = 0.75; let last = performance.now(); return (now) => { const dt = Math.min(0.1, (now - last) / 1000); last = now; const [vx, vz] = window.__cargo.state().vel; x = Math.max(-0.05, Math.min(0.55, x - vx * dt)); z = Math.max(0.45, Math.min(1.05, z - vz * dt)); return [x, z]; }; })()));
   await guest.page.evaluate(() => {
     let last = performance.now();
     window.__cargo.setWinchHand((now) => {

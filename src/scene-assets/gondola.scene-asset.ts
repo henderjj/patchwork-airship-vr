@@ -163,9 +163,11 @@ function deckParts(): Part[] {
     const x = -DECK_WIDTH / 2 + plankWidth * (i + 0.5);
     const color = i % 2 ? WOOD : WOOD_LIGHT;
     if (x > HATCH.x0 && x < HATCH.x1) {
-      // The cargo hatch's opening: these planks stop either side of it.
-      const bow = HATCH.z0 + DECK_LENGTH / 2;
-      const stern = DECK_LENGTH / 2 - HATCH.z1;
+      // The cargo hatch's opening: these planks stop either side of it, their
+      // ends 1 cm inside the trunk's walls (flush, the ends flickered through
+      // the walls' faces).
+      const bow = HATCH.z0 - 0.01 + DECK_LENGTH / 2;
+      const stern = DECK_LENGTH / 2 - HATCH.z1 - 0.01;
       parts.push(box([plankWidth - 0.01, 0.06, bow], [x, -0.03, -DECK_LENGTH / 2 + bow / 2], color));
       parts.push(box([plankWidth - 0.01, 0.06, stern], [x, -0.03, DECK_LENGTH / 2 - stern / 2], color));
     } else {
@@ -347,7 +349,7 @@ function crateParts(): Part[] {
     box([lw, cy - 0.03, ld], [cx, (cy - 0.03) / 2, cz], WOOD_DARK),
     box([lw + 0.02, 0.03, ld + 0.02], [cx, cy - 0.015, cz], WOOD),
     box([lw + 0.01, 0.04, ld + 0.01], [cx, 0.021, cz], shade(IRON, 0.9)),
-    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => box([0.035, cy - 0.06, 0.035], [cx + sx * (lw / 2 - 0.01), cy / 2, cz + sz * (ld / 2 - 0.01)], IRON))),
+    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => box([0.035, cy - 0.08, 0.035], [cx + sx * (lw / 2 - 0.01), cy / 2, cz + sz * (ld / 2 - 0.01)], IRON))),
     // The open crate on top. The floor sits inside the walls and the side
     // walls between the end walls, so no two faces share a plane (they
     // flickered where they overlapped).
@@ -451,15 +453,22 @@ function hatchParts(): Part[] {
   const h = 0.04;
   const coaming = shade(WOOD_DARK, 0.85);
   const trunk = shade(WOOD_DARK, 0.7);
+  // The coaming reaches 4 mm down into the planks and the trunk's walls stop
+  // there, so the walls' tops sit below the planks' tops, not level with them.
+  const sink = 0.004;
+  const ch = h + sink;
+  const cy = (h - sink) / 2;
+  const th = TRUNK_DEPTH - sink;
+  const ty = -(TRUNK_DEPTH + sink) / 2;
   return [
-    box([t, h, d + 2 * t], [x0 - t / 2, h / 2, cz], coaming),
-    box([t, h, d + 2 * t], [x1 + t / 2, h / 2, cz], coaming),
-    box([w, h, t], [cx, h / 2, z0 - t / 2], coaming),
-    box([w, h, t], [cx, h / 2, z1 + t / 2], coaming),
-    box([0.02, TRUNK_DEPTH, d], [x0 - 0.01, -TRUNK_DEPTH / 2, cz], trunk),
-    box([0.02, TRUNK_DEPTH, d], [x1 + 0.01, -TRUNK_DEPTH / 2, cz], trunk),
-    box([w + 0.04, TRUNK_DEPTH, 0.02], [cx, -TRUNK_DEPTH / 2, z0 - 0.01], trunk),
-    box([w + 0.04, TRUNK_DEPTH, 0.02], [cx, -TRUNK_DEPTH / 2, z1 + 0.01], trunk),
+    box([t, ch, d + 2 * t], [x0 - t / 2, cy, cz], coaming),
+    box([t, ch, d + 2 * t], [x1 + t / 2, cy, cz], coaming),
+    box([w, ch, t], [cx, cy, z0 - t / 2], coaming),
+    box([w, ch, t], [cx, cy, z1 + t / 2], coaming),
+    box([0.02, th, d], [x0 - 0.01, ty, cz], trunk),
+    box([0.02, th, d], [x1 + 0.01, ty, cz], trunk),
+    box([w + 0.04, th, 0.02], [cx, ty, z0 - 0.01], trunk),
+    box([w + 0.04, th, 0.02], [cx, ty, z1 + 0.01], trunk),
   ];
 }
 
@@ -475,7 +484,7 @@ function cargoRigParts(): Part[] {
   const [px, pz] = DERRICK_POST;
   const [bx, by, bz] = BLOCK;
   const [wx, wy, wz] = WINCH_AXLE;
-  const armEnd: [number, number, number] = [bx, DERRICK_ARM_Y - 0.04, bz];
+  const armEnd: [number, number, number] = [bx, DERRICK_ARM_Y - 0.02, bz];
   const sheave: [number, number, number] = [px - 0.06, DERRICK_ARM_Y - 0.02, pz - 0.05];
   return [
     box([0.09, DERRICK_HEIGHT, 0.09], [px, DERRICK_HEIGHT / 2, pz], WOOD_DARK),
@@ -483,13 +492,14 @@ function cargoRigParts(): Part[] {
     beam([px, DERRICK_ARM_Y, pz], armEnd, 0.035, WOOD, 6),
     beam([px, DERRICK_ARM_Y - 0.5, pz], [(px + bx) / 2, DERRICK_ARM_Y - 0.03, (pz + bz) / 2], 0.02, WOOD, 5),
     // The block under the arm's end, on an iron strop.
-    beam(armEnd, [bx, by + 0.07, bz], 0.008, IRON, 4),
+    beam(armEnd, [bx, by + 0.05, bz], 0.008, IRON, 4),
     box([0.05, 0.12, 0.08], [bx, by + 0.02, bz], WOOD_LIGHT),
-    { geometry: new CylinderGeometry(0.045, 0.045, 0.055, 8), color: BRASS, position: [bx, by + 0.02, bz], rotation: [0, 0, Math.PI / 2] },
+    { geometry: new CylinderGeometry(0.045, 0.045, 0.07, 8), color: BRASS, position: [bx, by + 0.02, bz], rotation: [0, 0, Math.PI / 2] },
     // A sheave at the post's top, and the hoist line from the drum up to it and along the arm to the block.
     { geometry: new CylinderGeometry(0.04, 0.04, 0.03, 8), color: BRASS, position: sheave, rotation: [0, 0, Math.PI / 2] },
     beam([wx + 0.04, wy + DRUM_RADIUS + 0.015, wz + 0.02], sheave, 0.009, ROPE, 5),
-    beam(sheave, [bx + 0.02, by + 0.08, bz + 0.02], 0.009, ROPE, 5),
+    // Into the block's top, so its end is hidden inside the block.
+    beam(sheave, [bx + 0.02, by + 0.06, bz + 0.02], 0.009, ROPE, 5),
     // The winch's frame: two iron cheeks on a timber sole, the drum's axle between them.
     box([0.32, 0.05, 0.2], [wx, 0.025, wz], WOOD_DARK),
     box([0.025, wy + 0.05, 0.12], [wx - 0.12, (wy + 0.05) / 2, wz], IRON),
@@ -548,7 +558,7 @@ export const FUEL_BRICK_SIZE = [0.16, 0.08, 0.09] as const;
 export function createFuelBrick(): Mesh {
   const geometry = mergeParts([
     { geometry: new BoxGeometry(...FUEL_BRICK_SIZE), color: (tri) => (tri < 4 ? 0x2b2622 : 0x3d342c) },
-    { geometry: new BoxGeometry(FUEL_BRICK_SIZE[0] + 0.004, 0.012, FUEL_BRICK_SIZE[2] + 0.004), color: 0xb0452d },
+    { geometry: new BoxGeometry(FUEL_BRICK_SIZE[0] + 0.008, 0.012, FUEL_BRICK_SIZE[2] + 0.008), color: 0xb0452d },
   ]);
   return new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
 }

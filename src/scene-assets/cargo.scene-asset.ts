@@ -32,6 +32,9 @@ function box(size: [number, number, number], position: [number, number, number],
  * The crate: planked sides with dark battens on its edges, a red FRAGILE
  * band round it, rope handles on two sides, and a four-legged sling from its
  * top corners to a ring above its middle. Origin at the middle of its top.
+ * The battens stand 4 mm proud of the planks and the band 4 mm proud of the
+ * battens: faces any closer flicker through each other in the headset (see
+ * test/z-fighting.test.ts).
  */
 export function createCrate(): Mesh {
   const s = CRATE_SIZE;
@@ -39,7 +42,7 @@ export function createCrate(): Mesh {
   const half = s / 2;
   const parts: Part[] = [
     { geometry: new BoxGeometry(s, h, s), color: (tri) => (tri % 4 < 2 ? WOOD : shade(WOOD, 0.9)), position: [0, -h / 2, 0] },
-    box([s + 0.012, 0.05, s + 0.012], [0, -h * 0.55, 0], RED),
+    box([s + 0.02, 0.05, s + 0.02], [0, -h * 0.55, 0], RED),
   ];
   // Battens on the four upright edges and round the top and bottom.
   for (const x of [-1, 1]) {
@@ -47,7 +50,7 @@ export function createCrate(): Mesh {
       parts.push(box([0.035, h + 0.01, 0.035], [x * (half - 0.012), -h / 2, z * (half - 0.012)], WOOD_DARK));
     }
   }
-  for (const y of [-0.015, -h + 0.015]) {
+  for (const y of [-0.011, -h + 0.011]) {
     parts.push(box([s + 0.01, 0.03, 0.035], [0, y, half - 0.012], WOOD_DARK));
     parts.push(box([s + 0.01, 0.03, 0.035], [0, y, -half + 0.012], WOOD_DARK));
     parts.push(box([0.035, 0.03, s + 0.01], [half - 0.012, y, 0], WOOD_DARK));
