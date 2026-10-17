@@ -97,7 +97,8 @@ export class WindSystem extends createSystem({}) {
     const random = rng(4241);
     for (const draft of ROUTE.drafts) {
       const rising = draft.speed > 0;
-      const material = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.6 });
+      // Double-sided: each streak's two crossed quads must show from either side.
+      const material = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.6, side: DoubleSide });
       const mesh = new InstancedMesh(createStreakGeometry(5, 0.4, rising ? UPDRAFT_COLOR : DOWNDRAFT_COLOR, true), material, DRAFT_STREAKS);
       mesh.name = rising ? 'Updraft' : 'Downdraft';
       mesh.frustumCulled = false;
@@ -128,7 +129,7 @@ export class WindSystem extends createSystem({}) {
       }
     }
 
-    this.gustMaterial = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.5 });
+    this.gustMaterial = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.5, side: DoubleSide });
     this.gusts = new InstancedMesh(createStreakGeometry(6, 0.2, 0xffffff, false), this.gustMaterial, GUST_STREAKS);
     this.gusts.name = 'Gust Streaks';
     this.gusts.frustumCulled = false;

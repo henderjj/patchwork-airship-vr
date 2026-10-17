@@ -21,7 +21,7 @@ export const SOCK_POLE = 4.5;
  * A streak of moving air: two crossed quads along the streak (so it shows
  * from any side), `length` long and `width` wide, centred on the origin,
  * along +Y (`vertical`) or +X. Its colour fades to nothing at both ends
- * (vertex alpha), for a transparent material with `vertexColors`.
+ * (vertex alpha), for a transparent, double-sided material with `vertexColors`.
  */
 export function createStreakGeometry(length: number, width: number, color: number, vertical: boolean): BufferGeometry {
   const r = ((color >> 16) & 255) / 255;

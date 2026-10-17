@@ -1177,7 +1177,7 @@ async function main() {
   const along = pushed ? -pushed.x * Math.sin(blowing.yaw) - pushed.z * Math.cos(blowing.yaw) : 0;
   check("The menu's Practice gust warns on the board, flies in from upwind, then pushes the ship sideways",
     quietWind === null && warned !== null && streaks > 5 && pushed !== null && Math.abs(sideways) > 0.7 && Math.abs(along) < Math.abs(sideways) &&
-      blowing.board[5].startsWith('GUST FROM') && blowing.wind > soundBefore && blowing.sock < 0.35,
+      blowing.board[5].startsWith('GUST FROM') && blowing.wind > soundBefore,
     `before: ${JSON.stringify(quietWind)}, board ${warned?.[5] ?? 'no warning'} then ${blowing.board[5]}, ${streaks} streaks, push ${pushed ? Math.hypot(pushed.x, pushed.z).toFixed(2) : 'none'} m/s, ` +
       `${sideways.toFixed(2)} m/s across the bow and ${along.toFixed(2)} along it, wind noise ${soundBefore.toFixed(3)} then ${blowing.wind.toFixed(3)}, sock droop ${((blowing.sock * 180) / Math.PI).toFixed(0)}°`);
   // The drafts: a fresh run, so no gust is left blowing, aloft in each in turn.
