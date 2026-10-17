@@ -11,7 +11,7 @@ The crew flies the ship (the default; the **Ship** choice under Start-up setting
 | Ballast | Dropping a 20 kg sandbag lowers the heat the ship needs to float, at once | Instant lift; four bags per flight |
 | Crank | The only thrust. Airspeed settles at 0.75 m/s per rad/s of crank speed over about 6 s | One player cranking gives about 2.4 m/s; two in step reach the 7 m/s limit |
 | Rudder | Sets the turn rate, up to 6°/s at full rudder once the ship is moving at 3 m/s; a quarter of that standing still | Steering needs the crank |
-| Wind | A gentle breeze of about 0.6 m/s that wanders slowly | The ship drifts if nobody cranks |
+| Wind | A gentle breeze of about 0.6 m/s that wanders slowly, plus gusts from abeam every half minute or so and an updraft and a downdraft on the route ([wind.md](wind.md)) | The ship drifts if nobody cranks; a gust slides it sideways and leans the deck a degree or two |
 
 The gondola leans into turns and lifts its nose a little as it speeds up, as a basket hanging under an envelope does, so the deck's tilt cancels most of the push a turn or a speed change makes. The lean is the real amount for a hanging basket: at full speed (7 m/s) and the tightest turn (6°/s) it is about 4°, which is also the comfort cap, so the felt gravity stays straight down through the deck. The player only sees it as the horizon tilting, since the gondola stays put in their room; a tilting horizon you can see but not feel is one of the likelier motions to make people queasy, so the S3 comfort tests decide whether the cap rises (the scripted profiles take `?tilt=` to try other amounts). A lean bigger than the real one would also push the felt gravity inwards, making loose bricks and the lantern lean into the turn.
 

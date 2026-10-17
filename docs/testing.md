@@ -7,8 +7,8 @@
 | `npm run typecheck` | TypeScript for the game (and `npm run --prefix lobby typecheck` for the lobby) | seconds |
 | `npm test` | Unit tests in `test/` (Vitest): simulation, networking, perf stats, and the geometry check for faces that flicker ([below](#z-fighting)); no browser | seconds |
 | `npm run build` | The production build | 15 s |
-| `npm run test:xr` | `scripts/xr-smoke-test.mjs`: one emulated Quest 3 in the IWSDK dev runtime, driven through the IWSDK CLI (kept loaded in a worker thread with one open browser connection, `scripts/iwsdk-worker.mjs`; `IWSDK_SPAWN=1` starts a process per call as before): hands, walking, bricks, crank, line, tracked hands, flight, gondola controls, route, docking, bell, audio, frame rate | about 5 min, the longest job |
-| `npm run test:net` | `scripts/net-test.mjs`: two Playwright browsers against `vite preview` and the local lobby: connection, voice, ship sync, controls, crank and haul in step, throws, presence, reconnects, lag, the practice crewmate (run `npm run build` first) | about 4 min |
+| `npm run test:xr` | `scripts/xr-smoke-test.mjs`: one emulated Quest 3 in the IWSDK dev runtime, driven through the IWSDK CLI (kept loaded in a worker thread with one open browser connection, `scripts/iwsdk-worker.mjs`; `IWSDK_SPAWN=1` starts a process per call as before): hands, walking, bricks, crank, line, tracked hands, flight, gondola controls, route, docking, cargo, wind, bell, audio, frame rate | about 5 min, the longest job |
+| `npm run test:net` | `scripts/net-test.mjs`: two Playwright browsers against `vite preview` and the local lobby: connection, voice, ship sync, controls, crank and haul in step, throws, presence, reconnects, lag, a gust sent from the guest, the practice crewmate (run `npm run build` first) | about 4 min |
 
 ## How CI runs them
 
@@ -25,6 +25,8 @@ What gets skipped, and why it is safe:
 - When a pull request passes, **check** records the exact files it tested (the git tree of the pull request merged into `main`) as an artifact named `tested-tree-<tree>`. When that pull request is merged and `main` didn't move in between, the merge on `main` has exactly the same files, so `main` skips the tests and deploys straight away. If another pull request merged first, the files differ and `main` runs everything before it deploys.
 
 The Chromium download for the browser tests is kept in the Actions cache, keyed on the Playwright version.
+
+Both browser tests keep the wind's automatic gusts off so a gust doesn't push their other checks about (the XR test with `window.__wind.setAuto(false)`, the net test by loading its pages with `gusts=0`); their wind checks send one from the game menu's Practice → Gusts.
 
 ## While developing
 

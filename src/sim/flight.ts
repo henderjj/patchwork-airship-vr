@@ -13,7 +13,10 @@
  *   the top speed.
  * - Steering: the rudder sets a turn rate that needs airflow over it, so it
  *   bites properly only once the ship is moving.
- * - Wind: a gentle, slowly varying breeze drifts the ship.
+ * - Wind: a gentle, slowly varying breeze drifts the ship, and the gusts
+ *   and drafts of src/sim/wind.ts (passed in with the controls) push it
+ *   sideways, up or down. The ship takes up a change in the air's motion
+ *   gradually, as a big envelope does, and the gondola leans with it.
  * - Trim: where the crew stands leans the gondola a little, and a ship
  *   trimmed nose-down flies slightly downhill.
  *
@@ -90,6 +93,10 @@ export interface FlightParams {
   windHeading: number;
   /** How much the wind's speed wanders, m/s. */
   windVariation: number;
+  /** Fastest the ship takes up a change in a gust's push, m/s² (the envelope's inertia). */
+  gustFollow: number;
+  /** Fastest the ship takes up a change in a draft's rise or fall, m/s². */
+  draftFollow: number;
 }
 
 export const DEFAULT_FLIGHT: FlightParams = {
@@ -114,7 +121,15 @@ export const DEFAULT_FLIGHT: FlightParams = {
   windSpeed: 0.6,
   windHeading: Math.PI * 0.75,
   windVariation: 0.3,
+  // A gust leans the gondola at most about 1.7° and swings the lantern a little.
+  gustFollow: 0.3,
+  draftFollow: 0.2,
 };
+
+/** The breeze's speed at flight time `t`, m/s: `windSpeed`, wandering slowly by up to `windVariation`. */
+export function breezeSpeed(p: FlightParams, t: number): number {
+  return p.windSpeed + p.windVariation * Math.sin(t * 0.05) * Math.sin(t * 0.013 + 0.7);
+}
 
 /** What the crew is doing to the ship this frame. */
 export interface FlightControls {
@@ -131,10 +146,14 @@ export interface FlightControls {
   /** Lean from where the crew and cargo stand: nose-up pitch and starboard-down roll, radians. */
   trimPitch: number;
   trimRoll: number;
+  /** The air's motion at the ship from gusts (world, m/s) and drafts (up, m/s), on top of the breeze. */
+  gustX: number;
+  gustZ: number;
+  draft: number;
 }
 
 export function createFlightControls(): FlightControls {
-  return { burner: 0, vent: 0, rudder: 0, crankSpeed: 0, ballastDropped: 0, trimPitch: 0, trimRoll: 0 };
+  return { burner: 0, vent: 0, rudder: 0, crankSpeed: 0, ballastDropped: 0, trimPitch: 0, trimRoll: 0, gustX: 0, gustZ: 0, draft: 0 };
 }
 
 const DEG = Math.PI / 180;
@@ -154,6 +173,13 @@ export class FlightSim {
   grounded = false;
   /** Descent rate when the ship last touched down, m/s. */
   touchdownSpeed = 0;
+  /** The gusts' and drafts' push the ship has taken up so far (world, m/s). */
+  gustX = 0;
+  gustZ = 0;
+  draft = 0;
+  /** The wind blowing now, breeze and gust (world, m/s): what the crate and wind socks feel. */
+  windX = 0;
+  windZ = 0;
   /**
    * The velocity this model gave the ship last step. Its acceleration (and
    * so the felt gravity) comes from this rather than the ship state's, so
@@ -190,6 +216,8 @@ export class FlightSim {
     this.time = 0;
     this.grounded = false;
     this.touchdownSpeed = 0;
+    this.gustX = this.gustZ = this.draft = 0;
+    this.windX = this.windZ = 0;
     this.lastV.x = this.lastV.y = this.lastV.z = 0;
     state.time = 0;
     state.x = x;
@@ -243,14 +271,32 @@ export class FlightSim {
     this.yawRate = approach(this.yawRate, wantedYaw, lim.maxYawAccelDeg * DEG * dt);
     state.yaw += this.yawRate * dt;
 
+    // The gusts' and drafts' push, taken up no faster than the envelope's inertia allows.
+    let gx = c.gustX - this.gustX;
+    let gz = c.gustZ - this.gustZ;
+    const gust = Math.hypot(gx, gz);
+    const most = p.gustFollow * dt;
+    if (gust > most) {
+      gx *= most / gust;
+      gz *= most / gust;
+    }
+    this.gustX += gx;
+    this.gustZ += gz;
+    this.draft = approach(this.draft, c.draft, p.draftFollow * dt);
+
     // Velocity: along the bow, plus the wind.
     const fx = -Math.sin(state.yaw);
     const fz = -Math.cos(state.yaw);
-    const wind = p.windSpeed + p.windVariation * Math.sin(this.time * 0.05) * Math.sin(this.time * 0.013 + 0.7);
-    let vx = fx * this.airspeed - Math.sin(p.windHeading) * wind;
-    let vz = fz * this.airspeed - Math.cos(p.windHeading) * wind;
-    // Trimmed nose-down, the ship flies a little downhill (and nose-up, uphill).
-    let vy = clamp(this.climb + this.airspeed * Math.sin(c.trimPitch), -lim.maxClimb, lim.maxClimb);
+    const breeze = breezeSpeed(p, this.time);
+    this.windX = -Math.sin(p.windHeading) * breeze + this.gustX;
+    this.windZ = -Math.cos(p.windHeading) * breeze + this.gustZ;
+    let vx = fx * this.airspeed + this.windX;
+    let vz = fz * this.airspeed + this.windZ;
+    // Trimmed nose-down, the ship flies a little downhill (and nose-up, uphill); drafts carry it up or down.
+    let vy = clamp(this.climb + this.airspeed * Math.sin(c.trimPitch) + this.draft, -lim.maxClimb, lim.maxClimb);
+    // How fast the gust's push is changing, along the bow and to starboard: the gondola leans with it.
+    let gustAhead = (gx * fx + gz * fz) / dt;
+    let gustStarboard = (gx * -fz + gz * fx) / dt;
 
     // Resting on an island: the ground takes the weight and holds the ship.
     if (state.y + vy * dt <= ground || (moored && state.y <= ground + 0.01)) {
@@ -266,6 +312,7 @@ export class FlightSim {
       speedAccel = 0;
       state.yaw -= this.yawRate * dt;
       this.yawRate = 0;
+      gustAhead = gustStarboard = 0;
     } else {
       this.grounded = false;
     }
@@ -291,9 +338,10 @@ export class FlightSim {
     // speeds up, and leans with the trim; capped and slewed gently.
     const maxTilt = lim.maxTiltDeg * DEG;
     const slew = lim.maxTiltRateDeg * DEG * dt;
-    const bank = Math.atan2(-this.yawRate * this.airspeed, GRAVITY);
+    // A gust pushing the envelope to one side swings the basket the same way a turn does.
+    const bank = Math.atan2(-this.yawRate * this.airspeed + gustStarboard, GRAVITY);
     const roll = clamp(bank + c.trimRoll, -maxTilt, maxTilt);
-    const pitch = clamp(Math.atan2(speedAccel, GRAVITY) + c.trimPitch, -maxTilt, maxTilt);
+    const pitch = clamp(Math.atan2(speedAccel + gustAhead, GRAVITY) + c.trimPitch, -maxTilt, maxTilt);
     state.roll = approach(state.roll, roll, slew);
     state.pitch = approach(state.pitch, pitch, slew);
     state.time += dt;

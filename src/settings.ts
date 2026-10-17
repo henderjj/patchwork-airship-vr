@@ -65,6 +65,8 @@ export interface Settings {
   comfort: number;
   /** The breeze's strength as a share of the usual (0 still air, 2 twice as strong); the host's counts in a crew. */
   wind: number;
+  /** Gusts come on their own during a run; `gusts=0` (the browser tests) sends them only from Practice → Send a gust. */
+  gusts: boolean;
   /** A tag for this session (tester or variant) written into the perf and comfort logs. */
   label: string;
   /**
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motionGust: Number.NaN,
   comfort: 0,
   wind: 1,
+  gusts: true,
   label: '',
   bot: false,
   height: 0,
@@ -172,6 +175,7 @@ export function parseSettings(search: string): Settings {
     motionGust: num(params, 'gust', d.motionGust, 0, 10),
     comfort: num(params, 'comfort', d.comfort, 0, 600),
     wind: num(params, 'wind', d.wind, 0, 3),
+    gusts: bool(params, 'gusts', d.gusts),
     label: (params.get('label') ?? d.label).slice(0, 40),
     bot: bool(params, 'bot', d.bot),
     height: clampCharacterHeight(num(params, 'height', d.height, 0, 3)),

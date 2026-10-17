@@ -1,6 +1,7 @@
 import type { DockPost } from './docking.js';
 import { KEEL_DEPTH } from './gondola-layout.js';
 import { type Island, restingDeck, SHIP_HEIGHT } from './islands.js';
+import type { Draft } from './wind.js';
 
 /**
  * Phase 2's route ("Calm skies"): lift off from island A, fly through two
@@ -39,6 +40,8 @@ export interface Route {
    * small floating rock under the jetty's end, where the crate is set down.
    */
   cargo: Island;
+  /** Updrafts and downdrafts on the way (Phase 3 wind, docs/wind.md). */
+  drafts: Draft[];
 }
 
 const DEG = Math.PI / 180;
@@ -58,6 +61,14 @@ export const CALM_SKIES: Route = {
   // 6 m below the jetty, 1.5 m further out than the post: a ship made fast at
   // the post has its cargo hatch over it whichever way it lies.
   cargo: { x: -181.24, y: 102, z: -450.05, radius: 4.5, depth: 6 },
+  drafts: [
+    // Rising air on the way to ring 1, a little to starboard of the straight
+    // line: ride it up and ring 1's extra height comes almost free.
+    { x: 6, z: -92, radius: 16, speed: 1, bottom: 95, top: 170 },
+    // Sinking air on the straight line between the rings: burn through it,
+    // or fly round it, or come out of it under ring 2.
+    { x: -62, z: -243, radius: 18, speed: -0.9, bottom: 95, top: 170 },
+  ],
 };
 
 /** The jetty's planks: this wide, their tops this far above the island's top, m. */

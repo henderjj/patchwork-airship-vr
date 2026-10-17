@@ -388,8 +388,10 @@ async function main() {
   check('The control signs are hidden until A is held', hiddenAtFirst && whileHeld && !afterRelease,
     `hidden ${hiddenAtFirst}, shown while held ${whileHeld}, shown after release ${afterRelease}`);
   // The game starts in flight on island A; the spike checks below want the
-  // ship held still (6b switches to the flight model again).
+  // ship held still (6b switches to the flight model again). Gusts come only
+  // when the wind checks (6f) send one, so they don't push the others about.
   evalInApp("window.__ship.setProfile('still')");
+  evalInApp('window.__wind.setAuto(false)');
 
   // 1b. Thumbstick walking stops the head at the rails wherever the player
   //     stands in their room: here 0.8 m behind and 0.5 m left of its middle.
@@ -956,7 +958,7 @@ async function main() {
   evalInApp(`(() => {
     window.__route.run.ringMask |= 2;
     const f = window.__ship.flight;
-    window.__wind = [f.params.windSpeed, f.params.windVariation];
+    window.__savedBreeze = [f.params.windSpeed, f.params.windVariation];
     f.params.windSpeed = 0;
     f.params.windVariation = 0;
     window.__ship.info.burnLeft = 0;
@@ -1061,7 +1063,7 @@ async function main() {
   check('Made fast at island B with the crate delivered finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 &&
       finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crate ${finished.cargo}%`,
     scoreBoard.join(' | '));
-  evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__wind)');
+  evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__savedBreeze)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.45, 1.55, -0.55]) });
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.55, y: 1.5, z: -0.05 } });
   await sleep(800);
@@ -1138,6 +1140,65 @@ async function main() {
   const normal = evalInApp('window.__ship.flight.params.windSpeed');
   check("The menu's wind setting stills, doubles and restores the breeze", stillAir[0] === 0 && stillAir[1] === 0 && doubled > normal * 1.9 && normal > 0,
     `off ${stillAir.join('/')} m/s, double ${doubled} m/s, normal ${normal} m/s`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
+
+  // 6f. Phase 3 wind (docs/wind.md): the menu's Practice gust warns on the
+  //     board, its streaks fly in from upwind, and then it pushes the ship
+  //     sideways and the gust swells the wind's noise; an updraft lifts the
+  //     ship and a downdraft sinks it, with the burner just holding height.
+  evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 130, -40, 0)');
+  evalInApp(`(() => {
+    const f = window.__ship.flight;
+    clearInterval(window.__holdHeat);
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb = 0; }, 50);
+  })()`);
+  await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
+  const quietWind = evalInApp('window.__wind.sim.gust');
+  evalInApp("window.__gameMenu.click('menu-gust')");
+  const warned = await waitFor('the gust warning on the board', () => {
+    const b = evalInApp('window.__route.boardText()');
+    return b[5]?.startsWith('GUST COMING FROM') ? b : null;
+  }, 4000, 250).catch(() => null);
+  const streaks = await waitFor('gust streaks', () => evalInApp('window.__windView.gustStreaks > 5 ? window.__windView.gustStreaks : null'), 6000, 250).catch(() => 0);
+  // Look upwind, the way the gust comes from.
+  const upwind = evalInApp('(() => { const g = window.__wind.sim.gust; const s = window.__ship.state; return [Math.sin(g.heading - s.yaw) * 30, 2, Math.cos(g.heading - s.yaw) * 30]; })()');
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: toOrigin(upwind) });
+  await sleep(600);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-wind-gust.png'], {});
+  const soundBefore = evalInApp('window.__audio.loops().wind');
+  const pushed = await waitFor('the gust to push the ship', () => {
+    const p = evalInApp('window.__wind.push()');
+    return Math.hypot(p.x, p.z) > 0.8 ? p : null;
+  }, 25000, 500).catch(() => null);
+  const blowing = evalInApp('({ board: window.__route.boardText(), wind: window.__audio.loops().wind, sock: window.__windView.sockDroop, v: [window.__ship.state.vx, window.__ship.state.vz], yaw: window.__ship.state.yaw })');
+  // The gust's push across the bow (positive to starboard), against along it.
+  const sideways = pushed ? pushed.x * Math.cos(blowing.yaw) - pushed.z * Math.sin(blowing.yaw) : 0;
+  const along = pushed ? -pushed.x * Math.sin(blowing.yaw) - pushed.z * Math.cos(blowing.yaw) : 0;
+  check("The menu's Practice gust warns on the board, flies in from upwind, then pushes the ship sideways",
+    quietWind === null && warned !== null && streaks > 5 && pushed !== null && Math.abs(sideways) > 0.7 && Math.abs(along) < Math.abs(sideways) &&
+      blowing.board[5].startsWith('GUST FROM') && blowing.wind > soundBefore,
+    `before: ${JSON.stringify(quietWind)}, board ${warned?.[5] ?? 'no warning'} then ${blowing.board[5]}, ${streaks} streaks, push ${pushed ? Math.hypot(pushed.x, pushed.z).toFixed(2) : 'none'} m/s, ` +
+      `${sideways.toFixed(2)} m/s across the bow and ${along.toFixed(2)} along it, wind noise ${soundBefore.toFixed(3)} then ${blowing.wind.toFixed(3)}, sock droop ${((blowing.sock * 180) / Math.PI).toFixed(0)}°`);
+  // The drafts: a fresh run, so no gust is left blowing, aloft in each in turn.
+  const draftRuns = [];
+  for (const draft of route.drafts) {
+    evalInApp('window.__ship.fly()');
+    evalInApp(`(window.__ship.place(${draft.x}, 130, ${draft.z}, 0), window.__ship.flight.airspeed = 0)`);
+    await sleep(6000);
+    draftRuns.push(evalInApp('({ vy: window.__ship.state.vy, up: window.__wind.push().up, board: window.__route.boardText()[5], shown: window.__windView.draftsShown })'));
+  }
+  const [risen, sunk] = draftRuns;
+  check('An updraft lifts the ship and a downdraft sinks it, and the board says which',
+    risen.vy > 0.5 && risen.board.startsWith('UPDRAFT') && sunk.vy < -0.5 && sunk.board.startsWith('DOWNDRAFT') && risen.shown === 2,
+    draftRuns.map((r) => `${r.board}: climbing ${r.vy.toFixed(2)} m/s (draft taken up ${r.up.toFixed(2)})`).join('; ') + `, ${risen.shown} drafts drawn`);
+  // The updraft from 50 m off, its streaks rising under a puffy cloud.
+  evalInApp('window.__ship.fly()');
+  evalInApp(`window.__ship.place(${route.drafts[0].x}, 125, ${route.drafts[0].z + 50}, 0)`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: toOrigin([0, 12, -50]) });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-wind-updraft.png'], {});
+  evalInApp('clearInterval(window.__holdHeat)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
 
   // 6e. Phase 2 audio: the ship's sounds played through the tests above

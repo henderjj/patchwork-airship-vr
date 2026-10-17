@@ -8,7 +8,7 @@ import { DEFAULT_CHARACTER_HEIGHT, EYES_BELOW_TOP, MAX_CHARACTER_HEIGHT, MIN_CHA
 import { body, chooseBody } from './body-height-system.js';
 import { OPEN_MENU_EVENT } from './net-system.js';
 import { PanelUi } from './panel-ui.js';
-import { practiceCargo, practiceDocking, restartRoute, stopButton } from './ship-system.js';
+import { practiceCargo, practiceDocking, restartRoute, sendGust, stopButton } from './ship-system.js';
 import { startScreen } from './start-screen-system.js';
 
 /** Where the menu stands in VR when opened: ahead of the head and a little below the eyes, m. */
@@ -179,6 +179,10 @@ export class GameMenuSystem extends createSystem({}) {
     ui.on('menu-cargo', () => {
       this.setOpen(false);
       practiceCargo();
+    });
+    ui.on('menu-gust', () => {
+      this.setOpen(false);
+      sendGust();
     });
     ui.on('menu-exit', () => {
       this.setOpen(false);

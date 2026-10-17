@@ -13,6 +13,8 @@ The ship starts resting on island A, and the crew flies a short route: lift off,
 
 About 550 m in all: roughly three minutes with one player cranking, under two with both. Scenery islands are kept at least 45 m (plus their size) from the path.
 
+The wind ([wind.md](wind.md)): an updraft (rising gold streaks under a puffy cloud) on the way to ring 1, a downdraft (falling slate blue streaks) on the straight line between the rings, gusts from abeam that come at different times each run, and a wind sock on each landing island.
+
 ## Rules
 
 - **Ready check:** with a crewmate, the ship stays moored to island A, however hot the envelope, until both players have rung the bell there. The board shows who is ready, then "CAST OFF!". Solo, the ship casts off as soon as it has lift.
@@ -35,7 +37,7 @@ These weights are a first guess, in `scoreRun()` in `src/sim/route.ts`.
 
 ## The board
 
-The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference (for the post, from the deck height that puts the fairlead level with the post's top), and the fuel used; once the grapple is on the post, the line out and whether the deck is level with the post, or HIGH or LOW by how much; at the end it shows the score or why the run was lost.
+The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference (for the post, from the deck height that puts the fairlead level with the post's top), and the fuel used, and on its bottom line the wind: a gust coming or blowing and from which side (in red), an updraft or downdraft the ship is in, or how fast the ship is drifting sideways; once the grapple is on the post, the line out and whether the deck is level with the post, or HIGH or LOW by how much; at the end it shows the score or why the run was lost.
 
 ## Cost
 

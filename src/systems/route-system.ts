@@ -6,7 +6,9 @@ import { FAIRLEAD, MADE_FAST_HEIGHT, STRAIN_HEIGHT } from '../sim/docking.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
-import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship } from './ship-system.js';
+import { gustStrength } from '../sim/wind.js';
+import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship, wind } from './ship-system.js';
+import { draftHere } from './wind-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
 const BOARD_SIZE = [0.42, 0.26] as const;
@@ -153,11 +155,12 @@ export class RouteSystem extends createSystem({}) {
       case 'flying': {
         const top = [`TIME ${clock(route.seconds)}  CRATE ${Math.round(cargo.condition)}%`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
         const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`;
+        const air = windLine();
         if (docking.phase === 'fast') {
-          return [...top, 'MADE FAST', cargo.phase === 'delivered' ? '     CRATE DELIVERED' : '     LOWER THE CRATE', fuel, ''];
+          return [...top, 'MADE FAST', cargo.phase === 'delivered' ? '     CRATE DELIVERED' : '     LOWER THE CRATE', fuel, air];
         }
         if (docking.phase === 'hooked') {
-          return [...top, `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, ''];
+          return [...top, `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, air];
         }
         const next = this.nextTarget();
         return [
@@ -165,7 +168,7 @@ export class RouteSystem extends createSystem({}) {
           `NEXT ${next.name}  ${next.distance} m`,
           `     ${next.bearing}  ${next.height}`,
           fuel,
-          '',
+          air,
         ];
       }
       case 'finished': {
@@ -231,11 +234,43 @@ export class RouteSystem extends createSystem({}) {
     lines.forEach((line, i) => {
       const heading = i === 0;
       ctx.font = heading ? 'bold 38px monospace' : 'bold 30px monospace';
-      ctx.fillStyle = heading ? (route.phase === 'lost' ? '#a3321f' : route.phase === 'finished' ? '#2c6e2f' : '#3a2a1a') : '#3a2a1a';
+      // The wind's line goes red for a gust.
+      const gust = i === 5 && route.phase === 'flying' && line.startsWith('GUST');
+      ctx.fillStyle = heading ? (route.phase === 'lost' ? '#a3321f' : route.phase === 'finished' ? '#2c6e2f' : '#3a2a1a') : gust ? '#a3321f' : '#3a2a1a';
       ctx.fillText(line, 20, 16 + i * 49);
     });
     texture.needsUpdate = true;
   }
+}
+
+/** Which side of the bow a direction (a heading, radians) is on. */
+function side(heading: number): string {
+  const rel = Math.atan2(Math.sin(heading - ship.yaw), Math.cos(heading - ship.yaw));
+  const deg = Math.abs(rel) * (180 / Math.PI);
+  return deg < 30 ? 'AHEAD' : deg > 150 ? 'ASTERN' : rel > 0 ? 'PORT' : 'STBD';
+}
+
+/**
+ * The wind, in flight (docs/wind.md): a gust on its way or blowing and
+ * which side it comes from, else an updraft or downdraft the ship is in,
+ * else how fast the ship is drifting sideways, if it is.
+ */
+function windLine(): string {
+  const g = wind.gust;
+  const warning = wind.warning(ship.time);
+  if (g && warning > 0) {
+    return `GUST COMING FROM ${side(g.heading + Math.PI)}`;
+  }
+  if (g && warning === 0 && gustStrength(g, ship.time) > 0.1) {
+    return `GUST FROM ${side(g.heading + Math.PI)}!`;
+  }
+  const draft = draftHere();
+  if (Math.abs(draft) > 0.15) {
+    return draft > 0 ? `UPDRAFT ▲ ${draft.toFixed(1)} m/s` : `DOWNDRAFT ▼ ${(-draft).toFixed(1)} m/s`;
+  }
+  // Sideways over the ground: positive to starboard, which lies along (cos yaw, -sin yaw).
+  const drift = ship.vx * Math.cos(ship.yaw) - ship.vz * Math.sin(ship.yaw);
+  return Math.abs(drift) > 0.6 ? `DRIFT ${Math.abs(drift).toFixed(1)} m/s ${drift > 0 ? 'STBD' : 'PORT'}` : '';
 }
 
 /** On the line to the post: whether the deck is level with it, or which way to go. */
