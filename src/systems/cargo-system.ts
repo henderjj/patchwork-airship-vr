@@ -372,11 +372,9 @@ export class CargoSystem extends createSystem({}) {
       i.tagX = this.guestHands.tagX;
       i.tagZ = this.guestHands.tagZ;
     }
-    // The wind as the flight model blows it, and the menu's setting for how strong.
-    const p = flight.params;
-    const wind = p.windSpeed + p.windVariation * Math.sin(flight.time * 0.05) * Math.sin(flight.time * 0.013 + 0.7);
-    i.windX = -Math.sin(p.windHeading) * wind;
-    i.windZ = -Math.cos(p.windHeading) * wind;
+    // The wind as the flight model blows it (the breeze and any gust), and the menu's setting for how strong.
+    i.windX = flight.windX;
+    i.windZ = flight.windZ;
     i.windScale = settings.wind;
     i.time = ship.time;
   }

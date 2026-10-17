@@ -8,8 +8,9 @@
   LIVE_ITEMS in src/live-settings.ts). The crew section shows only in a crew.
   Practice starts a fresh run beside island B's mooring post, both rings
   flown, to try docking without flying the route, or already made fast
-  there to try lowering the crate, and sets the breeze's strength (the
-  host's choice counts in a crew).
+  there to try lowering the crate, sends a gust on its way at once, and
+  sets the wind's strength (breeze, gusts and drafts; the host's choice
+  counts in a crew).
 -->
 <style>
   .root {
@@ -311,6 +312,12 @@
       <div class="label">Cargo</div>
       <div class="choices">
         <Button id="menu-cargo" class="choice" size="sm" variant="secondary">Start made fast at B</Button>
+      </div>
+    </div>
+    <div class="setting">
+      <div class="label">Gusts</div>
+      <div class="choices">
+        <Button id="menu-gust" class="choice" size="sm" variant="secondary">Send a gust now</Button>
       </div>
     </div>
     <div id="row-wind" class="setting">

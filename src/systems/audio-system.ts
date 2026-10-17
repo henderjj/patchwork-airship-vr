@@ -9,7 +9,8 @@ import { onSettingChange } from '../live-settings.js';
 import { ROPE_RUN, ROPE_X, ROPE_Y, ROPE_Z0 } from '../scene-assets/rope.scene-asset.js';
 import { settings } from '../settings.js';
 import { crankInfo } from './crank-system.js';
-import { flightInfo, route, ship } from './ship-system.js';
+import { gustStrength } from '../sim/wind.js';
+import { flightInfo, route, ship, wind as gusts } from './ship-system.js';
 
 const DEG = Math.PI / 180;
 const LIMITS: StrainLimits = {
@@ -112,7 +113,10 @@ export class AudioSystem extends createSystem({}) {
     sounds.setListener(h.x, h.y, h.z, this.forward.x, this.forward.y, this.forward.z, this.up.x, this.up.y, this.up.z);
 
     this.time += dt;
-    const wind = windSound(ship.speed, ship.vy, windGust(this.time));
+    // A gust swells in from its front's arrival (the host's gust, on the guest).
+    const g = gusts.gust;
+    const blow = g ? gustStrength(g, ship.time) * g.peak * gusts.scale : 0;
+    const wind = windSound(ship.speed, ship.vy, windGust(this.time), blow);
     sounds.setLoops(flightInfo.flying && flightInfo.burner ? 1 : 0, wind.gain, wind.cutoff);
 
     const clicks = Math.min(MAX_CLICKS_PER_FRAME, ratchetClicks(p.crank, crankInfo.angle));

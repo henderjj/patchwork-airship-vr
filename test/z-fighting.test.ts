@@ -10,6 +10,7 @@ import { HATCH, HATCH_CENTER, LEVER_PIVOT, TRUNK_DEPTH, WINCH_AXLE } from '../sr
 import { CALM_SKIES } from '../src/sim/route.js';
 import * as route from '../src/world/route-assets.js';
 import * as sky from '../src/world/sky-assets.js';
+import * as windAssets from '../src/world/wind-assets.js';
 import { coplanarOverlaps, describeOverlaps, trianglesOf } from './support/coplanar.js';
 
 /**
@@ -95,6 +96,18 @@ describe('no faces that flicker through each other (z-fighting)', () => {
     expectNone([mesh(route.createLandingIslandGeometry(CALM_SKIES.finish, 0x3a6fc8, 2), 'Island B')], WORLD_GAP);
     expectNone([mesh(route.createRingGeometry(4), 'Ring')], WORLD_GAP);
     expectNone([mesh(route.createBeaconMastGeometry(6), 'Mast'), mesh(route.createBeaconLampGeometry(), 'Lamp')], WORLD_GAP);
+  });
+
+  it('on the wind: the wind socks (seen from the deck at island A) and the streaks of moving air', () => {
+    const sock = mesh(windAssets.createWindSockGeometry(), 'Wind Sock');
+    sock.position.y = windAssets.SOCK_POLE + 0.1;
+    for (const droop of [0, windAssets.SOCK_MAX_DROOP]) {
+      sock.rotation.z = -droop;
+      sock.updateMatrixWorld();
+      expectNone([mesh(windAssets.createWindSockPoleGeometry(), 'Wind Sock Pole'), sock], DECK_GAP);
+    }
+    expectNone([mesh(windAssets.createStreakGeometry(5, 0.4, 0xffc65c, true), 'Draft Streak')], WORLD_GAP);
+    expectNone([mesh(windAssets.createStreakGeometry(6, 0.2, 0xffffff, false), 'Gust Streak')], WORLD_GAP);
   });
 
   it('on the scenery islands and clouds', () => {

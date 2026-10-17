@@ -24,6 +24,7 @@ import { ballastDropped } from '../sim/gondola-controls.js';
 import { fendOff, groundBelow, islandHit, restingDeck } from '../sim/islands.js';
 import { type RoutePhase, type RouteResult, RouteRun } from '../sim/route.js';
 import { wrapNear } from '../sim/world-tile.js';
+import { draftAt, WindSim } from '../sim/wind.js';
 import { ROUTE, SHIP_ISLANDS, sceneryIslands } from '../world/route-world.js';
 import { onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
@@ -119,6 +120,15 @@ export const docking = new DockingSim(ROUTE.dock);
 export const cargo = new CargoSim();
 
 /**
+ * The wind's gusts (Phase 3, docs/wind.md): the host sends them on their
+ * way while a run is under way and passes their push, and the drafts', to
+ * the flight model; the guest takes the host's gust with the route, to draw
+ * and hear it. `auto` off (tests) sends gusts only when asked.
+ */
+export const wind = new WindSim();
+export const windControl = { auto: settings.gusts };
+
+/**
  * Phase 2 ready check: with a crewmate, the ship stays moored to island A
  * until both players have rung the bell there. Solo, it casts off as soon as
  * it has lift. The host keeps this and sends it with the route.
@@ -136,6 +146,7 @@ const routeControl = {
   ready: () => undefined as void,
   practiceDocking: () => undefined as void,
   practiceCargo: () => undefined as void,
+  sendGust: () => undefined as void,
 };
 
 /** This player is ready to cast off (the guest tells the host). */
@@ -181,6 +192,15 @@ export function practiceCargo(): void {
     netLink.sendEvent({ t: 'route-cargo' });
   } else {
     routeControl.practiceCargo();
+  }
+}
+
+/** A gust on its way now (the game menu's Practice → Send a gust; the guest asks the host). */
+export function sendGust(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'wind-gust' });
+  } else {
+    routeControl.sendGust();
   }
 }
 
@@ -278,12 +298,17 @@ export class ShipSystem extends createSystem({
   private routeSentAt = Number.NEGATIVE_INFINITY;
   private wasConnected = false;
   private routeCargo = { delivered: false, condition: 100 };
+  private gustPush = { x: 0, z: 0 };
 
   init(): void {
     // The breeze's strength from the game menu (only the host's or a solo ship's matters).
     const applyWind = () => {
       flight.params.windSpeed = DEFAULT_FLIGHT.windSpeed * settings.wind;
       flight.params.windVariation = DEFAULT_FLIGHT.windVariation * settings.wind;
+      if (!netLink.connected || netLink.isHost) {
+        wind.scale = settings.wind;
+        this.sendRoute();
+      }
     };
     applyWind();
     this.cleanupFuncs.push(
@@ -296,6 +321,11 @@ export class ShipSystem extends createSystem({
     routeControl.restart = () => this.restart();
     routeControl.practiceDocking = () => this.practiceDocking();
     routeControl.practiceCargo = () => this.practiceCargo();
+    routeControl.sendGust = () => {
+      const g = wind.send(ship.time, ship.yaw);
+      console.info(`[Wind] gust sent: ${g.peak.toFixed(1)} m/s towards ${Math.round((g.heading * 180) / Math.PI)}°`);
+      this.sendRoute();
+    };
     routeControl.ready = () => {
       crewReady.host = true;
       this.sendRoute();
@@ -378,6 +408,11 @@ export class ShipSystem extends createSystem({
         this.practiceCargo();
       }
     });
+    netLink.events.set('wind-gust', () => {
+      if (netLink.isHost) {
+        routeControl.sendGust();
+      }
+    });
     netLink.events.set('crew-ready', () => {
       if (netLink.isHost && route.phase === 'ready') {
         crewReady.guest = true;
@@ -386,7 +421,7 @@ export class ShipSystem extends createSystem({
     });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'crew-ready']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'wind-gust', 'crew-ready']) {
         netLink.events.delete(name);
       }
     });
@@ -432,6 +467,18 @@ export class ShipSystem extends createSystem({
         this.fixedTilt = null;
       },
     };
+    (window as { __wind?: unknown }).__wind = {
+      sim: wind,
+      control: windControl,
+      /** What Practice → Send a gust does. */
+      send: () => sendGust(),
+      /** Random gusts on or off (tests turn them off so other checks aren't pushed about). */
+      setAuto: (on: boolean) => {
+        windControl.auto = on;
+      },
+      /** The gust's push the ship has taken up, and the draft's, m/s. */
+      push: () => ({ x: flight.gustX, z: flight.gustZ, up: flight.draft }),
+    };
   }
 
   /** Host or solo: back to island A with a fresh crate, ballast and route. */
@@ -446,6 +493,9 @@ export class ShipSystem extends createSystem({
     route.reset();
     docking.reset();
     cargo.reset();
+    // Each run gets its own gusts.
+    wind.reset(Math.floor(Math.random() * 0x7fffffff));
+    wind.scale = settings.wind;
     crewReady.host = crewReady.guest = false;
     this.sendRoute();
   }
@@ -501,6 +551,8 @@ export class ShipSystem extends createSystem({
       reason: route.lostReason,
       result: route.result,
       ready: [crewReady.host, crewReady.guest],
+      wind: settings.wind,
+      gust: wind.toWire(),
     } as { t: string });
   }
 
@@ -519,6 +571,7 @@ export class ShipSystem extends createSystem({
     const ready = Array.isArray(event.ready) ? event.ready : [];
     crewReady.host = ready[0] === true;
     crewReady.guest = ready[1] === true;
+    wind.adopt(event.gust, Number(event.wind));
   }
 
   private togglePause(): void {
@@ -562,6 +615,16 @@ export class ShipSystem extends createSystem({
             groundBelow(sceneryIslands, ship.x, ship.z, ship.y, wrapNear),
           );
           const fromY = ship.y;
+          // The gusts (sent on their way once the run is under way) and the drafts.
+          wind.scale = settings.wind;
+          if (wind.step(ship.time, route.phase === 'flying', windControl.auto, ship.yaw)) {
+            console.info(`[Wind] gust coming: ${wind.gust!.peak.toFixed(1)} m/s`);
+            this.sendRoute();
+          }
+          wind.gustVelocity(ship.time, this.gustPush);
+          c.gustX = this.gustPush.x;
+          c.gustZ = this.gustPush.z;
+          c.draft = draftAt(ROUTE.drafts, ship.x, ship.y, ship.z) * settings.wind;
           flight.step(ship, c, dt, ground, moored());
           // On the line to island B's post: held in by it, and held still once made fast.
           docking.constrain(ship, docking.lineOut, dt);

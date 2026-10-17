@@ -33,7 +33,7 @@ const LOBBY_PORT = 8787;
 const PREVIEW_PORT = 4173;
 // The IWSDK Vite plugin serves HTTPS with a local development certificate.
 const BASE = `https://localhost:${PREVIEW_PORT}/`;
-const QUIET = 'islands=4&clouds=4&bricks=1&avatars=0&hud=0&motion=still';
+const QUIET = 'islands=4&clouds=4&bricks=1&avatars=0&hud=0&motion=still&gusts=0';
 
 const results = [];
 function check(name, pass, detail) {
@@ -587,6 +587,16 @@ async function shipSyncChecks(host, guest) {
     const r = await run(guest.page);
     return r.phase === 'flying' && r.seconds > 0.5 && r.board[0].startsWith('TIME') ? r : null;
   }, 5000).catch(() => null);
+  // Phase 3 wind: the guest's Practice gust asks the host, and the host's gust reaches the guest's board.
+  await guest.page.evaluate(() => window.__gameMenu.click('menu-gust'));
+  const gustOf = (page) => page.evaluate(() => ({ id: window.__wind.sim.gust?.id ?? null, start: window.__wind.sim.gust?.start ?? 0, board: window.__route.boardText()[5] }));
+  const gusted = await waitFor('the host\'s gust to reach the guest', async () => {
+    const [h, g] = await Promise.all([gustOf(host.page), gustOf(guest.page)]);
+    return h.id !== null && h.id === g.id && Math.abs(h.start - g.start) < 0.01 && h.board.startsWith('GUST') && g.board.startsWith('GUST') ? { h, g } : null;
+  }, 5000).catch(() => null);
+  const lastGust = await Promise.all([gustOf(host.page), gustOf(guest.page)]);
+  check("The guest's Practice gust is sent by the host and both boards warn of it",
+    gusted !== null, `host ${JSON.stringify(lastGust[0])}, guest ${JSON.stringify(lastGust[1])}`);
   await guest.page.evaluate(() => {
     window.__route.ring();
     window.__route.ring();

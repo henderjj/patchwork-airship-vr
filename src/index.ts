@@ -26,6 +26,7 @@ import { SignsSystem } from './systems/signs-system.js';
 import { SkyWorldSystem } from './systems/sky-world-system.js';
 import { StartScreenSystem } from './systems/start-screen-system.js';
 import { ThrowablesSystem } from './systems/throwables-system.js';
+import { WindSystem } from './systems/wind-system.js';
 
 // On a two-GPU PC, start on the graphics card Link uses (src/gpu-preference.ts).
 preferHighPerformanceGpu();
@@ -43,6 +44,7 @@ World.create(
   // Before the crank, rope and throwables, which read its grip state.
   world.registerSystem(GripSystem, { priority: -5 });
   world.registerSystem(SkyWorldSystem);
+  world.registerSystem(WindSystem);
   world.registerSystem(ComfortSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);

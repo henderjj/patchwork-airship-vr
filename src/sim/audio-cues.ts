@@ -22,17 +22,22 @@ export function windGust(t: number): number {
   return 0.5 + 0.28 * Math.sin(t * 0.31) + 0.22 * Math.sin(t * 0.113 + 1.7);
 }
 
+/** A real gust (src/sim/wind.ts) this strong, m/s, roars at its loudest. */
+export const LOUDEST_GUST = 2.5;
+
 /**
- * Wind noise for an airspeed and climb rate (m/s) and the gustiness (0 to 1,
- * from `windGust`): gain 0 to 1 and the low-pass cutoff, Hz. Even at full
- * speed it stays a soft, low rush under the burner, so a long cruise isn't
- * one tiring hiss.
+ * Wind noise for an airspeed and climb rate (m/s), the gustiness (0 to 1,
+ * from `windGust`) and a real gust blowing across the ship (m/s, docs/wind.md):
+ * gain 0 to 1 and the low-pass cutoff, Hz. Even at full speed it stays a
+ * soft, low rush under the burner, so a long cruise isn't one tiring hiss;
+ * a gust swells over it, louder and brighter, so it is heard coming.
  */
-export function windSound(airspeed: number, climb: number, gust = 0.5): { gain: number; cutoff: number } {
+export function windSound(airspeed: number, climb: number, gust = 0.5, blow = 0): { gain: number; cutoff: number } {
   // A faint breeze even at rest; a little louder and brighter with the air rushing past.
   const rush = Math.min(1, Math.hypot(airspeed, climb * 2) / 7);
   const swell = 0.7 + 0.6 * gust;
-  return { gain: (0.06 + 0.12 * rush * rush) * swell, cutoff: (250 + 650 * rush) * (0.85 + 0.3 * gust) };
+  const roar = Math.min(1, Math.max(0, blow) / LOUDEST_GUST);
+  return { gain: (0.06 + 0.12 * rush * rush) * swell + 0.22 * roar * roar, cutoff: (250 + 650 * rush) * (0.85 + 0.3 * gust) + 900 * roar };
 }
 
 /** The ship's limits that make the timbers strain, from the comfort limits. */
