@@ -22,7 +22,7 @@ import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
 import { fendOff, groundBelow, islandHit, restingDeck } from '../sim/islands.js';
-import { type RoutePhase, type RouteResult, RouteRun } from '../sim/route.js';
+import { type RoutePhase, type RouteResult, RouteRun, targetPoints } from '../sim/route.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { draftAt, WindSim } from '../sim/wind.js';
 import { ROUTE, SHIP_ISLANDS, sceneryIslands } from '../world/route-world.js';
@@ -297,7 +297,7 @@ export class ShipSystem extends createSystem({
   private sendAccumulator = 0;
   private routeSentAt = Number.NEGATIVE_INFINITY;
   private wasConnected = false;
-  private routeCargo = { delivered: false, condition: 100 };
+  private routeCargo = { delivered: false, condition: 100, target: 0 };
   private gustPush = { x: 0, z: 0 };
 
   init(): void {
@@ -640,6 +640,7 @@ export class ShipSystem extends createSystem({
         const crashed = islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
         this.routeCargo.delivered = cargo.phase === 'delivered';
         this.routeCargo.condition = cargo.condition;
+        this.routeCargo.target = this.routeCargo.delivered ? targetPoints(ROUTE, cargo.rest.x, cargo.rest.z) : 0;
         if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, this.routeCargo)) {
           this.sendRoute();
         }

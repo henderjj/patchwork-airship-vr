@@ -3,7 +3,7 @@ import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../src/sim/flig
 import { KEEL_DEPTH } from '../src/sim/gondola-layout.js';
 import { alongsidePost } from '../src/sim/docking.js';
 import { fendOff, groundBelow, HULL_RADIUS, hitsIsland, type Island, islandDepth, islandHit, layoutIslands, restingDeck, SHIP_RADIUS } from '../src/sim/islands.js';
-import { CALM_SKIES, crossesRing, distanceFromRoute, FAST_HOLD_SECONDS, RouteRun, routeIslands, scoreRun } from '../src/sim/route.js';
+import { CALM_SKIES, crossesRing, distanceFromRoute, FAST_HOLD_SECONDS, RouteRun, routeIslands, scoreRun, TARGET_RINGS, targetPoints } from '../src/sim/route.js';
 import { createShipState } from '../src/sim/ship-motion.js';
 
 const DT = 1 / 90;
@@ -126,21 +126,34 @@ describe('route', () => {
   });
 
   it('scores a quick, clean run better than a slow one that missed a ring', () => {
-    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0, cargo: 100 });
-    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1, cargo: 100 });
+    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0, cargo: 100, target: 0 });
+    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1, cargo: 100, target: 0 });
     expect(clean.score).toBeGreaterThan(messy.score);
     expect(clean.stars).toBe(3);
     expect(messy.stars).toBeLessThan(2);
   });
 
   it('costs 100 points each time the grapple is torn off the post', () => {
-    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, cargo: 100 };
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, cargo: 100, target: 0 };
     expect(scoreRun({ ...base, tears: 0 }).score - scoreRun({ ...base, tears: 2 }).score).toBe(200);
   });
 
   it('costs 4 points for each percent of the crate lost', () => {
-    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0 };
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0, target: 0 };
     expect(scoreRun({ ...base, cargo: 100 }).score - scoreRun({ ...base, cargo: 75 }).score).toBe(100);
+  });
+
+  it("scores the crate by where on the stage's target it is set down", () => {
+    const stage = CALM_SKIES.cargo;
+    expect(targetPoints(CALM_SKIES, stage.x, stage.z)).toBe(100);
+    expect(targetPoints(CALM_SKIES, stage.x + 0.29, stage.z)).toBe(100);
+    expect(targetPoints(CALM_SKIES, stage.x, stage.z - 0.5)).toBe(50);
+    expect(targetPoints(CALM_SKIES, stage.x - 0.7, stage.z - 0.6)).toBe(20);
+    expect(targetPoints(CALM_SKIES, stage.x + 1.5, stage.z)).toBe(0);
+    // The rings fit on the stage's planks.
+    for (const ring of TARGET_RINGS) expect(ring.radius).toBeLessThan(stage.radius * 0.65);
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0, cargo: 100 };
+    expect(scoreRun({ ...base, target: 100 }).score - scoreRun({ ...base, target: 0 }).score).toBe(100);
   });
 
   it('times a run from lift-off, counts rings, and finishes after being made fast at island B with the crate delivered', () => {
@@ -170,16 +183,17 @@ describe('route', () => {
     Object.assign(s, { x: d.x + 2, y: d.y + 1.5, z: d.z + 1 });
     const steps = Math.ceil(FAST_HOLD_SECONDS / DT) + 1;
     // ...once the crate has been lowered there too.
-    const crate = { delivered: false, condition: 100 };
+    const crate = { delivered: false, condition: 100, target: 0 };
     for (let i = 0; i < steps; i++) {
       run.step(s, false, true, 5, 1, DT, false, crate);
     }
     expect(run.phase).toBe('flying');
     crate.delivered = true;
     crate.condition = 82.4;
+    crate.target = 50;
     run.step(s, false, true, 5, 1, DT, false, crate);
     expect(run.phase).toBe('finished');
-    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1, cargo: 82 });
+    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1, cargo: 82, target: 50 });
     run.reset();
     expect(run.phase).toBe('ready');
     expect(run.result).toBeNull();
@@ -229,8 +243,8 @@ describe('cargo stage', () => {
   }
 
   it('fends off a ship sinking beside it under the post, where it used to wreck the run', () => {
-    // Practice docking's start with no wind: the untended ship sinks straight down past the stage.
-    const at = alongsidePost(CALM_SKIES.dock, CALM_SKIES.finish.x, CALM_SKIES.finish.z, 5);
+    // Further out than practice docking's start (whose ship now comes down on the planks), with no wind: the untended ship sinks straight down past the stage.
+    const at = alongsidePost(CALM_SKIES.dock, CALM_SKIES.finish.x, CALM_SKIES.finish.z, 7);
     const flight = new FlightSim(CALM);
     const ship = createShipState();
     flight.reset(ship, at.x, at.y, at.z, at.yaw);

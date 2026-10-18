@@ -1,6 +1,6 @@
 import { BoxGeometry, type BufferGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, TorusGeometry } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, rng, shade } from '../scene-assets/lowpoly.js';
-import type { LandingIsland } from '../sim/route.js';
+import { jettyRoot, type LandingIsland, type Route, TARGET_RINGS } from '../sim/route.js';
 
 /**
  * The route's pieces in the sky (Phase 2): the two landing islands, the
@@ -109,6 +109,26 @@ export interface CargoStagePlace {
   depth: number;
 }
 
+/** Where `route`'s cargo stage is in its jetty's own space, and the jetty's length and turn (the jetty runs along +Z, turned by `turn` about Y). */
+export function jettyPlacement(route: Route): { length: number; turn: number; stage: CargoStagePlace } {
+  const dock = route.dock;
+  const root = jettyRoot(route);
+  const turn = Math.atan2(root.x - dock.x, root.z - dock.z);
+  const sx = route.cargo.x - dock.x;
+  const sz = route.cargo.z - dock.z;
+  return {
+    length: Math.hypot(root.x - dock.x, root.z - dock.z),
+    turn,
+    stage: {
+      x: sx * Math.cos(turn) - sz * Math.sin(turn),
+      y: route.cargo.y - dock.y,
+      z: sx * Math.sin(turn) + sz * Math.cos(turn),
+      radius: route.cargo.radius,
+      depth: route.cargo.depth,
+    },
+  };
+}
+
 /**
  * Island B's jetty and mooring post (docking, Phase 3): the post at the
  * origin, standing `postHeight` on the jetty's end, and the jetty running
@@ -116,7 +136,7 @@ export interface CargoStagePlace {
  * post is banded red and white so it reads from a distance, with an iron cap
  * for the grapple to bite under. With `stage`, the cargo stage too (Phase 3
  * cargo): a small floating rock below the jetty's end with a plank platform
- * on it, a painted ring to set crates down in, a few crates already
+ * on it, a target painted on it to set crates down on, a few crates already
  * delivered, and a rope ladder up to the jetty.
  */
 export function createJettyGeometry(length: number, postHeight: number, stage?: CargoStagePlace): BufferGeometry {
@@ -162,14 +182,19 @@ function cargoStageParts(stage: CargoStagePlace): Part[] {
   }
   parts.push({ geometry: rock, position: [x, y - 0.3 - rockDepth / 2, z], color: (tri, c) => shade(ROCK, 0.95 - Math.min(0.4, (-(c.y - y) / stage.depth) * 0.45) + (tri % 3) * 0.02) });
   parts.push({ geometry: new CylinderGeometry(radius, radius * 0.95, 0.3, 12, 1), position: [x, y - 0.27, z], color: (tri) => shade(GRASS, 0.9 + (tri % 3) * 0.03) });
-  // The plank platform, square, a little inside the rock's rim, and a painted ring on it.
+  // The plank platform, square, a little inside the rock's rim, and a target painted on it.
   const side = radius * 1.3;
   const planks = 9;
   for (let i = 0; i < planks; i++) {
     const px = x - side / 2 + (side / planks) * (i + 0.5);
     parts.push({ geometry: new BoxGeometry(side / planks - 0.03, 0.1, side), position: [px, y - 0.05, z], color: i % 3 === 0 ? PLANK_DARK : PLANK });
   }
-  parts.push({ geometry: new TorusGeometry(radius * 0.55, 0.1, 3, 24), position: [x, y + 0.005, z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.1], color: PAINT });
+  // The target (TARGET_RINGS): a red bullseye standing 1 cm proud of the planks, and a white ring round each of the others.
+  const [bull, ...rings] = TARGET_RINGS;
+  parts.push({ geometry: new CylinderGeometry(bull.radius, bull.radius, 0.01, 20), position: [x, y + 0.015, z], color: POST_RED });
+  for (const ring of rings) {
+    parts.push({ geometry: new TorusGeometry(ring.radius - 0.05, 0.05, 3, 32), position: [x, y + 0.005, z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.1], color: PAINT });
+  }
   // A few crates already delivered, stacked at the platform's island side.
   const stack: [number, number, number][] = [[-1.6, 0, 1.4], [-1.05, 0, 1.6], [-1.35, 0.4, 1.5]];
   for (const [cx, cy, cz] of stack) {
