@@ -18,6 +18,8 @@ import {
   updateQuaternion,
 } from '../sim/ship-motion.js';
 import { CargoSim, CRATE_KG } from '../sim/cargo.js';
+import { CRATE_COUNT, CrateYard, obstaclesFrom, PRACTICE_DECK } from '../sim/stowage.js';
+import { GONDOLA_COLLIDERS } from '../scene-assets/gondola.scene-asset.js';
 import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
@@ -113,11 +115,18 @@ export const route = new RouteRun(ROUTE);
 export const docking = new DockingSim(ROUTE.dock);
 
 /**
- * The crate (Phase 3 cargo, docs/cargo.md), carried from island A and
- * lowered through the hatch onto island B's cargo stage. CargoSystem works
- * the hatch, winch and tag line and runs it on the host.
+ * The crate in the hatch (Phase 3 cargo, docs/cargo.md), lowered through it
+ * onto island B's cargo stage. CargoSystem works the hatch, winch and tag
+ * line and runs it on the host.
  */
 export const cargo = new CargoSim();
+
+/**
+ * The crates (Phase 3 cargo loading): waiting on A's loading stage, carried
+ * by hand, stowed on deck or in the hatch (where `cargo` takes over), and
+ * delivered. StowageSystem works the handles and runs it on the host.
+ */
+export const yard = new CrateYard(obstaclesFrom(GONDOLA_COLLIDERS));
 
 /**
  * The wind's gusts (Phase 3, docs/wind.md): the host sends them on their
@@ -148,6 +157,24 @@ const routeControl = {
   practiceCargo: () => undefined as void,
   sendGust: () => undefined as void,
 };
+
+/** The crates, as the route counts them (filled in each step on the host). */
+const routeCargo = { aboard: 0, delivered: 0, total: CRATE_COUNT, condition: 0, target: 0 };
+
+/** The crates as the route counts them: aboard, delivered, their conditions and the target's points for where they were set down. */
+function countCrates(): void {
+  routeCargo.aboard = yard.aboard(cargo);
+  routeCargo.delivered = 0;
+  routeCargo.condition = 0;
+  routeCargo.target = 0;
+  for (const c of yard.crates) {
+    if (c.state === 'delivered') {
+      routeCargo.delivered++;
+      routeCargo.condition += c.condition;
+      routeCargo.target += targetPoints(ROUTE, c.x, c.z);
+    }
+  }
+}
 
 /** This player is ready to cast off (the guest tells the host). */
 export function markReady(): void {
@@ -182,10 +209,10 @@ export function practiceDocking(): void {
 }
 
 /**
- * Practice cargo (the game menu's "Start made fast at B"): start a run with
+ * Practice cargo (the game menu's "Made fast at B"): start a run with
  * both rings flown and the ship already made fast at island B's post, the
- * crate aboard, so the crew can go straight to lowering it (the guest asks
- * the host).
+ * crates aboard (one in the hatch, one on deck), so the crew can go straight
+ * to lowering them (the guest asks the host).
  */
 export function practiceCargo(): void {
   if (netLink.connected && !netLink.isHost) {
@@ -214,7 +241,12 @@ function addFuel(): void {
 
 function setBallast(mask: number): void {
   flightInfo.ballastMask = mask;
-  flightControls.ballastDropped = ballastDropped(mask);
+  flightControls.ballastDropped = weightOff();
+}
+
+/** What the envelope no longer has to lift: the sandbags dropped, and each crate not aboard (on the stage, delivered or lost). */
+function weightOff(): number {
+  return ballastDropped(flightInfo.ballastMask) + CRATE_KG * (CRATE_COUNT - yard.aboard(cargo));
 }
 
 /** A fuel brick went into the hopper: burn it (the guest tells the host, who flies the ship). */
@@ -297,7 +329,6 @@ export class ShipSystem extends createSystem({
   private sendAccumulator = 0;
   private routeSentAt = Number.NEGATIVE_INFINITY;
   private wasConnected = false;
-  private routeCargo = { delivered: false, condition: 100, target: 0 };
   private gustPush = { x: 0, z: 0 };
 
   init(): void {
@@ -481,7 +512,7 @@ export class ShipSystem extends createSystem({
     };
   }
 
-  /** Host or solo: back to island A with a fresh crate, ballast and route. */
+  /** Host or solo: back to island A with the crates on the loading stage, fresh ballast and a fresh route. */
   private restart(): void {
     this.flying = true;
     flight.reset(ship, FLIGHT_START[0], FLIGHT_START[1], FLIGHT_START[2], 0);
@@ -493,6 +524,7 @@ export class ShipSystem extends createSystem({
     route.reset();
     docking.reset();
     cargo.reset();
+    yard.reset(ROUTE.loading, cargo);
     // Each run gets its own gusts.
     wind.reset(Math.floor(Math.random() * 0x7fffffff));
     wind.scale = settings.wind;
@@ -502,10 +534,12 @@ export class ShipSystem extends createSystem({
 
   /**
    * Host or solo: a fresh run already under way beside island B's post,
-   * both rings flown, the envelope at floating heat and the ship still.
+   * both rings flown, the crates aboard, the envelope at floating heat and
+   * the ship still.
    */
   private practiceDocking(): void {
     this.restart();
+    yard.stowAboard(cargo, PRACTICE_DECK);
     const at = alongsidePost(ROUTE.dock, ROUTE.finish.x, ROUTE.finish.z, PRACTICE_DOCK_ACROSS);
     flight.reset(ship, at.x, at.y, at.z, at.yaw);
     route.phase = 'flying';
@@ -520,10 +554,11 @@ export class ShipSystem extends createSystem({
   /**
    * Host or solo: a fresh run already under way with the ship made fast at
    * island B's post (level with it, port side to it), both rings flown and
-   * the crate aboard.
+   * the crates aboard: one in the hatch, one stowed on deck.
    */
   private practiceCargo(): void {
     this.restart();
+    yard.stowAboard(cargo, PRACTICE_DECK);
     const at = alongsidePost(ROUTE.dock, ROUTE.finish.x, ROUTE.finish.z, PRACTICE_CARGO_LINE);
     flight.reset(ship, at.x, at.y, at.z, at.yaw);
     docking.makeFast(ship, PRACTICE_CARGO_LINE);
@@ -604,10 +639,12 @@ export class ShipSystem extends createSystem({
         c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
         c.crankSpeed = crankInfo.speed;
         c.solo = !netLink.connected;
-        // Once the crate is delivered the ship is that much lighter.
-        c.ballastDropped = ballastDropped(flightInfo.ballastMask) + (cargo.carried ? 0 : CRATE_KG);
+        c.ballastDropped = weightOff();
         if (route.phase === 'ready') {
-          flight.heat = Math.max(flight.heat, flight.balanceHeat(c.ballastDropped) - READY_HEAT_BELOW);
+          // The ground crew keeps the envelope just below floating heat for what is aboard (the crates
+          // come aboard while it waits, making it heavier) until the burner is fed.
+          const rest = flight.balanceHeat(c.ballastDropped) - READY_HEAT_BELOW;
+          flight.heat = flightInfo.burnLeft > 0 ? Math.max(flight.heat, rest) : rest;
         }
         // Run into an island and the ship stops there until the crew starts again.
         if (route.phase !== 'lost') {
@@ -639,10 +676,8 @@ export class ShipSystem extends createSystem({
           }
         }
         const crashed = islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
-        this.routeCargo.delivered = cargo.phase === 'delivered';
-        this.routeCargo.condition = cargo.condition;
-        this.routeCargo.target = this.routeCargo.delivered ? targetPoints(ROUTE, cargo.rest.x, cargo.rest.z) : 0;
-        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, this.routeCargo)) {
+        countCrates();
+        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, routeCargo)) {
           this.sendRoute();
         }
         flightInfo.heat = flight.heat;

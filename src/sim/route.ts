@@ -19,6 +19,23 @@ export interface LandingIsland extends Island {
   padRadius: number;
 }
 
+/**
+ * The loading stage on the start island (Phase 3 cargo, docs/cargo.md): a
+ * plank platform beside where the ship rests, its top `top` high (world),
+ * spanning x0..x1 and z0..z1 (world, square to the axes), with the crates
+ * waiting on it at `crates` (their bottoms' middles, world x and z), turned
+ * by `yaw` so their rope handles face the bow and stern.
+ */
+export interface LoadingStage {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  top: number;
+  crates: readonly (readonly [number, number])[];
+  yaw: number;
+}
+
 /** A marker ring standing upright, facing along `yaw` (the way through it). */
 export interface RouteRing {
   x: number;
@@ -43,13 +60,21 @@ export interface Route {
   cargo: Island;
   /** Updrafts and downdrafts on the way (Phase 3 wind, docs/wind.md). */
   drafts: Draft[];
+  /** Where the crates wait to be loaded on the start island. */
+  loading: LoadingStage;
 }
 
 const DEG = Math.PI / 180;
 
+/** Island A, where the run starts: the ship rests in the middle of its pad, facing -Z. */
+const START: LandingIsland = { name: 'A', x: 0, y: 120, z: 0, radius: 16, depth: 20, padRadius: 4 };
+
+/** The loading stage's top is this far above the deck of a ship resting on its island: about waist high, so the crates' handles are at hand over the rail. */
+export const LOADING_STAGE_HEIGHT = 0.75;
+
 /** About 550 m: three minutes with one player cranking, under two with both. */
 export const CALM_SKIES: Route = {
-  start: { name: 'A', x: 0, y: 120, z: 0, radius: 16, depth: 20, padRadius: 4 },
+  start: START,
   rings: [
     { x: 0, y: 136, z: -165, yaw: 0, radius: 14 },
     { x: -115, y: 128, z: -330, yaw: 33 * DEG, radius: 14 },
@@ -72,7 +97,27 @@ export const CALM_SKIES: Route = {
     // or fly round it, or come out of it under ring 2.
     { x: -62, z: -243, radius: 18, speed: -0.9, bottom: 95, top: 170 },
   ],
+  // Beside the starboard bow of a ship resting on A's pad (the hull's side
+  // is 1.1 m out), clear of the ballast bags further aft: the crates' near
+  // sides are 23 cm outboard of the rail.
+  loading: {
+    x0: 1.14,
+    x1: 1.74,
+    z0: -1.4,
+    z1: 0.0,
+    top: restingDeck(START) + LOADING_STAGE_HEIGHT,
+    crates: [
+      [1.43, -1.0],
+      [1.43, -0.42],
+    ],
+    yaw: Math.PI / 2,
+  },
 };
+
+/** Whether world (x, z) is on the loading stage's planks. */
+export function onLoadingStage(stage: LoadingStage, x: number, z: number): boolean {
+  return x >= stage.x0 && x <= stage.x1 && z >= stage.z0 && z <= stage.z1;
+}
 
 /** The jetty's planks: this wide, their tops this far above the island's top, m. */
 export const JETTY_WIDTH = 1.6;
@@ -161,15 +206,18 @@ export interface RouteResult {
   ringsTotal: number;
   /** Times the grapple was torn or yanked off the post. */
   tears: number;
-  /** The crate's condition when delivered, %. */
+  /** The delivered crates' average condition, % (0 with none delivered). */
   cargo: number;
-  /** Points for where on the cargo stage's target it was set down (`targetPoints`). */
+  /** Crates delivered, of how many there were. */
+  crates: number;
+  cratesTotal: number;
+  /** Points for where on the cargo stage's target they were set down (`targetPoints`). */
   target: number;
   score: number;
   stars: number;
 }
 
-/** Points lost per percent of the crate's condition lost. */
+/** Points lost per percent of a delivered crate's condition lost (a crate not delivered loses all 100). */
 export const CARGO_POINTS = 4;
 
 /**
@@ -193,24 +241,35 @@ export function targetPoints(route: Route, x: number, z: number): number {
   return targetRing(route, x, z)?.points ?? 0;
 }
 
-/** Points: 1000, less time, fuel, missed rings, the grapple torn off the post, and damage to the crate, plus the target's points. */
+/**
+ * Points: 1000, less time, fuel, missed rings, the grapple torn off the
+ * post, and damage to the crates (each one not delivered counts as smashed),
+ * plus the target's points.
+ */
 export function scoreRun(r: Omit<RouteResult, 'score' | 'stars'>): { score: number; stars: number } {
   const missed = r.ringsTotal - r.rings;
-  const damage = CARGO_POINTS * (100 - Math.max(0, Math.min(100, r.cargo)));
+  const damage = CARGO_POINTS * (r.crates * (100 - Math.max(0, Math.min(100, r.cargo))) + 100 * Math.max(0, r.cratesTotal - r.crates));
   const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears - damage + r.target));
   const stars = score >= 600 ? 3 : score >= 450 ? 2 : score >= 250 ? 1 : 0;
   return { score, stars };
 }
 
-/** The crate, as the route needs it: delivered yet, its condition (%) and the target's points for where it was set down. */
+/**
+ * The crates, as the route needs them: how many are still aboard (the run
+ * can't finish while any are), how many have been delivered of how many
+ * there were, the sum of the delivered ones' conditions (%), and the
+ * target's points for where they were set down.
+ */
 export interface RouteCargo {
-  delivered: boolean;
+  aboard: number;
+  delivered: number;
+  total: number;
   condition: number;
   target: number;
 }
 
 /** For a run with no crate to deliver (tests of the rest of the route). */
-export const NO_CARGO: RouteCargo = { delivered: true, condition: 100, target: 0 };
+export const NO_CARGO: RouteCargo = { aboard: 0, delivered: 1, total: 1, condition: 100, target: 0 };
 
 /** What the ship is doing, as the route needs it. */
 export interface RouteShip {
@@ -224,8 +283,8 @@ export interface RouteShip {
 /**
  * One attempt at the route. The timer starts when the ship lifts off island
  * A; the run finishes once the ship has been made fast to island B's
- * mooring post for `FAST_HOLD_SECONDS` (src/sim/docking.ts) and the crate
- * has been delivered (src/sim/cargo.ts), and is lost if the ship hits an island's rock, sinks into the haze, or strays
+ * mooring post for `FAST_HOLD_SECONDS` (src/sim/docking.ts) with no crate
+ * left aboard (src/sim/stowage.ts), and is lost if the ship hits an island's rock, sinks into the haze, or strays
  * far from the route. Rings may be flown in any order; each missed one
  * costs points.
  */
@@ -273,7 +332,7 @@ export class RouteRun {
    * on an island's top, `fast` whether it is made fast to island B's post,
    * `tears` how often the grapple has been torn off it, and `crashed`
    * whether it has run into an island's rock (src/sim/islands.ts), and
-   * `cargo` whether the crate has been delivered, its condition and the target's points. Returns
+   * `cargo` how many crates are aboard and delivered, their condition and the target's points. Returns
    * true if anything the crew should see changed (phase or rings).
    */
   step(s: RouteShip, grounded: boolean, fast: boolean, bricks: number, tears: number, dt: number, crashed: boolean, cargo: RouteCargo = NO_CARGO): boolean {
@@ -304,10 +363,10 @@ export class RouteRun {
     }
     this.remember(s);
 
-    // Made fast to island B's post, with the crate delivered.
+    // Made fast to island B's post, with no crate left aboard.
     if (fast) {
       this.fastFor += dt;
-      if (this.fastFor >= FAST_HOLD_SECONDS && cargo.delivered) {
+      if (this.fastFor >= FAST_HOLD_SECONDS && cargo.aboard === 0) {
         this.finish(bricks, tears, cargo);
         return true;
       }
@@ -339,7 +398,9 @@ export class RouteRun {
       rings: this.rings,
       ringsTotal: this.route.rings.length,
       tears,
-      cargo: Math.round(cargo.condition),
+      cargo: cargo.delivered > 0 ? Math.round(cargo.condition / cargo.delivered) : 0,
+      crates: cargo.delivered,
+      cratesTotal: cargo.total,
       target: cargo.target,
     };
     this.result = { ...base, ...scoreRun(base) };

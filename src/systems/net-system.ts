@@ -116,6 +116,7 @@ export function holdKindOf(side: 'left' | 'right', flags: number, use: string | 
     case 'winch': return HoldKind.Winch;
     case 'tag': return HoldKind.Tag;
     case 'lever': return HoldKind.Lever;
+    case 'crate': return HoldKind.Crate;
     default: return HoldKind.None;
   }
 }

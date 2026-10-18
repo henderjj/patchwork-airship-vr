@@ -3,9 +3,11 @@ import { KEEL_DEPTH } from './gondola-layout.js';
 import type { ShipState } from './ship-motion.js';
 
 /**
- * Cargo (Phase 3 step 2, docs/cargo.md): the crate carried from island A to
- * island B and lowered through a hatch in the deck on the hoist line, by
- * the winch, steadied by the tag line. Engine-free, like the flight model.
+ * Cargo (Phase 3 step 2, docs/cargo.md): the crate in the hatch, lowered
+ * through it onto island B's cargo stage on the hoist line, by the winch,
+ * steadied by the tag line. Engine-free, like the flight model. The crates
+ * are carried about the deck by hand (src/sim/stowage.ts); this is the one
+ * on the hook, from when it is set in the hatch until it is delivered.
  *
  * The crate is simulated in ship space (deck at y = 0, bow towards -Z,
  * starboard +X) as a weight on a line from the block above the hatch,
@@ -23,12 +25,12 @@ import type { ShipState } from './ship-motion.js';
 export const HATCH = { x0: 0, x1: 0.5, z0: 0.5, z1: 1.0 } as const;
 export const HATCH_CENTER = [(HATCH.x0 + HATCH.x1) / 2, (HATCH.z0 + HATCH.z1) / 2] as const;
 export const HATCH_SIZE = HATCH.x1 - HATCH.x0;
-/** The crate: square, this tall, this heavy. */
+/** A crate: square, this tall, this heavy (two of them weigh what the first slice's one crate did). */
 export const CRATE_SIZE = 0.4;
 export const CRATE_HEIGHT = 0.36;
-export const CRATE_KG = 60;
-/** It trims the ship like a crew member this many times as heavy. */
-export const CARGO_TRIM_WEIGHT = 0.8;
+export const CRATE_KG = 30;
+/** A crate aboard trims the ship like a crew member this many times as heavy. */
+export const CARGO_TRIM_WEIGHT = 0.4;
 /** The trunk through the hull under the hatch is as deep as the crate, so it rides with its top level with the deck; the door is its floor. */
 export const TRUNK_DEPTH = CRATE_HEIGHT;
 /** How far the crate can move either way inside the trunk, m. */
@@ -117,8 +119,14 @@ const TAG_MAX = 1.5;
 /** Steps of at most this long, s. */
 const STEP = 1 / 120;
 
-/** What the crate is doing. Indices are sent to the crewmate. */
-export const CARGO_PHASES = ['aboard', 'hanging', 'landed', 'delivered'] as const;
+/**
+ * What the crate on the hook is doing: in the trunk on the door, on the
+ * line, resting on the ground still hooked, delivered (the hook slipped out
+ * of its sling, and still out on the line), or no crate on the hook at all
+ * (the trunk empty, the hook wound back up into it). Indices are sent to
+ * the crewmate.
+ */
+export const CARGO_PHASES = ['aboard', 'hanging', 'landed', 'delivered', 'empty'] as const;
 export type CargoPhase = (typeof CARGO_PHASES)[number];
 
 /** What is under a point (world): the height of its top (-Infinity for nothing) and whether a crate set down there is delivered. */
@@ -252,14 +260,39 @@ export class CargoSim {
 
   /** Whether the crate (or, once delivered, nothing) is through the door, so it can't shut. */
   get canClose(): boolean {
-    if (this.phase === 'delivered') return true;
+    if (this.phase === 'delivered' || this.phase === 'empty') return true;
     if (this.phase === 'landed') return false;
     return this.pos.y - CRATE_HEIGHT >= -TRUNK_DEPTH - 0.01;
   }
 
-  /** Still aboard or on the line: the ship carries its weight (for trim and lift). */
+  /** A crate in the trunk, on the line or resting below still hooked: the ship carries its weight (for trim and lift). */
   get carried(): boolean {
-    return this.phase !== 'delivered';
+    return this.phase === 'aboard' || this.phase === 'hanging' || this.phase === 'landed';
+  }
+
+  /** The hook is free and wound up into the trunk with the door shut: a crate can be set in. */
+  get ready(): boolean {
+    return this.phase === 'empty' && this.line <= LINE_ABOARD + 0.02 && !this.doorOpen;
+  }
+
+  /** A crate of `condition` % set in the trunk and hooked on (`ready` first). */
+  load(condition: number): void {
+    this.phase = 'aboard';
+    this.condition = condition;
+    this.lastKnock = 0;
+    this.pos.x = HATCH_CENTER[0];
+    this.pos.y = 0;
+    this.pos.z = HATCH_CENTER[1];
+    this.vel.x = this.vel.y = this.vel.z = 0;
+  }
+
+  /** The crate in the trunk lifted out by hand, or no crate at all: the hook is left in the trunk. */
+  clear(): void {
+    this.phase = 'empty';
+    this.pos.x = HATCH_CENTER[0];
+    this.pos.y = 0;
+    this.pos.z = HATCH_CENTER[1];
+    this.vel.x = this.vel.y = this.vel.z = 0;
   }
 
   /** How fast it is swinging across the deck, m/s. */
@@ -273,7 +306,8 @@ export class CargoSim {
    */
   step(ship: ShipState, input: CargoInput, dt: number): boolean {
     const before = this.line;
-    this.line = Math.max(LINE_MIN, Math.min(LINE_MAX, input.line));
+    // An empty hook winds up only until it is home in the trunk (a crate set in then hangs on it as on a full one).
+    this.line = Math.max(this.phase === 'empty' || this.phase === 'delivered' ? LINE_ABOARD : LINE_MIN, Math.min(LINE_MAX, input.line));
     this.lineRate = dt > 0 ? Math.max(0, (this.line - before) / dt) : 0;
     const tag = this.tagWas;
     if (input.tagHeld && tag.held && dt > 0) {
@@ -342,6 +376,12 @@ export class CargoSim {
     const v = this.vel;
     switch (this.phase) {
       case 'delivered':
+        // The empty hook wound back up into the trunk: ready for the next crate.
+        if (this.line <= LINE_ABOARD + 0.02) {
+          this.phase = 'empty';
+        }
+        return;
+      case 'empty':
         return;
       case 'aboard':
         // On the shut door: it lifts off when hoisted, and drops onto the line when the door opens.

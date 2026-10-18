@@ -311,7 +311,8 @@
     <div class="setting">
       <div class="label">Cargo</div>
       <div class="choices">
-        <Button id="menu-cargo" class="choice" size="sm" variant="secondary">Start made fast at B</Button>
+        <Button id="menu-load" class="choice" size="sm" variant="secondary">Load at A</Button>
+        <Button id="menu-cargo" class="choice" size="sm" variant="secondary">Made fast at B</Button>
       </div>
     </div>
     <div class="setting">

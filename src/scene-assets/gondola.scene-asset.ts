@@ -29,9 +29,10 @@ import {
   FUNNEL_POSITION,
   LANTERN_HOOK,
   NOZZLE_TOP,
+  RAIL_HEIGHT,
 } from '../sim/gondola-layout.js';
 
-export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK };
+export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK, RAIL_HEIGHT };
 
 /**
  * The gondola: a 2 × 3 m wood-and-canvas deck that is the players' fixed frame
@@ -44,7 +45,6 @@ export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK };
  */
 
 export const BULWARK_HEIGHT = 0.5;
-export const RAIL_HEIGHT = 1.0;
 export const ENVELOPE_CENTER = [0, 7.2, 0] as const;
 export const ENVELOPE_RADII = [3.0, 2.8, 5.2] as const;
 

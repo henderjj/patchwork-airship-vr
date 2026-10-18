@@ -867,7 +867,8 @@ async function main() {
   await move([1.25, 1.0, 0.55], 0.3);
   await squeeze(0);
   await sleep(500);
-  const ballast = evalInApp('({ mask: window.__ship.info.ballastMask, kg: window.__ship.controls.ballastDropped })');
+  // The flight model's dropped weight also counts each crate not aboard (30 kg each).
+  const ballast = evalInApp('({ mask: window.__ship.info.ballastMask, kg: window.__ship.controls.ballastDropped - 30 * (2 - window.__crates.state().aboard) })');
   check('A sandbag let go over the side is dropped', bagHeld === 'bag0' && ballast.mask === 1 && ballast.kg === 20,
     `held by ${bagHeld}, dropped mask ${ballast.mask}, ${ballast.kg} kg gone`);
   await move([0.3, 1.0, 0.2]);
@@ -908,6 +909,73 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -20, y: -4, z: -60 } });
   await sleep(800);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-island-a.png'], {});
+  // 6d'. Cargo loading (docs/cargo.md): the crates wait on the loading stage
+  // beside the starboard bow. A real emulated hand takes a crate's rope
+  // handle; then scripted hands (both of one player's, the crate's weight
+  // makes them lead it) lift it over the rail and set it down in the hatch.
+  // The other is left on the stage: it costs points but doesn't stop the run.
+  const onStage = evalInApp('window.__crates.state()');
+  check('A run starts with both crates on the loading stage, the hatch empty and the board counting none aboard',
+    onStage.crates.every((c) => c.state === 'ground' && c.pos[0] > 1.1) && onStage.aboard === 0 && onStage.hatch === -1 &&
+      evalInApp('window.__cargo.state().phase') === 'empty' && atStart.board[4] === 'CRATES ABOARD 0 of 2',
+    `${onStage.crates.map((c) => `${c.state} at ${fmt(c.pos)}`).join(', ')}, board: ${atStart.board.join(' | ')}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.75, 1.6, -0.9]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 1.45, y: 0.8, z: -1.0 } });
+  const handle1 = evalInApp('window.__crates.grabPoint(0, 1)');
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([0.8, 1.1, -1.0]), duration: 0.3 });
+  await sleep(600);
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin(handle1), duration: 0.4 });
+  await sleep(700);
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 1 }] });
+  await sleep(300);
+  const crateHeld = evalInApp('window.__crates.state().held.right');
+  const crateLock = evalInApp('window.__ownHands.locked("right")');
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-crate-handle.png'], {});
+  // One hand only drags it along the stage, slowly.
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([handle1[0], handle1[1], handle1[2] - 0.12]), duration: 0.6 });
+  await sleep(900);
+  const dragged = evalInApp('window.__crates.state().crates[0]');
+  iwsdk(['xr', 'set-gamepad-state'], { device: 'controller-right', buttons: [{ index: SQUEEZE, value: 0 }] });
+  await sleep(300);
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: toOrigin([0.5, 1.1, -0.6]), duration: 0.3 });
+  check('Squeeze takes a crate by its rope handle, the hand is drawn on it, and one hand drags it along the stage',
+    crateHeld?.[0] === 0 && crateHeld?.[1] === 1 && crateLock === 1 && dragged.state === 'ground' && dragged.pos[2] < onStage.crates[0].pos[2] - 0.05 && dragged.pos[1] > 0.7,
+    `held ${JSON.stringify(crateHeld)}, eased ${Number(crateLock).toFixed(2)} onto it, crate ${dragged.state} at ${fmt(dragged.pos)}`);
+  // Both handles: up over the rail, inboard, aft over the hatch and down into it, the hands a little ahead of the crate.
+  evalInApp(`(() => {
+    const over = 1.15;
+    const p0 = window.__crates.state().crates[0].pos;
+    const points = [[p0[0], over, p0[2]], [0.6, over, p0[2]], [0.25, over, 0.75], [0.25, -0.1, 0.75]];
+    let k = 0;
+    window.__crates.setHands(() => {
+      const c = window.__crates.state().crates[0];
+      let d;
+      let n;
+      for (;;) {
+        const w = points[k];
+        d = [w[0] - c.pos[0], w[1] - c.pos[1], w[2] - c.pos[2]];
+        n = Math.hypot(d[0], d[1], d[2]);
+        if (n >= 0.03 || k === points.length - 1) break;
+        k++;
+      }
+      // There, or down in the trunk: let go.
+      if (n < 0.03 || c.pos[1] < -0.05) return null;
+      const f = Math.min(1, 0.15 / n);
+      return [0, 1].map((h) => {
+        const g = window.__crates.grabPoint(0, h);
+        return { crate: 0, handle: h, x: g[0] + d[0] * f, y: g[1] + d[1] * f, z: g[2] + d[2] * f };
+      });
+    });
+  })()`);
+  await waitFor('the crate to be lifted over the rail', () => evalInApp("window.__crates.state().crates[0].pos[0] < 0.9 ? true : null"), 20000, 300).catch(() => null);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-crate-lift.png'], {});
+  const loaded = await waitFor('the crate to be set in the hatch', () => evalInApp("window.__crates.state().crates[0].state === 'hatch' ? window.__crates.state() : null"), 30000, 300).catch(() => null);
+  evalInApp('window.__crates.setHands(null)');
+  const loadedBoard = boardAfterRedraw('__route');
+  check('Lifted by both handles over the rail and lowered into the hatch, the crate is hooked on and counted aboard',
+    loaded !== null && loaded.hatch === 0 && loaded.aboard === 1 && loaded.crates[0].condition === 100 && evalInApp('window.__cargo.state().phase') === 'aboard' &&
+      loaded.crates[1].state === 'ground' && loadedBoard[4] === 'CRATES ABOARD 1 of 2',
+    loaded ? `${loaded.crates.map((c) => `${c.state} ${c.condition}%`).join(', ')}, board: ${loadedBoard.join(' | ')}` : JSON.stringify(evalInApp('window.__crates.state()')));
   evalInApp('window.__ship.feedFuel()');
   evalInApp('window.__ship.feedFuel()');
   const lifted = await waitFor('lift-off from island A', () => evalInApp("window.__route.run.phase === 'flying' ? { y: window.__ship.state.y } : null"), 30000).catch(() => null);
@@ -1019,7 +1087,7 @@ async function main() {
   await sleep(3500);
   const waiting = evalInApp('window.__route.run.phase');
   const lowerBoard = boardAfterRedraw('__route');
-  check('Made fast with the crate still aboard, the run waits and the board says to lower it',
+  check('Made fast with a crate still aboard, the run waits and the board says to lower it',
     waiting === 'flying' && lowerBoard[2] === 'MADE FAST' && lowerBoard[3].trim() === 'LOWER THE CRATE' && evalInApp('window.__cargo.state().phase') === 'aboard',
     `${waiting}, board: ${lowerBoard.join(' | ')}`);
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.1, 1.6, 0.05]) });
@@ -1060,8 +1128,9 @@ async function main() {
     delivered !== null && delivered.condition >= 70 && delivered.line > 7, JSON.stringify(delivered ?? evalInApp('window.__cargo.state()')));
   const finished = await waitFor('the run to finish', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 10000).catch(() => null);
   const scoreBoard = boardAfterRedraw('__route');
-  check('Made fast at island B with the crate delivered finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 &&
-      finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crate ${finished.cargo}%   Target +${finished.target}` &&
+  check('Made fast at island B with the crate in the hatch delivered (the other left on A) finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 &&
+      finished.crates === 1 && finished.cratesTotal === 2 && evalInApp('window.__crates.state().crates[0].state') === 'delivered' &&
+      finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crates 1/2 ${finished.cargo}%   Target +${finished.target}` &&
       [0, 20, 50, 100].includes(finished.target),
     scoreBoard.join(' | '));
   evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__savedBreeze)');
@@ -1123,15 +1192,20 @@ async function main() {
   iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -11, y: -1.2, z: -1.35 } });
   await sleep(800);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-jetty-root.png'], {});
-  // Practice cargo from the game menu: made fast at B, both rings flown, the crate aboard.
+  // Practice cargo from the game menu: made fast at B, both rings flown, one crate in the hatch and one stowed on deck.
   evalInApp("window.__gameMenu.click('menu-cargo')");
   await sleep(400);
-  const practiceCargo = evalInApp('({ phase: window.__route.run.phase, rings: window.__route.run.ringMask, dock: window.__dock.state(), cargo: window.__cargo.state() })');
+  const practiceCargo = evalInApp('({ phase: window.__route.run.phase, rings: window.__route.run.ringMask, dock: window.__dock.state(), cargo: window.__cargo.state(), crates: window.__crates.state() })');
   const cargoBoard = boardAfterRedraw('__route');
-  check("The menu's practice cargo starts made fast at B with the crate aboard",
+  check("The menu's practice cargo starts made fast at B with a crate in the hatch and one on deck",
     practiceCargo.phase === 'flying' && practiceCargo.rings === 3 && practiceCargo.dock.phase === 'fast' && practiceCargo.cargo.phase === 'aboard' &&
-      practiceCargo.cargo.condition === 100 && !practiceCargo.cargo.door && cargoBoard[2] === 'MADE FAST' && cargoBoard[3].trim() === 'LOWER THE CRATE',
-    `${practiceCargo.phase}, rings ${practiceCargo.rings}, docking ${practiceCargo.dock.phase}, crate ${practiceCargo.cargo.phase}, board: ${cargoBoard.join(' | ')}`);
+      practiceCargo.cargo.condition === 100 && !practiceCargo.cargo.door && practiceCargo.crates.hatch === 0 && practiceCargo.crates.crates[1].state === 'deck' &&
+      cargoBoard[2] === 'MADE FAST' && cargoBoard[3].trim() === 'LOWER THE CRATES',
+    `${practiceCargo.phase}, rings ${practiceCargo.rings}, docking ${practiceCargo.dock.phase}, crate ${practiceCargo.cargo.phase}, crates ${practiceCargo.crates.crates.map((c) => c.state).join('/')}, board: ${cargoBoard.join(' | ')}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.3, 1.55, -0.6]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.4, y: 0.2, z: 0.6 } });
+  await sleep(600);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-crates-stowed.png'], {});
   // The menu's wind setting stills or strengthens the breeze.
   evalInApp("window.__gameMenu.click('row-wind-0')");
   const stillAir = evalInApp('[window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation]');

@@ -126,21 +126,26 @@ describe('route', () => {
   });
 
   it('scores a quick, clean run better than a slow one that missed a ring', () => {
-    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0, cargo: 100, target: 0 });
-    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1, cargo: 100, target: 0 });
+    const clean = scoreRun({ seconds: 120, bricks: 6, rings: 2, ringsTotal: 2, tears: 0, cargo: 100, crates: 2, cratesTotal: 2, target: 0 });
+    const messy = scoreRun({ seconds: 220, bricks: 12, rings: 1, ringsTotal: 2, tears: 1, cargo: 100, crates: 2, cratesTotal: 2, target: 0 });
     expect(clean.score).toBeGreaterThan(messy.score);
     expect(clean.stars).toBe(3);
     expect(messy.stars).toBeLessThan(2);
   });
 
   it('costs 100 points each time the grapple is torn off the post', () => {
-    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, cargo: 100, target: 0 };
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, cargo: 100, crates: 2, cratesTotal: 2, target: 0 };
     expect(scoreRun({ ...base, tears: 0 }).score - scoreRun({ ...base, tears: 2 }).score).toBe(200);
   });
 
-  it('costs 4 points for each percent of the crate lost', () => {
-    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0, target: 0 };
-    expect(scoreRun({ ...base, cargo: 100 }).score - scoreRun({ ...base, cargo: 75 }).score).toBe(100);
+  it('costs 4 points for each percent each crate lost, and 400 for each crate not delivered', () => {
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0, target: 0, cratesTotal: 2 };
+    // One crate delivered at 75%.
+    expect(scoreRun({ ...base, cratesTotal: 1, crates: 1, cargo: 100 }).score - scoreRun({ ...base, cratesTotal: 1, crates: 1, cargo: 75 }).score).toBe(100);
+    // Two delivered at an average of 75%: 50% lost in all.
+    expect(scoreRun({ ...base, crates: 2, cargo: 100 }).score - scoreRun({ ...base, crates: 2, cargo: 75 }).score).toBe(200);
+    // One of two left behind.
+    expect(scoreRun({ ...base, crates: 2, cargo: 100 }).score - scoreRun({ ...base, crates: 1, cargo: 100 }).score).toBe(400);
   });
 
   it("scores the crate by where on the stage's target it is set down", () => {
@@ -152,11 +157,11 @@ describe('route', () => {
     expect(targetPoints(CALM_SKIES, stage.x + 1.5, stage.z)).toBe(0);
     // The rings fit on the stage's planks.
     for (const ring of TARGET_RINGS) expect(ring.radius).toBeLessThan(stage.radius * 0.65);
-    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0, cargo: 100 };
+    const base = { seconds: 100, bricks: 4, rings: 2, ringsTotal: 2, tears: 0, cargo: 100, crates: 2, cratesTotal: 2 };
     expect(scoreRun({ ...base, target: 100 }).score - scoreRun({ ...base, target: 0 }).score).toBe(100);
   });
 
-  it('times a run from lift-off, counts rings, and finishes after being made fast at island B with the crate delivered', () => {
+  it('times a run from lift-off, counts rings, and finishes after being made fast at island B with no crate left aboard', () => {
     const run = new RouteRun(CALM_SKIES);
     const s = { x: 0, y: restingDeck(CALM_SKIES.start), z: 0, time: 0 };
     expect(run.step(s, true, false, 0, 0, DT, false)).toBe(false);
@@ -182,18 +187,19 @@ describe('route', () => {
     const d = CALM_SKIES.dock;
     Object.assign(s, { x: d.x + 2, y: d.y + 1.5, z: d.z + 1 });
     const steps = Math.ceil(FAST_HOLD_SECONDS / DT) + 1;
-    // ...once the crate has been lowered there too.
-    const crate = { delivered: false, condition: 100, target: 0 };
+    // ...once the crates aboard have been lowered there too (one was left on A).
+    const crates = { aboard: 1, delivered: 0, total: 2, condition: 0, target: 0 };
     for (let i = 0; i < steps; i++) {
-      run.step(s, false, true, 5, 1, DT, false, crate);
+      run.step(s, false, true, 5, 1, DT, false, crates);
     }
     expect(run.phase).toBe('flying');
-    crate.delivered = true;
-    crate.condition = 82.4;
-    crate.target = 50;
-    run.step(s, false, true, 5, 1, DT, false, crate);
+    crates.aboard = 0;
+    crates.delivered = 1;
+    crates.condition = 82.4;
+    crates.target = 50;
+    run.step(s, false, true, 5, 1, DT, false, crates);
     expect(run.phase).toBe('finished');
-    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1, cargo: 82, target: 50 });
+    expect(run.result).toMatchObject({ seconds: 120, bricks: 5, rings: 1, ringsTotal: 2, tears: 1, cargo: 82, crates: 1, cratesTotal: 2, target: 50 });
     run.reset();
     expect(run.phase).toBe('ready');
     expect(run.result).toBeNull();

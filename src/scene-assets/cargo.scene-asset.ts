@@ -56,9 +56,9 @@ export function createCrate(): Mesh {
     parts.push(box([0.035, 0.03, s + 0.01], [half - 0.012, y, 0], WOOD_DARK));
     parts.push(box([0.035, 0.03, s + 0.01], [-half + 0.012, y, 0], WOOD_DARK));
   }
-  // Rope handles on the port and starboard faces.
+  // Rope handles on the port and starboard faces: loops whose tops (where a hand takes them) are 0.68 of the way up (HANDLE_UP, src/sim/stowage.ts).
   for (const x of [-1, 1]) {
-    parts.push({ geometry: new TorusGeometry(0.06, 0.01, 4, 8, Math.PI), color: ROPE, position: [x * (half + 0.012), -h * 0.32, 0], rotation: [0, Math.PI / 2, 0] });
+    parts.push({ geometry: new TorusGeometry(0.06, 0.01, 4, 8, Math.PI), color: ROPE, position: [x * (half + 0.012), -h * 0.32 - 0.06, 0], rotation: [0, Math.PI / 2, 0] });
   }
   // The sling.
   for (const x of [-1, 1]) {

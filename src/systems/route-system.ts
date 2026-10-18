@@ -7,7 +7,7 @@ import { SHIP_MIDDLE } from '../sim/route.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
 import { gustStrength } from '../sim/wind.js';
-import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship, wind } from './ship-system.js';
+import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship, wind, yard } from './ship-system.js';
 import { draftHere } from './wind-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
@@ -147,17 +147,18 @@ export class RouteSystem extends createSystem({}) {
           const [mine, theirs] = netLink.isHost ? [crewReady.host, crewReady.guest] : [crewReady.guest, crewReady.host];
           const mark = (ready: boolean) => (ready ? 'READY' : '...');
           return moored()
-            ? ['CALM SKIES', 'Moored on island A', 'Ring the bell when ready', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, `Then fly ${ROUTE.rings.length} rings to island B.`, best]
-            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly ${ROUTE.rings.length} rings, moor at B`, 'and lower the crate there.', best];
+            ? ['CALM SKIES', 'Moored on island A', 'Load, then ring the bell', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, cratesAboard(), best]
+            : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly ${ROUTE.rings.length} rings, moor at B`, cratesAboard(), best];
         }
-        return ['CALM SKIES', 'Waiting on island A', 'Feed the burner to lift off,', `fly ${ROUTE.rings.length} rings, moor at B`, 'and lower the crate there.', best];
+        return ['CALM SKIES', 'Waiting on island A', 'Load the crates aboard,', `fly ${ROUTE.rings.length} rings, moor at B`, cratesAboard(), best];
       }
       case 'flying': {
-        const top = [`TIME ${clock(route.seconds)}  CRATE ${Math.round(cargo.condition)}%`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
+        const top = [`TIME ${clock(route.seconds)}  ${cratesLine()}`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
         const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`;
         const air = windLine();
         if (docking.phase === 'fast') {
-          return [...top, 'MADE FAST', cargo.phase === 'delivered' ? '     CRATE DELIVERED' : '     LOWER THE CRATE', fuel, air];
+          const aboard = yard.aboard(cargo);
+          return [...top, 'MADE FAST', aboard === 0 ? '     ALL UNLOADED' : aboard === 1 ? '     LOWER THE CRATE' : '     LOWER THE CRATES', fuel, air];
         }
         if (docking.phase === 'hooked') {
           return [...top, `LINE FAST  ${docking.lineOut.toFixed(1)} m out`, `     ${heightHint()}`, fuel, air];
@@ -174,11 +175,11 @@ export class RouteSystem extends createSystem({}) {
       case 'finished': {
         const r = route.result!;
         return [
-          `DELIVERED!  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
+          `${r.crates > 0 ? 'DELIVERED!' : 'MOORED!'}  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
           `SCORE ${r.score}${this.best > 0 ? `   BEST ${this.best}` : ''}`,
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
           `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
-          `Crate ${r.cargo ?? 100}%   Target +${r.target ?? 0}`,
+          r.crates > 0 ? `Crates ${r.crates}/${r.cratesTotal} ${r.cargo}%   Target +${r.target}` : `Crates 0/${r.cratesTotal}`,
           'Game menu: Restart to fly again',
         ];
       }
@@ -280,6 +281,24 @@ function heightHint(): string {
   const by = `${Math.abs(off).toFixed(1)} m`;
   const warn = Math.abs(off) > STRAIN_HEIGHT ? '!' : '';
   return off > 0 ? `HIGH ${by}${warn} VENT` : `LOW ${by}${warn} BURN`;
+}
+
+/** How many crates are aboard, for the board while waiting on island A. */
+function cratesAboard(): string {
+  return `CRATES ABOARD ${yard.aboard(cargo)} of ${yard.crates.length}`;
+}
+
+/** The crates aboard and the worst one's condition, for the board's top line. */
+function cratesLine(): string {
+  let n = 0;
+  let worst = 100;
+  for (let i = 0; i < yard.crates.length; i++) {
+    if (yard.isAboard(i, cargo)) {
+      n++;
+      worst = Math.min(worst, yard.crates[i].condition);
+    }
+  }
+  return n === 0 ? 'NO CRATES' : `${n === 1 ? 'CRATE' : 'CRATES'} ${Math.round(worst)}%`;
 }
 
 function clock(seconds: number): string {
