@@ -49,7 +49,7 @@ export const GUST_WARNING = 5;
 export const FIRST_GUST: readonly [number, number] = [25, 40];
 /** Calm between one gust dying away and the next one's warning (from, to), s. */
 export const GUST_GAP: readonly [number, number] = [30, 50];
-/** A gust's peak at the usual wind (from, to), m/s: one player cranking makes 2.4 m/s. */
+/** A gust's peak at the usual wind (from, to), m/s: one player cranking makes 3.2 m/s (4.8 alone), two in step 7. */
 export const GUST_PEAK: readonly [number, number] = [1, 1.6];
 /** How long a gust holds at its peak (from, to), s. */
 export const GUST_HOLD: readonly [number, number] = [4, 8];

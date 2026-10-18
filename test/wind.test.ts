@@ -223,10 +223,10 @@ describe('the flight model in the wind', () => {
       sim.reset(ship, 0, 100, 0, 0);
       const c = createFlightControls();
       c.burner = HOLD;
-      // Both players cranking in step.
-      c.crankSpeed = 6.4;
+      // One player cranking, against the strongest gust at the usual wind.
+      c.crankSpeed = 3.2;
       const wind = new WindSim();
-      wind.gust = gust({ start: 1, heading: -Math.PI / 2, peak: 2, hold: 8 });
+      wind.gust = gust({ start: 1, heading: -Math.PI / 2, peak: 1.6, hold: 8 });
       const v = { x: 0, z: 0 };
       for (let t = 0; t < 30; t += DT) {
         wind.gustVelocity(ship.time, v);
@@ -241,7 +241,7 @@ describe('the flight model in the wind', () => {
       }
       return Math.abs(ship.x);
     };
-    expect(fly(false)).toBeGreaterThan(15);
+    expect(fly(false)).toBeGreaterThan(12);
     expect(fly(true)).toBeLessThan(5);
   });
 

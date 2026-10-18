@@ -63,17 +63,23 @@ describe('flight model', () => {
     expect(sim.liftRate(40)).toBeGreaterThan(0.3);
   });
 
-  it('flies at about 2.4 m/s for one cranker and the speed limit for two in step', () => {
-    const one = new FlightSim(CALM);
-    const c = createFlightControls();
-    c.crankSpeed = 3.2;
-    fly(one, undefined, 60, c);
-    expect(one.airspeed).toBeGreaterThan(2.2);
-    expect(one.airspeed).toBeLessThan(2.5);
-    const two = new FlightSim(CALM);
-    c.crankSpeed = 9.6;
-    fly(two, undefined, 60, c);
-    expect(two.airspeed).toBeCloseTo(DEFAULT_FLIGHT_LIMITS.maxSpeed, 1);
+  it('flies at about 3.2 m/s for one cranker, 4.8 m/s alone, and the speed limit for two in step', () => {
+    const speedAt = (crankSpeed: number, solo: boolean) => {
+      const sim = new FlightSim(CALM);
+      const c = createFlightControls();
+      c.crankSpeed = crankSpeed;
+      c.solo = solo;
+      fly(sim, undefined, 60, c);
+      return sim.airspeed;
+    };
+    const one = speedAt(3.2, false);
+    expect(one).toBeGreaterThan(3);
+    expect(one).toBeLessThan(3.4);
+    const alone = speedAt(3.2, true);
+    expect(alone).toBeGreaterThan(4.6);
+    expect(alone).toBeLessThan(5);
+    // Two in step more than double one player's speed.
+    expect(speedAt(9.5, false)).toBeCloseTo(DEFAULT_FLIGHT_LIMITS.maxSpeed, 1);
   });
 
   it('flies towards the bow and turns the way the rudder points', () => {

@@ -9,7 +9,7 @@ The crew flies the ship (the default; the **Ship** choice under Start-up setting
 | Burner | Heats the envelope. Holding height takes about 40% flame, so the crew feeds it in pulses. One fuel brick gives 20 s of full flame | Lift builds over tens of seconds; an untended ship sinks gently |
 | Vent | Dumps hot air, about fifteen times faster than the envelope cools on its own | A quick descent, even with the burner lit |
 | Ballast | Dropping a 20 kg sandbag lowers the heat the ship needs to float, at once | Instant lift; four bags per flight |
-| Crank | The only thrust. Airspeed settles at 0.75 m/s per rad/s of crank speed over about 6 s | One player cranking gives about 2.4 m/s; two in step reach the 7 m/s limit |
+| Crank | The only thrust. Airspeed settles at 1 m/s per rad/s of crank speed over about 6 s, or 1.5 m/s per rad/s with no crewmate in the game | One player cranking gives about 3.2 m/s (4.8 m/s playing alone); two in step reach the 7 m/s limit, a sprint rather than a need |
 | Rudder | Sets the turn rate, up to 6°/s at full rudder once the ship is moving at 3 m/s; a quarter of that standing still | Steering needs the crank |
 | Wind | A gentle breeze of about 0.6 m/s that wanders slowly, plus gusts from abeam every half minute or so and an updraft and a downdraft on the route ([wind.md](wind.md)) | The ship drifts if nobody cranks; a gust slides it sideways and leans the deck a degree or two |
 
