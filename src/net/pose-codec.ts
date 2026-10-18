@@ -27,6 +27,10 @@ export const PacketType = {
   Cargo: 9,
   /** The guest's hands on the cargo winch, tag line and hatch lever (Phase 3 cargo). */
   CargoHands: 10,
+  /** Host's authoritative crates: where each is and who holds it (Phase 3 cargo loading). */
+  Crates: 11,
+  /** The guest's hands on the crates' handles (Phase 3 cargo loading). */
+  CrateHands: 12,
 } as const;
 
 /** One tracked pose: position (m) and rotation quaternion. */
@@ -585,5 +589,164 @@ export function decodeCargoHands(view: DataView, out: CargoHandsPacket): boolean
   out.tagX = view.getInt16(11) / 1000;
   out.tagZ = view.getInt16(13) / 1000;
   out.resets = view.getUint8(15);
+  return true;
+}
+
+/** Crates in a crates packet. */
+export const CRATES_IN_PACKET = 2;
+
+/**
+ * Host's crates: type(1) time(4) resets u8(1) knocks u8(1) hatch crate
+ * u8(1, 255 none), then for each crate: state u8(1) holders u8(1, two bits
+ * per handle: 0 nobody, else the crew index + 1) condition u8(1) x, y, z,
+ * yaw f32(16).
+ */
+export const CRATES_PACKET_BYTES = 8 + CRATES_IN_PACKET * 19;
+
+export interface CratePacketEntry {
+  /** An index into CRATE_STATES (src/sim/stowage.ts). */
+  state: number;
+  /** Who holds each handle: -1 nobody, else the crew index. */
+  holders: [number, number];
+  condition: number;
+  /** Bottom middle and yaw: ship space, or world for crates resting in the world. */
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+export interface CratesPacket {
+  timeMs: number;
+  resets: number;
+  knocks: number;
+  /** Which crate is in the hatch, or -1. */
+  hatch: number;
+  crates: CratePacketEntry[];
+}
+
+export function createCratesPacket(): CratesPacket {
+  const crates: CratePacketEntry[] = [];
+  for (let i = 0; i < CRATES_IN_PACKET; i++) {
+    crates.push({ state: 0, holders: [-1, -1], condition: 100, x: 0, y: 0, z: 0, yaw: 0 });
+  }
+  return { timeMs: 0, resets: 0, knocks: 0, hatch: -1, crates };
+}
+
+export function encodeCrates(buffer: ArrayBuffer, state: CratesPacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.Crates);
+  view.setUint32(1, Math.floor(state.timeMs) >>> 0);
+  view.setUint8(5, state.resets & 0xff);
+  view.setUint8(6, state.knocks & 0xff);
+  view.setUint8(7, state.hatch < 0 ? 255 : state.hatch & 0xff);
+  let o = 8;
+  for (let i = 0; i < CRATES_IN_PACKET; i++) {
+    const c = state.crates[i];
+    view.setUint8(o, c.state & 0xff);
+    view.setUint8(o + 1, ((c.holders[0] + 1) & 3) | (((c.holders[1] + 1) & 3) << 2));
+    view.setUint8(o + 2, Math.round(Math.max(0, Math.min(100, c.condition))));
+    view.setFloat32(o + 3, c.x);
+    view.setFloat32(o + 7, c.y);
+    view.setFloat32(o + 11, c.z);
+    view.setFloat32(o + 15, c.yaw);
+    o += 19;
+  }
+  return CRATES_PACKET_BYTES;
+}
+
+export function decodeCrates(view: DataView, out: CratesPacket): boolean {
+  if (view.byteLength < CRATES_PACKET_BYTES || view.getUint8(0) !== PacketType.Crates) {
+    return false;
+  }
+  out.timeMs = view.getUint32(1);
+  out.resets = view.getUint8(5);
+  out.knocks = view.getUint8(6);
+  const hatch = view.getUint8(7);
+  out.hatch = hatch === 255 ? -1 : hatch;
+  let o = 8;
+  for (let i = 0; i < CRATES_IN_PACKET; i++) {
+    const c = out.crates[i];
+    c.state = view.getUint8(o);
+    const holders = view.getUint8(o + 1);
+    c.holders[0] = (holders & 3) - 1;
+    c.holders[1] = ((holders >> 2) & 3) - 1;
+    c.condition = view.getUint8(o + 2);
+    c.x = view.getFloat32(o + 3);
+    c.y = view.getFloat32(o + 7);
+    c.z = view.getFloat32(o + 11);
+    c.yaw = view.getFloat32(o + 15);
+    o += 19;
+  }
+  return true;
+}
+
+/**
+ * The guest's hands on crates: type(1) time(4) resets u8(1), then for its
+ * left and right hands: crate u8(1, 255 none) handle u8(1) x, y, z f32(12),
+ * ship space.
+ */
+export const CRATE_HANDS_PACKET_BYTES = 6 + 2 * 14;
+
+export interface CrateHandEntry {
+  /** Which crate, or -1 for none. */
+  crate: number;
+  handle: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface CrateHandsPacket {
+  timeMs: number;
+  /** The host's restarts the guest had heard of (a hand from an older run is ignored). */
+  resets: number;
+  hands: [CrateHandEntry, CrateHandEntry];
+}
+
+export function createCrateHandsPacket(): CrateHandsPacket {
+  return {
+    timeMs: 0,
+    resets: 0,
+    hands: [
+      { crate: -1, handle: 0, x: 0, y: 0, z: 0 },
+      { crate: -1, handle: 0, x: 0, y: 0, z: 0 },
+    ],
+  };
+}
+
+export function encodeCrateHands(buffer: ArrayBuffer, state: CrateHandsPacket): number {
+  const view = new DataView(buffer);
+  view.setUint8(0, PacketType.CrateHands);
+  view.setUint32(1, Math.floor(state.timeMs) >>> 0);
+  view.setUint8(5, state.resets & 0xff);
+  let o = 6;
+  for (const hand of state.hands) {
+    view.setUint8(o, hand.crate < 0 ? 255 : hand.crate & 0xff);
+    view.setUint8(o + 1, hand.handle & 0xff);
+    view.setFloat32(o + 2, hand.x);
+    view.setFloat32(o + 6, hand.y);
+    view.setFloat32(o + 10, hand.z);
+    o += 14;
+  }
+  return CRATE_HANDS_PACKET_BYTES;
+}
+
+export function decodeCrateHands(view: DataView, out: CrateHandsPacket): boolean {
+  if (view.byteLength < CRATE_HANDS_PACKET_BYTES || view.getUint8(0) !== PacketType.CrateHands) {
+    return false;
+  }
+  out.timeMs = view.getUint32(1);
+  out.resets = view.getUint8(5);
+  let o = 6;
+  for (const hand of out.hands) {
+    const crate = view.getUint8(o);
+    hand.crate = crate === 255 ? -1 : crate;
+    hand.handle = view.getUint8(o + 1);
+    hand.x = view.getFloat32(o + 2);
+    hand.y = view.getFloat32(o + 6);
+    hand.z = view.getFloat32(o + 10);
+    o += 14;
+  }
   return true;
 }

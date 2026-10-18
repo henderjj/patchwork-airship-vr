@@ -25,7 +25,6 @@ import {
 import {
   createCargoHook,
   createCargoLine,
-  createCrate,
   createHatchDoor,
   createHatchLever,
   createTagToggle,
@@ -60,12 +59,9 @@ import {
   winchHandle,
 } from '../sim/cargo.js';
 import { shipToWorld } from '../sim/docking.js';
-import { KEEL_DEPTH } from '../sim/gondola-layout.js';
-import { groundBelow } from '../sim/islands.js';
-import { JETTY_TOP, onJetty, targetRing } from '../sim/route.js';
-import { wrapNear } from '../sim/world-tile.js';
+import { targetRing } from '../sim/route.js';
 import { settings } from '../settings.js';
-import { ROUTE, ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
+import { cargoGround, ROUTE } from '../world/route-world.js';
 import { sounds } from './audio-system.js';
 import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
@@ -74,7 +70,8 @@ import { cargo, flight, ship } from './ship-system.js';
 
 /**
  * Cargo (Phase 3, docs/cargo.md): the crate in the hatch, the hatch lever,
- * the winch and the tag line. Squeeze near the winch handle's grip and turn
+ * the winch and the tag line (StowageSystem draws the crates, this one in
+ * the hatch where the sim here has it). Squeeze near the winch handle's grip and turn
  * it (tops towards the stern lower away), near the lever's knob and pull it
  * back to open the hatch door, or near the tag line's toggle on its ring
  * and hold it over the hatch to steady the crate.
@@ -146,7 +143,6 @@ interface CargoDebug {
 }
 
 export class CargoSystem extends createSystem({}) {
-  private crate!: Mesh;
   private door!: Mesh;
   private drum!: Mesh;
   private lever!: Mesh;
@@ -169,28 +165,8 @@ export class CargoSystem extends createSystem({}) {
   private leverScript: number | null = null;
   private seenResets = -1;
   private groundOut: CargoGround = { y: 0, delivery: false };
-  /** What is under a point in the world: the route's islands (B's top and the cargo stage are delivery spots), the scenery islands and B's jetty. */
-  private readonly groundAt: GroundAt = (x, z, fromY, out) => {
-    out.y = Number.NEGATIVE_INFINITY;
-    out.delivery = false;
-    for (const island of ROUTE_ISLANDS) {
-      const r = island.radius * 0.92;
-      if ((x - island.x) ** 2 + (z - island.z) ** 2 < r * r && island.y <= fromY && island.y > out.y) {
-        out.y = island.y;
-        out.delivery = island === ROUTE.finish || island === ROUTE.cargo;
-      }
-    }
-    const scenery = groundBelow(sceneryIslands, x, z, fromY + KEEL_DEPTH, wrapNear) - KEEL_DEPTH;
-    if (scenery > out.y) {
-      out.y = scenery;
-      out.delivery = false;
-    }
-    const jetty = ROUTE.dock.y + JETTY_TOP;
-    if (jetty <= fromY && jetty > out.y && onJetty(ROUTE, x, z)) {
-      out.y = jetty;
-      out.delivery = true;
-    }
-  };
+  /** What is under a point in the world. */
+  private readonly groundAt: GroundAt = cargoGround;
   private cargoInput = createCargoInput(this.groundAt);
 
   private hostState = createCargoStatePacket();
@@ -216,7 +192,6 @@ export class CargoSystem extends createSystem({}) {
   private tagEnd = new Vector3();
 
   init(): void {
-    this.crate = this.place(createCrate());
     this.door = this.place(createHatchDoor());
     this.door.position.set(HATCH.x0, -TRUNK_DEPTH, HATCH_CENTER[1]);
     this.drum = this.place(createWinchDrum());
@@ -319,6 +294,10 @@ export class CargoSystem extends createSystem({}) {
       this.followHost(dt);
     }
     this.updateHands(dt);
+    if (cargo.phase === 'empty' || cargo.phase === 'delivered') {
+      // The empty hook stops when it is home in the trunk (the sim's line does too): a hand winding on slips off.
+      this.winch = Math.max(0, this.winch);
+    }
 
     if (host) {
       this.combine(now);
@@ -621,13 +600,9 @@ export class CargoSystem extends createSystem({}) {
   }
 
   private draw(dt: number): void {
-    // The crate, where the sim (or the host) has it.
+    // The crate on the hook, where the sim (or the host) has it (StowageSystem draws it there).
     cargo.topInShip(ship, this.top);
-    const c = this.crate;
-    c.position.set(this.top.x, this.top.y, this.top.z);
-    // Turned with the world once it rests there; upright to the deck while aboard or on the line.
-    const resting = cargo.phase === 'landed' || cargo.phase === 'delivered';
-    c.rotation.set(0, resting ? -ship.yaw : 0, 0);
+    const noCrate = cargo.phase === 'delivered' || cargo.phase === 'empty';
 
     // The door eases open or shut.
     const target = cargo.doorOpen ? -Math.PI / 2 : 0;
@@ -637,12 +612,13 @@ export class CargoSystem extends createSystem({}) {
     this.drum.rotation.x = this.winch;
     this.lever.rotation.x = this.leverAngle;
 
-    // The hook: in the sling's ring above the crate, or once delivered, hanging under the block on the line out.
+    // The hook: in the sling's ring above the crate, or with no crate on it, hanging under the block on the line out (no lower than the door while it's shut).
     const h = this.hookAt;
-    if (cargo.phase === 'delivered') {
+    if (noCrate) {
       shipToWorld(ship, BLOCK[0], BLOCK[1], BLOCK[2], this.tmp);
       this.groundAt(this.tmp.x, this.tmp.z, this.tmp.y, this.groundOut);
-      const drop = Math.min(lineFromWinch(this.winch), this.tmp.y - this.groundOut.y);
+      let drop = Math.min(lineFromWinch(this.winch), this.tmp.y - this.groundOut.y);
+      if (!cargo.doorOpen) drop = Math.min(drop, BLOCK[1] - 0.12);
       h.set(BLOCK[0], BLOCK[1] - Math.max(0.15, drop), BLOCK[2]);
     } else {
       h.set(this.top.x, this.top.y + SLING_HEIGHT, this.top.z);
@@ -650,15 +626,17 @@ export class CargoSystem extends createSystem({}) {
     this.hook.position.copy(h).setY(h.y + 0.1);
     this.span(this.hoist, BLOCK[0], BLOCK[1] - 0.03, BLOCK[2], h.x, h.y + 0.1, h.z);
 
-    // The tag line: from the crate's corner to the hand holding it, or to its ring.
+    // The tag line: from the crate's corner (or the hook, with no crate on it) to the hand holding it, or to its ring.
     const corner = this.tagEnd;
-    corner.set(TAG_CORNER[0], TAG_CORNER[1], TAG_CORNER[2]);
-    if (resting) {
-      corner.applyAxisAngle(this.up, -ship.yaw);
+    if (noCrate) {
+      corner.copy(h);
+    } else {
+      // The crate is square to the hatch (a quarter turn), so this is always one of its corners.
+      corner.set(TAG_CORNER[0], TAG_CORNER[1], TAG_CORNER[2]);
+      corner.x += this.top.x;
+      corner.y += this.top.y;
+      corner.z += this.top.z;
     }
-    corner.x += this.top.x;
-    corner.y += this.top.y;
-    corner.z += this.top.z;
     const side = this.sideHolding('tag');
     const crew = this.crewHand('tag');
     if (side) {
@@ -726,8 +704,13 @@ export class CargoSystem extends createSystem({}) {
       }
       case 'landed':
         return [condition, cargo.rest.delivery ? 'down: pay out' : 'not here: hoist', this.targetLine()];
-      default:
+      case 'delivered':
         return [condition, 'DELIVERED', this.targetLine()];
+      default: {
+        // No crate on the hook: get it ready for the next.
+        const next = cargo.doorOpen ? 'lever fwd: shut' : cargo.ready ? 'set a crate in' : 'hoist the hook';
+        return ['HATCH EMPTY', next, ''];
+      }
     }
   }
 
@@ -750,7 +733,7 @@ export class CargoSystem extends createSystem({}) {
     ctx.lineWidth = 4;
     ctx.strokeRect(2, 2, 252, 124);
     ctx.textAlign = 'center';
-    ctx.fillStyle = cargo.condition < 60 ? '#f08a5d' : '#f3e3c3';
+    ctx.fillStyle = cargo.phase !== 'empty' && cargo.condition < 60 ? '#f08a5d' : '#f3e3c3';
     ctx.font = 'bold 30px sans-serif';
     ctx.fillText(lines[0], 128, 40);
     ctx.font = 'bold 26px sans-serif';

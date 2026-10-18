@@ -53,7 +53,7 @@ import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { bell } from './route-system.js';
-import { cargo, dropBallast, flightControls, flightInfo, ship, stations } from './ship-system.js';
+import { cargo, dropBallast, flightControls, flightInfo, ship, stations, yard } from './ship-system.js';
 import { CARGO_TRIM_WEIGHT, HATCH_CENTER } from '../sim/cargo.js';
 import { buzz } from './haptics.js';
 
@@ -145,9 +145,10 @@ export class ControlsSystem extends createSystem({}) {
   private sendAccumulator = 0;
 
   private trim = { pitch: 0, roll: 0 };
-  private crewX = [0, 0, 0];
-  private crewZ = [0, 0, 0];
-  private crewWeights = [1, 1, 1];
+  /** The crew's heads and the crates aboard (two players and CRATE_COUNT crates). */
+  private crewX = [0, 0, 0, 0];
+  private crewZ = [0, 0, 0, 0];
+  private crewWeights = [1, 1, 1, 1];
   private swing = { x: 0, z: 0, vx: 0, vz: 0 };
   private tillerTmp = { x: 0, y: 0, z: 0 };
   private clapperMesh!: Mesh;
@@ -294,8 +295,8 @@ export class ControlsSystem extends createSystem({}) {
       const g = grip[side];
       this.player.gripSpaces[side].getWorldPosition(this.handPos);
       const p = this.handPos;
-      if (held === 'grapple' || held === 'winch' || held === 'lever' || held === 'tag') {
-        // GrappleSystem's and CargoSystem's: they take and let go of their gear themselves.
+      if (held === 'grapple' || held === 'winch' || held === 'lever' || held === 'tag' || held === 'crate') {
+        // GrappleSystem's, CargoSystem's and StowageSystem's: they take and let go of their gear themselves.
         continue;
       }
       if (held) {
@@ -425,12 +426,19 @@ export class ControlsSystem extends createSystem({}) {
     if (netLink.connected && netLink.haveRemote) {
       this.crewX[1] = netLink.remote.head.px;
       this.crewZ[1] = netLink.remote.head.pz;
+      this.crewWeights[1] = 1;
       count = 2;
     }
-    if (cargo.carried) {
-      // The crate, in the hatch or on the line from the block above it.
-      this.crewX[count] = HATCH_CENTER[0];
-      this.crewZ[count] = HATCH_CENTER[1];
+    // The crates aboard: the one in the hatch (or on the line from the block above it), and any stowed, in hand or falling on deck, where they are.
+    for (let i = 0; i < yard.crates.length; i++) {
+      if (!yard.isAboard(i, cargo)) continue;
+      if (i === yard.hatchCrate) {
+        this.crewX[count] = HATCH_CENTER[0];
+        this.crewZ[count] = HATCH_CENTER[1];
+      } else {
+        this.crewX[count] = yard.crates[i].x;
+        this.crewZ[count] = yard.crates[i].z;
+      }
       this.crewWeights[count] = CARGO_TRIM_WEIGHT;
       count++;
     }

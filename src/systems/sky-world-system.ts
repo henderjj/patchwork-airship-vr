@@ -155,7 +155,8 @@ export class SkyWorldSystem extends createSystem({}) {
       [ROUTE.finish, 0xd8452f],
     ];
     islands.forEach(([island, flag], i) => {
-      const mesh = new Mesh(createLandingIslandGeometry(island, flag, settings.seed + i), material);
+      // Island A has the loading stage the crates wait on (cargo loading).
+      const mesh = new Mesh(createLandingIslandGeometry(island, flag, settings.seed + i, island === ROUTE.start ? ROUTE.loading : undefined), material);
       mesh.name = `Island ${island.name}`;
       mesh.position.set(island.x, island.y, island.z);
       this.route.add(mesh);

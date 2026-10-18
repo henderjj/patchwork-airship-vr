@@ -176,6 +176,11 @@ export class GameMenuSystem extends createSystem({}) {
       this.setOpen(false);
       practiceDocking();
     });
+    ui.on('menu-load', () => {
+      // Loading is how every run starts: back to island A with the crates on the loading stage.
+      this.setOpen(false);
+      restartRoute();
+    });
     ui.on('menu-cargo', () => {
       this.setOpen(false);
       practiceCargo();

@@ -1,6 +1,6 @@
 import { BoxGeometry, type BufferGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, TorusGeometry } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, rng, shade } from '../scene-assets/lowpoly.js';
-import { jettyRoot, type LandingIsland, type Route, TARGET_RINGS } from '../sim/route.js';
+import { jettyRoot, type LandingIsland, type LoadingStage, type Route, TARGET_RINGS } from '../sim/route.js';
 
 /**
  * The route's pieces in the sky (Phase 2): the two landing islands, the
@@ -21,11 +21,13 @@ const TREE = [0x3f7d4a, 0x4b8c4f, 0x356b45];
  * A landing island: a level grass top (so the gondola sits flat on it), rock
  * below as deep as `island.depth`, a plank landing pad with a painted ring in
  * the middle, a flag of `flagColor` beside the pad, and trees round the rim.
+ * With `loading`, the loading stage too (cargo loading): a waist-high plank
+ * table on the pad beside the ship, for the crates to wait on.
  */
-export function createLandingIslandGeometry(island: LandingIsland, flagColor: number, seed: number): BufferGeometry {
+export function createLandingIslandGeometry(island: LandingIsland, flagColor: number, seed: number, loading?: LoadingStage): BufferGeometry {
   const random = rng(seed * 4093 + 11);
   const r = island.radius;
-  const parts: Part[] = [];
+  const parts: Part[] = loading ? loadingStageParts(loading, island) : [];
 
   // Level top, with only its edge roughened.
   parts.push({ geometry: new CylinderGeometry(r, r * 0.96, 0.6, 16, 1), position: [0, -0.3, 0], color: (tri, c) => (c.y > -0.05 ? shade(GRASS, 0.95 + (tri % 3) * 0.03) : shade(GRASS, 0.72)) });
@@ -167,6 +169,37 @@ export function createJettyGeometry(length: number, postHeight: number, stage?: 
 }
 
 const CRATE = 0xc08a52;
+
+/** The loading stage (route.loading, world space) in its island's own space: planks on two bearers on four legs standing on the pad. */
+function loadingStageParts(stage: LoadingStage, island: LandingIsland): Part[] {
+  const parts: Part[] = [];
+  const x0 = stage.x0 - island.x;
+  const x1 = stage.x1 - island.x;
+  const z0 = stage.z0 - island.z;
+  const z1 = stage.z1 - island.z;
+  const top = stage.top - island.y;
+  // The pad's planks' top.
+  const pad = 0.12;
+  const across = x1 - x0;
+  const along = z1 - z0;
+  const boards = 6;
+  for (let i = 0; i < boards; i++) {
+    const z = z0 + (along / boards) * (i + 0.5);
+    parts.push({ geometry: new BoxGeometry(across, 0.06, along / boards - 0.02), position: [(x0 + x1) / 2, top - 0.03, z], color: i % 2 === 0 ? PLANK : PLANK_DARK });
+  }
+  for (const x of [x0 + 0.07, x1 - 0.07]) {
+    parts.push({ geometry: new BoxGeometry(0.08, 0.1, along - 0.04), position: [x, top - 0.11, (z0 + z1) / 2], color: PLANK_DARK });
+    for (const z of [z0 + 0.1, z1 - 0.1]) {
+      parts.push(beam([x, pad, z], [x, top - 0.16, z], 0.05, POLE, 5));
+    }
+  }
+  // A brace along each side, and a bumper rail along the outboard edge so the crates read as waiting for the ship.
+  for (const x of [x0 + 0.07, x1 - 0.07]) {
+    parts.push(beam([x, pad + 0.15, z0 + 0.1], [x, top - 0.2, z1 - 0.1], 0.025, POLE, 4));
+  }
+  parts.push({ geometry: new BoxGeometry(0.05, 0.08, along), position: [x1 - 0.025, top + 0.04, (z0 + z1) / 2], color: POST_RED });
+  return parts;
+}
 
 function cargoStageParts(stage: CargoStagePlace): Part[] {
   const { x, y, z, radius } = stage;

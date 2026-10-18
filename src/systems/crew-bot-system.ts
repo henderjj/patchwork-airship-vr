@@ -15,11 +15,14 @@ import { CrankSystem } from './crank-system.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { RopeSystem } from './rope-system.js';
 import { bell } from './route-system.js';
-import { crewReady, moored, route } from './ship-system.js';
+import { cargo, crewReady, moored, route, ship, yard } from './ship-system.js';
+import { type ScriptHand, StowageSystem } from './stowage-system.js';
 import { type ObjectView, type TestHand, ThrowablesSystem } from './throwables-system.js';
+import { handleAt } from '../sim/stowage.js';
+import { DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
 
 type Vec3 = [number, number, number];
-type Mode = 'idle' | 'crank' | 'rope';
+type Mode = 'idle' | 'crank' | 'rope' | 'crate';
 type ThrowPhase = 'ready' | 'catching' | 'holding' | 'windup' | 'swing';
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -58,6 +61,8 @@ const CATCH_TIMEOUT_MS = 1000;
  * - hauls the mooring line beside the player's hands, keeping time with
  *   the ship's haul call (src/sim/crew-bot.ts, HaulRhythm), so a player who
  *   strokes on the call heaves with it;
+ * - takes the other handle of a crate the player holds by one, and moves
+ *   its hand as the player's does, so the two of them carry it together;
  * - otherwise stands on deck facing the player, reaches for a brick thrown
  *   near it, and throws it back to their chest after a moment.
  *
@@ -69,6 +74,7 @@ const CATCH_TIMEOUT_MS = 1000;
 export class CrewBotSystem extends createSystem({}) {
   private crank: CrankSystem | undefined;
   private rope: RopeSystem | undefined;
+  private stowage: StowageSystem | undefined;
   private throws: ThrowablesSystem | undefined;
   private mode: Mode = 'idle';
   /** What the bot has done, for tests and the console. */
@@ -100,6 +106,26 @@ export class CrewBotSystem extends createSystem({}) {
   private readonly ropeRests: Record<Side, (nowMs: number) => number | null> = {
     left: (nowMs) => this.haul.botRest('left', nowMs),
     right: (nowMs) => this.haul.botRest('right', nowMs),
+  };
+
+  // Crates: the one the player holds by one handle, which handle is theirs, and their hand on it as last drawn.
+  private lastCrateMs = Number.NEGATIVE_INFINITY;
+  private crate = -1;
+  private crateHandle = 0;
+  private playerHand: Vec3 = [0, 0, 0];
+  private cratePose = { x: 0, y: 0, z: 0, yaw: 0 };
+  private handleA = { x: 0, y: 0, z: 0 };
+  private handleB = { x: 0, y: 0, z: 0 };
+  private crateOut: ScriptHand[] = [{ crate: 0, handle: 0, x: 0, y: 0, z: 0 }];
+  private crateHandPose: PoseSample = { px: 0, py: 0, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 };
+  private readonly crateHands = (): ScriptHand[] => this.crateHand();
+  private readonly crateHandOverride = (): PoseSample => {
+    const out = this.crateOut[0];
+    const p = this.crateHandPose;
+    p.px = out.x;
+    p.py = out.y;
+    p.pz = out.z;
+    return p;
   };
 
   // Catching and throwing.
@@ -165,6 +191,7 @@ export class CrewBotSystem extends createSystem({}) {
     this.crank ??= this.world.getSystem(CrankSystem);
     this.rope ??= this.world.getSystem(RopeSystem);
     this.throws ??= this.world.getSystem(ThrowablesSystem);
+    this.stowage ??= this.world.getSystem(StowageSystem);
     const now = performance.now();
     const dt = Math.min(delta, 0.1);
     if (!netLink.connected) {
@@ -175,7 +202,7 @@ export class CrewBotSystem extends createSystem({}) {
       this.readPlayer(now);
     }
     this.ringWhenReady(now);
-    const mode: Mode = now - this.lastCrankMs < LET_GO_MS ? 'crank' : now - this.lastRopeMs < ROPE_LET_GO_MS ? 'rope' : 'idle';
+    const mode: Mode = now - this.lastCrankMs < LET_GO_MS ? 'crank' : now - this.lastRopeMs < ROPE_LET_GO_MS ? 'rope' : now - this.lastCrateMs < LET_GO_MS ? 'crate' : 'idle';
     this.setMode(mode);
     if (mode === 'idle') {
       this.chooseWaitSpot();
@@ -224,6 +251,50 @@ export class CrewBotSystem extends createSystem({}) {
         this.lastRopeMs = now;
       }
     }
+    this.readCrates(now);
+  }
+
+  /** A crate the player (the host, crew 0) holds by one handle only, with the other free or the bot's: the bot takes that one. */
+  private readCrates(now: number): void {
+    const r = netLink.remote;
+    for (let i = 0; i < yard.crates.length; i++) {
+      const [a, b] = yard.crates[i].holders;
+      if ((a === 0) === (b === 0)) continue;
+      const theirs = a === 0 ? 0 : 1;
+      // The player's hand on it: the drawn hand nearer their handle.
+      yard.shipPose(i, ship, cargo, this.cratePose);
+      handleAt(this.cratePose.x, this.cratePose.y, this.cratePose.z, this.cratePose.yaw, theirs, this.handleA);
+      const dl = Math.hypot(r.left.px - this.handleA.x, r.left.py - this.handleA.y, r.left.pz - this.handleA.z);
+      const dr = Math.hypot(r.right.px - this.handleA.x, r.right.py - this.handleA.y, r.right.pz - this.handleA.z);
+      const hand = dl < dr ? r.left : r.right;
+      this.playerHand[0] = hand.px;
+      this.playerHand[1] = hand.py;
+      this.playerHand[2] = hand.pz;
+      if (this.mode === 'crate' && (i !== this.crate || theirs !== this.crateHandle)) {
+        // On to another crate or handle: take hold afresh.
+        this.modeSet = false;
+      }
+      this.crate = i;
+      this.crateHandle = theirs;
+      this.lastCrateMs = now;
+      return;
+    }
+  }
+
+  /** The bot's hand on the crate's other handle: as far from it as the player's is from theirs, so the crate goes where they take it. */
+  private crateHand(): ScriptHand[] {
+    const out = this.crateOut[0];
+    if (this.crate < 0) return [];
+    yard.shipPose(this.crate, ship, cargo, this.cratePose);
+    const p = this.cratePose;
+    handleAt(p.x, p.y, p.z, p.yaw, this.crateHandle, this.handleA);
+    handleAt(p.x, p.y, p.z, p.yaw, 1 - this.crateHandle, this.handleB);
+    out.crate = this.crate;
+    out.handle = 1 - this.crateHandle;
+    out.x = this.handleB.x + this.playerHand[0] - this.handleA.x;
+    out.y = this.handleB.y + this.playerHand[1] - this.handleA.y;
+    out.z = this.handleB.z + this.playerHand[2] - this.handleA.z;
+    return this.crateOut;
   }
 
   /** On island A, ring the bell once the player has, so the ship casts off when they're ready. */
@@ -246,7 +317,7 @@ export class CrewBotSystem extends createSystem({}) {
       return;
     }
     this.modeSet = true;
-    console.info(`[Bot] ${mode === 'crank' ? 'cranking with you' : mode === 'rope' ? 'hauling the line with you' : 'waiting for a throw'}`);
+    console.info(`[Bot] ${mode === 'crank' ? 'cranking with you' : mode === 'rope' ? 'hauling the line with you' : mode === 'crate' ? 'carrying a crate with you' : 'waiting for a throw'}`);
     this.mode = mode;
     for (let h = 0; h < 2; h++) {
       this.crank?.setScriptedHand(h, null);
@@ -255,6 +326,8 @@ export class CrewBotSystem extends createSystem({}) {
       this.rope?.setScriptedHand(side, null);
       this.throws?.setScriptedHand(side, null);
     }
+    this.stowage?.setScriptedHands(null);
+    netLink.scriptedSqueeze.right = false;
     this.phase = 'ready';
     this.squeeze = false;
     this.catching = -1;
@@ -268,6 +341,10 @@ export class CrewBotSystem extends createSystem({}) {
       for (const side of SIDES) {
         this.rope?.setScriptedHand(side, this.ropeHands[side], this.ropeRests[side]);
       }
+    } else if (mode === 'crate') {
+      this.stowage?.setScriptedHands(this.crateHands);
+      netLink.handOverride.right = this.crateHandOverride;
+      netLink.scriptedSqueeze.right = true;
     } else {
       this.copyRest(this.hand);
       this.throws?.setScriptedHand('right', this.rightHand);
@@ -317,6 +394,16 @@ export class CrewBotSystem extends createSystem({}) {
         this.setHeadTarget(ROPE_X + 0.45, ROPE_Z0 + sum / n);
       }
       this.yaw = Math.PI / 2;
+    } else if (this.mode === 'crate') {
+      // On deck behind its hand, facing the crate.
+      const out = this.crateOut[0];
+      const dx = out.x - this.cratePose.x;
+      const dz = out.z - this.cratePose.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const x = Math.max(-DECK_WIDTH / 2 + 0.2, Math.min(DECK_WIDTH / 2 - 0.2, out.x + (dx / d) * 0.35));
+      const z = Math.max(-DECK_LENGTH / 2 + 0.2, Math.min(DECK_LENGTH / 2 - 0.2, out.z + (dz / d) * 0.35));
+      this.setHeadTarget(x, z);
+      this.yaw = Math.atan2(-(out.x - x), -(out.z - z));
     }
     stepTowards(this.head, this.headTarget, WALK_SPEED * dt);
   }

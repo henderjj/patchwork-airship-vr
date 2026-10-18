@@ -3,7 +3,7 @@ import { copyCurls, createFingerCurls, poseName } from '../sim/hand-pose.js';
 import { createAvatarHand, crewCoat } from '../scene-assets/avatar.scene-asset.js';
 import type { PosedHand } from '../scene-assets/hand.scene-asset.js';
 import { forcedRelease, handCurls, handUse } from './grip-system.js';
-import { HoldKind, LOCK_SLIP, LOCK_SLIP_CRANK, LockedHand } from './hand-lock.js';
+import { HoldKind, LOCK_SLIP, LOCK_SLIP_CRANK, LOCK_SLIP_CRATE, LockedHand } from './hand-lock.js';
 import { crewLook, holdKindOf, netLink, NetSystem } from './net-system.js';
 
 const SIDES = ['left', 'right'] as const;
@@ -88,7 +88,7 @@ export class OwnHandsSystem extends createSystem({}) {
         const lock = this.locks[side];
         const kind = holdKindOf(side, flags, handUse[side]);
         lock.update(dt, kind, this.gripPos, this.gripQuat, hand.position, hand.quaternion, curls);
-        if (lock.strain > (kind === HoldKind.Crank ? LOCK_SLIP_CRANK : LOCK_SLIP)) {
+        if (lock.strain > (kind === HoldKind.Crank ? LOCK_SLIP_CRANK : kind === HoldKind.Crate ? LOCK_SLIP_CRATE : LOCK_SLIP)) {
           forcedRelease[side] = true;
         }
         this.hands[side].pose(curls);

@@ -547,7 +547,8 @@ async function shipSyncChecks(host, guest) {
     `stopped ${stopped}, going again ${going}, signs "${stopSigns.join('" / "')}", then ${signsAfter.some((v) => v) ? 'still showing' : 'gone'}`);
 
   // The guest works the controls: the host's ship responds.
-  const hostInfo = () => host.page.evaluate(() => ({ ...window.__ship.info, rudder: window.__ship.controls.rudder, ballastKg: window.__ship.controls.ballastDropped }));
+  // The flight model's dropped weight also counts each crate not aboard (30 kg each).
+  const hostInfo = () => host.page.evaluate(() => ({ ...window.__ship.info, rudder: window.__ship.controls.rudder, ballastKg: window.__ship.controls.ballastDropped - 30 * (2 - window.__crates.state().aboard) }));
   await guest.page.evaluate(() => window.__controls.test({ vent: 1, rudder: 0.5 }));
   const working = await waitFor('the guest\'s vent and tiller to reach the host', async () => {
     const i = await hostInfo();
@@ -689,7 +690,89 @@ async function shipSyncChecks(host, guest) {
     const [h, g] = await Promise.all([cargoState(host.page), cargoState(guest.page)]);
     return h.pos[1] < -3 ? { h, g } : null;
   }, 40000).catch(() => null);
-  const docked = await waitFor('both to see the crate delivered and the run finish', async () => {
+  // Cargo loading (docs/cargo.md): with the first crate delivered, the run
+  // waits for the second, stowed on deck. The guest winds the empty hook back
+  // up and shuts the hatch; host and guest carry the crate into it together,
+  // one handle each; then it goes down like the first.
+  const crates = (page) => page.evaluate(() => window.__crates.state());
+  const firstDown = await waitFor('both to see the first crate delivered', async () => {
+    const [h, g] = await Promise.all([crates(host.page), crates(guest.page)]);
+    return h.crates[0].state === 'delivered' && g.crates[0].state === 'delivered' ? { h, g, run: await run(host.page) } : null;
+  }, 60000).catch(() => null);
+  await guest.page.evaluate(() => {
+    let last = performance.now();
+    window.__cargo.setWinchHand((now) => {
+      const s = window.__cargo.state();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (s.phase === 'empty') return null;
+      return s.winch - Math.min(0.8, 8 * dt);
+    });
+    window.__cargo.setLeverHand(0);
+  });
+  const hookUp = await waitFor('the hook to be wound up and the hatch shut', async () => {
+    const r = await host.page.evaluate(() => ({ ready: window.__cargo.sim.ready, sign: window.__cargo.signText() }));
+    return r.ready && r.sign[0] === 'HATCH EMPTY' ? r : null;
+  }, 30000).catch(() => null);
+  await guest.page.evaluate(() => {
+    window.__cargo.setWinchHand(null);
+    window.__cargo.setLeverHand(null);
+  });
+  // Each page leads its own handle of crate 2 towards the hatch, a little ahead of where it sees the crate.
+  const steer = (handle) => {
+    const p0 = window.__crates.state().crates[1].pos;
+    const points = [[p0[0], 0.35, p0[2]], [0.25, 0.35, 0.75], [0.25, -0.1, 0.75]];
+    let k = 0;
+    window.__crates.setHands(() => {
+      const c = window.__crates.state().crates[1];
+      if (c.state === 'hatch') return null;
+      let d;
+      let n;
+      for (;;) {
+        const w = points[k];
+        d = [w[0] - c.pos[0], w[1] - c.pos[1], w[2] - c.pos[2]];
+        n = Math.hypot(d[0], d[1], d[2]);
+        if (n >= 0.03 || k === points.length - 1) break;
+        k++;
+      }
+      if (n < 0.03 || c.pos[1] < -0.05) return null;
+      const f = Math.min(1, 0.15 / n);
+      const g = window.__crates.grabPoint(1, handle);
+      return [{ crate: 1, handle, x: g[0] + d[0] * f, y: g[1] + d[1] * f, z: g[2] + d[2] * f }];
+    });
+  };
+  await Promise.all([host.page.evaluate(steer, 0), guest.page.evaluate(steer, 1)]);
+  const together = await waitFor('the host to see both on the crate', async () => {
+    const h = await crates(host.page);
+    return h.crates[1].holders[0] === 0 && h.crates[1].holders[1] === 1 ? h : null;
+  }, 5000).catch(() => null);
+  const stowed = await waitFor('both to see the second crate in the hatch', async () => {
+    const [h, g] = await Promise.all([crates(host.page), crates(guest.page)]);
+    return h.crates[1].state === 'hatch' && g.crates[1].state === 'hatch' && h.hatch === 1 && g.hatch === 1 ? { h, g, cargo: await cargoState(host.page) } : null;
+  }, 20000).catch(() => null);
+  await Promise.all([host.page.evaluate(() => window.__crates.setHands(null)), guest.page.evaluate(() => window.__crates.setHands(null))]);
+  check('With the first crate delivered the run waits; the guest winds the hook up and shuts the hatch, and the two carry the second into it, one handle each',
+    firstDown !== null && firstDown.run.phase === 'flying' && firstDown.h.aboard === 1 && hookUp !== null && hookUp.sign[0] === 'HATCH EMPTY' &&
+      together !== null && stowed !== null && stowed.cargo.phase === 'aboard',
+    `${firstDown ? `first down, run ${firstDown.run.phase}, ${firstDown.h.aboard} aboard` : `first not down: ${JSON.stringify(await crates(host.page))}`}, ` +
+      `${hookUp ? `hook up (${hookUp.sign.join(' / ')})` : 'hook never ready'}, ${together ? 'both on it' : 'never held together'}, ` +
+      `${stowed ? `in the hatch, ${stowed.cargo.phase}` : `not stowed: host ${JSON.stringify((await crates(host.page)).crates[1])}, guest ${JSON.stringify((await crates(guest.page)).crates[1])}`}`);
+  // Down it goes, like the first.
+  await guest.page.evaluate(() => window.__cargo.setLeverHand(0.7));
+  await waitFor('the hatch to open again', async () => ((await cargoState(host.page)).phase === 'hanging' ? true : null), 5000).catch(() => null);
+  await guest.page.evaluate(() => {
+    window.__cargo.setLeverHand(null);
+    let last = performance.now();
+    window.__cargo.setWinchHand((now) => {
+      const s = window.__cargo.state();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (s.phase === 'delivered') return null;
+      const rate = s.phase === 'hanging' && s.toGo > 1.2 ? 8 : 2.5;
+      return s.winch + Math.min(0.8, rate * dt);
+    });
+  });
+  const docked = await waitFor('both to see the crates delivered and the run finish', async () => {
     const [h, g] = await Promise.all([run(host.page), run(guest.page)]);
     return h.result && g.result && g.board[0].startsWith('DELIVERED!') ? { h, g } : null;
   }, 60000).catch(() => null);
@@ -698,8 +781,9 @@ async function shipSyncChecks(host, guest) {
     window.__cargo.setTagHand(null);
     clearInterval(window.__holdHeat);
   });
-  check('The guest winds the crate down on the host\'s page, both see it alike, and both see the run finish with it delivered',
-    midLower !== null && Math.abs(midLower.h.pos[1] - midLower.g.pos[1]) < 0.4 && docked !== null && docked.h.result.cargo === docked.g.result.cargo && docked.h.result.target === docked.g.result.target,
+  check('The guest winds the crates down on the host\'s page, both see them alike, and both see the run finish with both delivered',
+    midLower !== null && Math.abs(midLower.h.pos[1] - midLower.g.pos[1]) < 0.4 && docked !== null && docked.h.result.crates === 2 && docked.g.result.crates === 2 &&
+      docked.h.result.cargo === docked.g.result.cargo && docked.h.result.target === docked.g.result.target,
     `${midLower ? `part way down at ${midLower.h.pos[1].toFixed(2)} / ${midLower.g.pos[1].toFixed(2)} m` : `never lowered: host ${JSON.stringify(await cargoState(host.page))}`}, ` +
       `${docked ? `${docked.g.board[0]}, crate ${docked.h.result.cargo}% / ${docked.g.result.cargo}%, target +${docked.h.result.target} / +${docked.g.result.target}` : `not finished: ${JSON.stringify(await cargoState(host.page))}`}`);
   check('The guest sees the host\'s run, rings the bell without restarting it, restarts it from the menu for both, and sees the same score',
@@ -1100,6 +1184,60 @@ async function botChecks(browser) {
   check('Practice crewmate: catches throws and throws them back to the player',
     thrown.throws >= 2 && botStats.catches >= thrown.throws - 1 && botStats.throws >= 2 && thrown.catches >= botStats.throws - 1,
     `player threw ${thrown.throws} and caught ${thrown.catches} back (${thrown.misses} missed, ${thrown.pickups} picked up); bot caught ${botStats.catches} and threw ${botStats.throws}`);
+
+  // Crates: the player takes one handle of a crate on the loading stage and
+  // leads it over the rail onto the deck; the bot takes the other handle and
+  // moves its hand as the player's does, so they carry it together.
+  await me.page.evaluate(() => window.__ship.fly());
+  await me.page.waitForTimeout(500);
+  await me.page.evaluate((head) => {
+    const hand = { px: 0.5, py: 1.1, pz: -0.6, qx: 0, qy: 0, qz: 0, qw: 1 };
+    const rest = { px: 0.2, py: 1.1, pz: 0.6, qx: 0, qy: 0, qz: 0, qw: 1 };
+    window.__net.setTestPose(() => ({ head: { px: 0.75, py: head[1], pz: -0.8, qx: 0, qy: 0, qz: 0, qw: 1 }, left: rest, right: hand, flags: 0 }));
+    const p0 = window.__crates.state().crates[0].pos;
+    const points = [[p0[0], 1.15, p0[2]], [0.5, 1.15, p0[2]], [0.5, 0.02, p0[2]]];
+    let k = 0;
+    window.__crates.setHands(() => {
+      const c = window.__crates.state().crates[0];
+      let d;
+      let n;
+      for (;;) {
+        const w = points[k];
+        d = [w[0] - c.pos[0], w[1] - c.pos[1], w[2] - c.pos[2]];
+        n = Math.hypot(d[0], d[1], d[2]);
+        if (n >= 0.03 || k === points.length - 1) break;
+        k++;
+      }
+      if (n < 0.03) return null;
+      const f = Math.min(1, 0.15 / n);
+      const g = window.__crates.grabPoint(0, 0);
+      hand.px = g[0] + d[0] * f;
+      hand.py = g[1] + d[1] * f;
+      hand.pz = g[2] + d[2] * f;
+      return [{ crate: 0, handle: 0, x: hand.px, y: hand.py, z: hand.pz }];
+    });
+  }, HEAD);
+  const carried = await waitFor('the bot to take the other handle', async () => {
+    const c = (await me.page.evaluate(() => window.__crates.state())).crates[0];
+    return c.holders[0] === 0 && c.holders[1] === 1 ? { c, mode: await bot.page.evaluate(() => window.__bot.mode) } : null;
+  }, 8000).catch(() => null);
+  const onDeck = await waitFor('the crate to be set on deck', async () => {
+    const c = (await me.page.evaluate(() => window.__crates.state())).crates[0];
+    return c.state === 'deck' ? c : null;
+  }, 20000).catch(() => null);
+  await me.page.evaluate((head) => {
+    window.__crates.setHands(null);
+    window.__net.setTestPose({
+      head: { px: head[0], py: head[1], pz: head[2], qx: 0, qy: 0, qz: 0, qw: 1 },
+      left: { px: 0, py: 0, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 },
+      right: { px: 0, py: 0, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 },
+      flags: 0,
+    });
+  }, HEAD);
+  check('Practice crewmate: takes the other handle of a crate the player holds by one, and they carry it over the rail onto the deck together',
+    carried !== null && carried.mode === 'crate' && onDeck !== null && onDeck.condition === 100,
+    `${carried ? `held by ${JSON.stringify(carried.c.holders)}, bot ${carried.mode}` : `bot never took it: ${JSON.stringify((await me.page.evaluate(() => window.__crates.state())).crates[0])}, bot ${await bot.page.evaluate(() => window.__bot.mode)}`}, ` +
+      `${onDeck ? `on deck at ${onDeck.pos.map((v) => v.toFixed(2)).join(', ')}, ${onDeck.condition}%` : 'never set on deck'}`);
 
   const errors = [...me.errors, ...bot.errors].filter((m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'));
   await me.context.close();

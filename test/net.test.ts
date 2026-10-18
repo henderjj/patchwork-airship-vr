@@ -215,3 +215,41 @@ describe('controls packets', () => {
     expect(out.rudder).toBeCloseTo(-0.75, 4);
   });
 });
+
+describe('crate packets', () => {
+  it('round-trip the host crates and the guest hands on them', async () => {
+    const c = await import('../src/net/pose-codec.js');
+    const buffer = new ArrayBuffer(c.CRATES_PACKET_BYTES);
+    const state = c.createCratesPacket();
+    Object.assign(state, { timeMs: 1234.5, resets: 258, knocks: 7, hatch: 1 });
+    Object.assign(state.crates[0], { state: 0, holders: [1, -1], condition: 63.4, x: -182.41, y: 102.05, z: -448.3, yaw: 2.5 });
+    Object.assign(state.crates[1], { state: 4, holders: [0, 1], condition: 100, x: 0.25, y: -0.36, z: 0.75, yaw: -1.5708 });
+    expect(c.encodeCrates(buffer, state)).toBe(c.CRATES_PACKET_BYTES);
+    const out = c.createCratesPacket();
+    expect(c.decodeCrates(new DataView(buffer), out)).toBe(true);
+    expect(out).toMatchObject({ timeMs: 1234, resets: 2, knocks: 7, hatch: 1 });
+    expect(out.crates[0]).toMatchObject({ state: 0, holders: [1, -1], condition: 63 });
+    expect(out.crates[0].x).toBeCloseTo(-182.41, 3);
+    expect(out.crates[0].z).toBeCloseTo(-448.3, 3);
+    expect(out.crates[1]).toMatchObject({ state: 4, holders: [0, 1], condition: 100 });
+    expect(out.crates[1].yaw).toBeCloseTo(-1.5708, 5);
+    state.hatch = -1;
+    c.encodeCrates(buffer, state);
+    c.decodeCrates(new DataView(buffer), out);
+    expect(out.hatch).toBe(-1);
+
+    const hands = new ArrayBuffer(c.CRATE_HANDS_PACKET_BYTES);
+    const h = c.createCrateHandsPacket();
+    Object.assign(h, { timeMs: 9, resets: 4 });
+    Object.assign(h.hands[0], { crate: 1, handle: 1, x: 0.5, y: 1.1, z: -0.4 });
+    expect(c.encodeCrateHands(hands, h)).toBe(c.CRATE_HANDS_PACKET_BYTES);
+    const back = c.createCrateHandsPacket();
+    expect(c.decodeCrateHands(new DataView(hands), back)).toBe(true);
+    expect(back.hands[0]).toMatchObject({ crate: 1, handle: 1 });
+    expect(back.hands[0].y).toBeCloseTo(1.1, 5);
+    expect(back.hands[1].crate).toBe(-1);
+    // Neither is taken for the other.
+    expect(c.decodeCrates(new DataView(hands), out)).toBe(false);
+    expect(c.decodeCrateHands(new DataView(buffer), back)).toBe(false);
+  });
+});

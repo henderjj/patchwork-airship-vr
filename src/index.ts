@@ -2,6 +2,7 @@ import { PhysicsSystem, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { preferHighPerformanceGpu } from './gpu-preference.js';
 import { CargoSystem } from './systems/cargo-system.js';
+import { StowageSystem } from './systems/stowage-system.js';
 import { ComfortSystem } from './systems/comfort-system.js';
 import { ControlsSystem } from './systems/controls-system.js';
 import { RouteSystem } from './systems/route-system.js';
@@ -61,6 +62,8 @@ World.create(
   world.registerSystem(ControlsSystem);
   // After the crank, rope and controls, so it knows which hands they hold; before the throwables, which skip hands on the cargo gear.
   world.registerSystem(CargoSystem);
+  // After the cargo gear (whose hands it skips, and whose crate in the hatch it draws); before the throwables, which skip hands on crates.
+  world.registerSystem(StowageSystem);
   world.registerSystem(RouteSystem);
   world.registerSystem(SignsSystem);
   // After the ship, crank and route have moved on this frame.

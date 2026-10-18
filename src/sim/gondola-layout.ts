@@ -6,6 +6,8 @@
 
 export const DECK_WIDTH = 2.0;
 export const DECK_LENGTH = 3.0;
+/** The top rail runs round the deck this high above it, m. */
+export const RAIL_HEIGHT = 1.0;
 /** How far the hull's keel is below the deck: a ship resting on the ground has its deck this high. */
 export const KEEL_DEPTH = 0.56;
 
