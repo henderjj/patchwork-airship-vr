@@ -11,9 +11,9 @@ The ship starts resting on island A, and the crew flies a short route: lift off,
 | Ring 2 | 200 m on, about 35° to port, a little lower | |
 | Island B | 170 m on, about 30° to port, below the start | A plank pad with a red flag, a beacon mast whose lamp shows through the haze, and a jetty out towards ring 2 with a red and white mooring post at its end |
 
-About 550 m in all: roughly three minutes with one player cranking, under two with both. Scenery islands are kept at least 45 m (plus their size) from the path.
+About 550 m in all: roughly three minutes with one player cranking in a crew, two playing alone, and about a minute and a half with both cranking in step. Scenery islands are kept at least 45 m (plus their size) from the path.
 
-The wind ([wind.md](wind.md)): an updraft (rising gold streaks under a puffy cloud) on the way to ring 1, a downdraft (falling slate blue streaks) on the straight line between the rings, gusts from abeam that come at different times each run, and a wind sock on each landing island.
+The wind ([wind.md](wind.md)): an updraft (rising white streaks under a puffy cloud) on the way to ring 1, a downdraft (falling white streaks) on the straight line between the rings, gusts from abeam that come at different times each run, and a wind sock on each landing island.
 
 ## Rules
 

@@ -603,6 +603,7 @@ export class ShipSystem extends createSystem({
         const swing = (this.keys.starboard ? 1 : 0) - (this.keys.port ? 1 : 0);
         c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
         c.crankSpeed = crankInfo.speed;
+        c.solo = !netLink.connected;
         // Once the crate is delivered the ship is that much lighter.
         c.ballastDropped = ballastDropped(flightInfo.ballastMask) + (cargo.carried ? 0 : CRATE_KG);
         if (route.phase === 'ready') {

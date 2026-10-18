@@ -37,9 +37,9 @@ const GUST_STREAK_LIFE = 8;
 /** The wind that blows a sock straight out, m/s. */
 const SOCK_FULL = 2;
 
-// Warm gold rising and slate blue sinking: both stand out against the pale sky.
-const UPDRAFT_COLOR = 0xffc65c;
-const DOWNDRAFT_COLOR = 0x5d7799;
+// All moving air is white streaks (John, 2026-10-18): a draft's streaks
+// rising or falling show which it is.
+const AIR_COLOR = 0xffffff;
 
 interface DraftView {
   draft: Draft;
@@ -99,7 +99,7 @@ export class WindSystem extends createSystem({}) {
       const rising = draft.speed > 0;
       // Double-sided: each streak's two crossed quads must show from either side.
       const material = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.6, side: DoubleSide });
-      const mesh = new InstancedMesh(createStreakGeometry(5, 0.4, rising ? UPDRAFT_COLOR : DOWNDRAFT_COLOR, true), material, DRAFT_STREAKS);
+      const mesh = new InstancedMesh(createStreakGeometry(5, 0.4, AIR_COLOR, true), material, DRAFT_STREAKS);
       mesh.name = rising ? 'Updraft' : 'Downdraft';
       mesh.frustumCulled = false;
       const view: DraftView = {
@@ -130,7 +130,7 @@ export class WindSystem extends createSystem({}) {
     }
 
     this.gustMaterial = new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, opacity: 0.5, side: DoubleSide });
-    this.gusts = new InstancedMesh(createStreakGeometry(6, 0.2, 0xffffff, false), this.gustMaterial, GUST_STREAKS);
+    this.gusts = new InstancedMesh(createStreakGeometry(6, 0.2, AIR_COLOR, false), this.gustMaterial, GUST_STREAKS);
     this.gusts.name = 'Gust Streaks';
     this.gusts.frustumCulled = false;
     this.gusts.count = 0;

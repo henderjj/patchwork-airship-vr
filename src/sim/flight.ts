@@ -80,6 +80,8 @@ export interface FlightParams {
   verticalDrag: number;
   /** Airspeed per rad/s of crank speed, m/s. */
   speedPerCrank: number;
+  /** The same with no crewmate in the game, m/s: a playing-alone boost. */
+  soloSpeedPerCrank: number;
   /** Seconds for the airspeed to settle at the crank's speed. */
   speedLag: number;
   /** Fastest astern speed, as a fraction of the speed limit. */
@@ -111,9 +113,12 @@ export const DEFAULT_FLIGHT: FlightParams = {
   ventCooling: 0.12,
   liftPerDegree: 0.02,
   verticalDrag: 0.25,
-  // One player cranking (about 3.2 rad/s) gives about 2.4 m/s; two in step
-  // (about 9.6 rad/s) reach the speed limit.
-  speedPerCrank: 0.75,
+  // One player cranking (about 3.2 rad/s) gives about 3.2 m/s, enough to
+  // get about and hold a line in a gust; two in step (about 9.5 rad/s) reach
+  // the 7 m/s limit, a sprint rather than a need (John, 2026-10-18). Playing
+  // alone, one player makes about 4.8 m/s.
+  speedPerCrank: 1,
+  soloSpeedPerCrank: 1.5,
   speedLag: 6,
   reverseFraction: 0.4,
   rudderFullSpeed: 3,
@@ -141,6 +146,8 @@ export interface FlightControls {
   rudder: number;
   /** Propeller crank speed, rad/s: positive drives the ship ahead, negative astern. */
   crankSpeed: number;
+  /** No crewmate in the game: the crank drives at `soloSpeedPerCrank`. */
+  solo: boolean;
   /** Ballast dropped so far, kg. */
   ballastDropped: number;
   /** Lean from where the crew and cargo stand: nose-up pitch and starboard-down roll, radians. */
@@ -153,7 +160,7 @@ export interface FlightControls {
 }
 
 export function createFlightControls(): FlightControls {
-  return { burner: 0, vent: 0, rudder: 0, crankSpeed: 0, ballastDropped: 0, trimPitch: 0, trimRoll: 0, gustX: 0, gustZ: 0, draft: 0 };
+  return { burner: 0, vent: 0, rudder: 0, crankSpeed: 0, solo: false, ballastDropped: 0, trimPitch: 0, trimRoll: 0, gustX: 0, gustZ: 0, draft: 0 };
 }
 
 const DEG = Math.PI / 180;
@@ -260,7 +267,7 @@ export class FlightSim {
     this.climb = clamp(this.climb + climbAccel * dt, -lim.maxClimb, lim.maxClimb);
 
     // Airspeed from the crank, eased and capped; negative is astern.
-    const wanted = clamp(c.crankSpeed * p.speedPerCrank, -lim.maxSpeed * p.reverseFraction, lim.maxSpeed);
+    const wanted = clamp(c.crankSpeed * (c.solo ? p.soloSpeedPerCrank : p.speedPerCrank), -lim.maxSpeed * p.reverseFraction, lim.maxSpeed);
     let speedAccel = clamp((wanted - this.airspeed) / p.speedLag, -lim.maxAccel, lim.maxAccel);
     this.airspeed += speedAccel * dt;
 
