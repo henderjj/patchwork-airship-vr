@@ -12,5 +12,17 @@
   <body style="margin: 0">
     <div id="scene-container"></div>
     <script type="module" src="/src/index.ts"></script>
+    <script>
+      // Cloudflare Web Analytics (cookieless page views), live site only so
+      // local dev and the browser tests never load it. The token is public.
+      if (location.hostname === "henderjj.github.io") {
+        const beacon = document.createElement("script");
+        beacon.type = "module";
+        beacon.src = "https://static.cloudflareinsights.com/beacon.min.js";
+        beacon.dataset.cfBeacon =
+          '{"token": "2b6d5e1dcbc94470af42577fa942d8e1"}';
+        document.body.appendChild(beacon);
+      }
+    </script>
   </body>
 </html>
