@@ -1061,7 +1061,8 @@ async function main() {
   const finished = await waitFor('the run to finish', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 10000).catch(() => null);
   const scoreBoard = boardAfterRedraw('__route');
   check('Made fast at island B with the crate delivered finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 &&
-      finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crate ${finished.cargo}%`,
+      finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crate ${finished.cargo}%   Target +${finished.target}` &&
+      [0, 20, 50, 100].includes(finished.target),
     scoreBoard.join(' | '));
   evalInApp('(clearInterval(window.__holdHeat), [window.__ship.flight.params.windSpeed, window.__ship.flight.params.windVariation] = window.__savedBreeze)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0.45, 1.55, -0.55]) });

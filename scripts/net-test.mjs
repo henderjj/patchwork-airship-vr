@@ -699,9 +699,9 @@ async function shipSyncChecks(host, guest) {
     clearInterval(window.__holdHeat);
   });
   check('The guest winds the crate down on the host\'s page, both see it alike, and both see the run finish with it delivered',
-    midLower !== null && Math.abs(midLower.h.pos[1] - midLower.g.pos[1]) < 0.4 && docked !== null && docked.h.result.cargo === docked.g.result.cargo,
+    midLower !== null && Math.abs(midLower.h.pos[1] - midLower.g.pos[1]) < 0.4 && docked !== null && docked.h.result.cargo === docked.g.result.cargo && docked.h.result.target === docked.g.result.target,
     `${midLower ? `part way down at ${midLower.h.pos[1].toFixed(2)} / ${midLower.g.pos[1].toFixed(2)} m` : `never lowered: host ${JSON.stringify(await cargoState(host.page))}`}, ` +
-      `${docked ? `${docked.g.board[0]}, crate ${docked.h.result.cargo}% / ${docked.g.result.cargo}%` : `not finished: ${JSON.stringify(await cargoState(host.page))}`}`);
+      `${docked ? `${docked.g.board[0]}, crate ${docked.h.result.cargo}% / ${docked.g.result.cargo}%, target +${docked.h.result.target} / +${docked.g.result.target}` : `not finished: ${JSON.stringify(await cargoState(host.page))}`}`);
   check('The guest sees the host\'s run, rings the bell without restarting it, restarts it from the menu for both, and sees the same score',
     guestFlying !== null && rungOn === 'flying' && restarted !== null && docked !== null && docked.g.result.score === docked.h.result.score,
     `${guestFlying ? `guest clock ${guestFlying.seconds.toFixed(1)} s` : 'guest never saw the run start'}, ${rungOn} after two rings, ` +

@@ -62,7 +62,7 @@ import {
 import { shipToWorld } from '../sim/docking.js';
 import { KEEL_DEPTH } from '../sim/gondola-layout.js';
 import { groundBelow } from '../sim/islands.js';
-import { JETTY_TOP, onJetty } from '../sim/route.js';
+import { JETTY_TOP, onJetty, targetRing } from '../sim/route.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { settings } from '../settings.js';
 import { ROUTE, ROUTE_ISLANDS, sceneryIslands } from '../world/route-world.js';
@@ -725,10 +725,16 @@ export class CargoSystem extends createSystem({}) {
         return [condition, Number.isFinite(toGo) ? `${toGo.toFixed(1)} m to go` : 'lower away', swinging];
       }
       case 'landed':
-        return [condition, cargo.rest.delivery ? 'down: pay out' : 'not here: hoist'];
+        return [condition, cargo.rest.delivery ? 'down: pay out' : 'not here: hoist', this.targetLine()];
       default:
-        return [condition, 'DELIVERED'];
+        return [condition, 'DELIVERED', this.targetLine()];
     }
+  }
+
+  /** Where on the cargo stage's target the crate sits, and its points. */
+  private targetLine(): string {
+    const ring = targetRing(ROUTE, cargo.rest.x, cargo.rest.z);
+    return ring ? `${ring.name} +${ring.points}` : '';
   }
 
   private drawSign(): void {
@@ -750,7 +756,8 @@ export class CargoSystem extends createSystem({}) {
     ctx.font = 'bold 26px sans-serif';
     ctx.fillStyle = cargo.phase === 'delivered' ? '#7fd17f' : '#e8d4a2';
     ctx.fillText(lines[1] ?? '', 128, 78);
-    ctx.fillStyle = '#f08a5d';
+    // Swinging is a warning; once down, it's the target's points.
+    ctx.fillStyle = cargo.phase === 'hanging' ? '#f08a5d' : '#e9c46a';
     ctx.fillText(lines[2] ?? '', 128, 112);
     texture.needsUpdate = true;
   }

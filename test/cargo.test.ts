@@ -13,7 +13,7 @@ import {
   WINCH_MAX,
 } from '../src/sim/cargo.js';
 import { alongsidePost, shipToWorld } from '../src/sim/docking.js';
-import { CALM_SKIES, JETTY_TOP, onJetty } from '../src/sim/route.js';
+import { CALM_SKIES, JETTY_TOP, onJetty, targetPoints } from '../src/sim/route.js';
 import { createShipState, type ShipState, updateQuaternion } from '../src/sim/ship-motion.js';
 
 const DT = 1 / 90;
@@ -116,6 +116,8 @@ describe('cargo', () => {
     // It's on the stage, 6 m under the jetty.
     expect(sim.rest.y).toBeCloseTo(ROUTE.cargo.y, 3);
     expect(Math.hypot(sim.rest.x - ROUTE.cargo.x, sim.rest.z - ROUTE.cargo.z)).toBeLessThan(ROUTE.cargo.radius);
+    // Lowered straight down from a ship lying as practice cargo starts it, it hits the bullseye.
+    expect(targetPoints(ROUTE, sim.rest.x, sim.rest.z)).toBe(100);
   });
 
   it('needs slack in the line before the hook slips out, and isn\'t delivered until then', () => {
@@ -195,6 +197,12 @@ describe('cargo', () => {
     expect(sim.knocks).toBeGreaterThan(0);
     expect(sim.condition).toBeLessThan(100);
     expect(Math.abs(sim.pos.x - HATCH_CENTER[0])).toBeLessThanOrEqual(0.051);
+  });
+
+  it("puts the hatch of a ship made fast straight out from the post right over the stage's target", () => {
+    const f = { x: 0, y: 0, z: 0 };
+    shipToWorld(madeFast(), HATCH_CENTER[0], 0, HATCH_CENTER[1], f);
+    expect(Math.hypot(f.x - ROUTE.cargo.x, f.z - ROUTE.cargo.z)).toBeLessThan(0.05);
   });
 
   it('puts the hatch of a ship made fast at the post over the cargo stage whichever way round the post it lies', () => {

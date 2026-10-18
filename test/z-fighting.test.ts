@@ -91,7 +91,8 @@ describe('no faces that flicker through each other (z-fighting)', () => {
   });
 
   it('on the route: the jetty with its cargo stage, the landing islands, rings and beacons', () => {
-    expectNone([mesh(route.createJettyGeometry(10, 1.25, { x: 0, y: -6, z: -1.5, radius: 4.5, depth: 6 }), 'Jetty')], WORLD_GAP);
+    const jetty = route.jettyPlacement(CALM_SKIES);
+    expectNone([mesh(route.createJettyGeometry(jetty.length, CALM_SKIES.dock.height, jetty.stage), 'Jetty')], WORLD_GAP);
     expectNone([mesh(route.createLandingIslandGeometry(CALM_SKIES.start, 0xc8402c, 1), 'Island A')], WORLD_GAP);
     expectNone([mesh(route.createLandingIslandGeometry(CALM_SKIES.finish, 0x3a6fc8, 2), 'Island B')], WORLD_GAP);
     expectNone([mesh(route.createRingGeometry(4), 'Ring')], WORLD_GAP);

@@ -178,7 +178,7 @@ export class RouteSystem extends createSystem({}) {
           `SCORE ${r.score}${this.best > 0 ? `   BEST ${this.best}` : ''}`,
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
           `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
-          `Crate ${r.cargo ?? 100}%`,
+          `Crate ${r.cargo ?? 100}%   Target +${r.target ?? 0}`,
           'Game menu: Restart to fly again',
         ];
       }
