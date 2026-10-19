@@ -7,8 +7,8 @@
 | `npm run typecheck` | TypeScript for the game (and `npm run --prefix lobby typecheck` for the lobby) | seconds |
 | `npm test` | Unit tests in `test/` (Vitest): simulation, networking, perf stats, and the geometry check for faces that flicker ([below](#z-fighting)); no browser | seconds |
 | `npm run build` | The production build | 15 s |
-| `npm run test:xr` | `scripts/xr-smoke-test.mjs`: one emulated Quest 3 in the IWSDK dev runtime, driven through the IWSDK CLI (kept loaded in a worker thread with one open browser connection, `scripts/iwsdk-worker.mjs`; `IWSDK_SPAWN=1` starts a process per call as before): hands, walking, bricks, crank, line, tracked hands, flight, gondola controls, route, cargo loading, docking, cargo, wind, bell, audio, frame rate | about 5 min, the longest job |
-| `npm run test:net` | `scripts/net-test.mjs`: two Playwright browsers against `vite preview` and the local lobby: connection, voice, ship sync, controls, crank and haul in step, throws, presence, reconnects, lag, a gust sent from the guest, two players carrying a crate, the practice crewmate (run `npm run build` first) | about 4 min |
+| `npm run test:xr` | `scripts/xr-smoke-test.mjs`: one emulated Quest 3 in the IWSDK dev runtime, driven through the IWSDK CLI (kept loaded in a worker thread with one open browser connection, `scripts/iwsdk-worker.mjs`; `IWSDK_SPAWN=1` starts a process per call as before): hands, walking, bricks, crank, line, tracked hands, flight, gondola controls, route, cargo loading, docking, cargo, wind, climbing and repairs, bell, audio, frame rate | about 5 min, the longest job |
+| `npm run test:net` | `scripts/net-test.mjs`: two Playwright browsers against `vite preview` and the local lobby: connection, voice, ship sync, controls, crank and haul in step, throws, presence, reconnects, lag, a gust sent from the guest, two players carrying a crate, the practice crewmate (including holding a tear shut while the player patches it) (run `npm run build` first) | about 4 min |
 
 ## How CI runs them
 
@@ -26,7 +26,7 @@ What gets skipped, and why it is safe:
 
 The Chromium download for the browser tests is kept in the Actions cache, keyed on the Playwright version.
 
-Both browser tests keep the wind's automatic gusts off so a gust doesn't push their other checks about (the XR test with `window.__wind.setAuto(false)`, the net test by loading its pages with `gusts=0`); their wind checks send one from the game menu's Practice → Gusts.
+Both browser tests keep the wind's automatic gusts off so a gust doesn't push their other checks about (the XR test with `window.__wind.setAuto(false)`, the net test by loading its pages with `gusts=0`); their wind checks send one from the game menu's Practice → Gusts. In the same way both keep the envelope from tearing on its own (the XR test with `window.__repairs.setRate('off')`, the net test with `tears=off`); their repair checks tear it themselves.
 
 ## While developing
 

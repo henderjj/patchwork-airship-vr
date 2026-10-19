@@ -8,6 +8,7 @@ import { DEFAULT_CHARACTER_HEIGHT, EYES_BELOW_TOP, MAX_CHARACTER_HEIGHT, MIN_CHA
 import { body, chooseBody } from './body-height-system.js';
 import { OPEN_MENU_EVENT } from './net-system.js';
 import { PanelUi } from './panel-ui.js';
+import { tearNow } from './repair-system.js';
 import { practiceCargo, practiceDocking, restartRoute, sendGust, stopButton } from './ship-system.js';
 import { startScreen } from './start-screen-system.js';
 
@@ -188,6 +189,10 @@ export class GameMenuSystem extends createSystem({}) {
     ui.on('menu-gust', () => {
       this.setOpen(false);
       sendGust();
+    });
+    ui.on('menu-tear', () => {
+      this.setOpen(false);
+      tearNow();
     });
     ui.on('menu-exit', () => {
       this.setOpen(false);

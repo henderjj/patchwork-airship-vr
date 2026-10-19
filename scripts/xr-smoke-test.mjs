@@ -389,9 +389,11 @@ async function main() {
     `hidden ${hiddenAtFirst}, shown while held ${whileHeld}, shown after release ${afterRelease}`);
   // The game starts in flight on island A; the spike checks below want the
   // ship held still (6b switches to the flight model again). Gusts come only
-  // when the wind checks (6f) send one, so they don't push the others about.
+  // when the wind checks (6f) send one, so they don't push the others about;
+  // the envelope tears only when the repair checks (6g) tear it.
   evalInApp("window.__ship.setProfile('still')");
   evalInApp('window.__wind.setAuto(false)');
+  evalInApp("window.__repairs.setRate('off')");
 
   // 1b. Thumbstick walking stops the head at the rails wherever the player
   //     stands in their room: here 0.8 m behind and 0.5 m left of its middle.
@@ -1128,7 +1130,7 @@ async function main() {
     delivered !== null && delivered.condition >= 70 && delivered.line > 7, JSON.stringify(delivered ?? evalInApp('window.__cargo.state()')));
   const finished = await waitFor('the run to finish', () => evalInApp("window.__route.run.phase === 'finished' ? window.__route.run.result : null"), 10000).catch(() => null);
   const scoreBoard = boardAfterRedraw('__route');
-  check('Made fast at island B with the crate in the hatch delivered (the other left on A) finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 &&
+  check('Made fast at island B with the crate in the hatch delivered (the other left on A) finishes the run with a score', finished !== null && finished.rings === 2 && finished.score > 0 && finished.tears === 0 && finished.unmended === 0 &&
       finished.crates === 1 && finished.cratesTotal === 2 && evalInApp('window.__crates.state().crates[0].state') === 'delivered' &&
       finished.cargo === Math.round(delivered?.condition ?? -1) && scoreBoard[0].startsWith('DELIVERED!') && scoreBoard[4] === `Crates 1/2 ${finished.cargo}%   Target +${finished.target}` &&
       [0, 20, 50, 100].includes(finished.target),
@@ -1275,6 +1277,132 @@ async function main() {
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-wind-updraft.png'], {});
   evalInApp('clearInterval(window.__holdHeat)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
+
+  // 6g. Phase 3 repairs (docs/repairs.md): climb the ladder to the patch
+  //     loft hand over hand (a real emulated hand), then mend a tear in the
+  //     envelope overhead: held shut by one hand (playing alone), a patch
+  //     pressed on and four rivets hammered up into it (scripted hands, as
+  //     the emulator can't swing a hammer at CI frame rates). A patch put on
+  //     a tear nobody holds is rushed, and peels off.
+  evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 130, -40, 0)');
+  evalInApp(`(() => {
+    const f = window.__ship.flight;
+    clearInterval(window.__holdHeat);
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb = 0; }, 50);
+  })()`);
+  await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
+  const headY = () => evalInApp('window.__debug.world.player.head.getWorldPosition(window.__debug.world.player.position.clone()).y');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.5, 1.6, 0.55]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.86, y: 1.6, z: 0.55 } });
+  const deckEye = headY();
+  await move([-0.84, 1.5, 0.55]);
+  await squeeze(1);
+  const onRung = evalInApp('({ ...window.__climb.state(), lock: window.__ownHands.locked("right") })');
+  // Pull the hand down 0.6 m: it stays on the rung and the player rises.
+  const rungAt = toOrigin([-0.84, 1.5, 0.55]);
+  iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: { ...rungAt, y: rungAt.y - 0.6 }, duration: 0.8 });
+  await sleep(1200);
+  const climbed = evalInApp('({ ...window.__climb.state(), hand: window.__ownHands.position("right") })');
+  await squeeze(0);
+  await sleep(300);
+  const hanging = evalInApp('window.__climb.state()');
+  check('Squeezing a rung and pulling down climbs the ladder hand over hand, and letting go stays put partway up',
+    onRung.holding.right && Math.abs(climbed.height - 0.6) < 0.1 && climbed.between && Math.abs(climbed.hand[1] - 1.5) < 0.1 && Math.abs(hanging.height - climbed.height) < 0.02 && !hanging.holding.right,
+    `held ${onRung.holding.right}, lock ${Number(onRung.lock).toFixed(2)}, raised ${climbed.height.toFixed(2)} m with the hand at ${climbed.hand[1].toFixed(2)} m, then ${hanging.height.toFixed(2)} m let go`);
+  evalInApp('window.__climb.place(true)');
+  await sleep(300);
+  const loftEye = headY();
+  const onLoft = evalInApp('window.__climb.state()');
+  check('At the top the player stands on the patch loft, eyes about 4.1 m above the deck',
+    onLoft.onLoft && onLoft.feet === 2.45 && Math.abs(loftEye - 4.1) < 0.15, `eyes ${deckEye.toFixed(2)} m on deck, ${loftEye.toFixed(2)} m on the loft, feet ${onLoft.feet} m`);
+  // Practice → Tear it now opens a tear; here the one inboard of the hatch, over the player.
+  const ripsBefore = evalInApp('window.__audio.played.rip');
+  evalInApp("window.__gameMenu.click('menu-tear')");
+  await sleep(300);
+  const menuTear = evalInApp('window.__repairs.state()');
+  evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 130, -40, 0)');
+  await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
+  evalInApp('window.__repairs.open(1)');
+  await sleep(1500);
+  const torn = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText(), board: window.__route.boardText(), hiss: window.__audio.loops().hiss, rips: window.__audio.played.rip })');
+  check("The menu's Tear it now tears the envelope: the tear leaks, hisses and the signs and board say so",
+    menuTear.unmended === 1 && torn.tears[1].phase === 'open' && torn.leak > 0.005 && torn.sign[0] === 'TEAR!' && torn.board[4].includes('TEAR!') && torn.rips >= ripsBefore + 2 && torn.hiss > 0.05,
+    `menu: ${menuTear.unmended} unmended; ${torn.tears[1].phase} ${torn.tears[1].length.toFixed(2)} m, leaking ${torn.leak.toFixed(3)}/s, sign ${torn.sign.join(' / ')}, board ${torn.board[4]}, ${torn.rips - ripsBefore} rips, hiss ${torn.hiss.toFixed(2)}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.22, 4.1, 0.95]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.3, y: 4.5, z: 0.5 } });
+  await sleep(600);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-repairs-tear.png'], {});
+  // The real right hand takes the torn edge: alone, one hand holds it shut.
+  await move(evalInApp('window.__repairs.edgePoint(1, 0.5)'));
+  await squeeze(1);
+  const holding = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText() })');
+  check('A hand squeezed on the torn edge holds it, and playing alone one hand holds it shut',
+    holding.held.right === 'edge' && holding.tears[1].hands === 1 && holding.tears[1].closed && holding.leak < torn.leak / 3 && holding.sign[2] === 'held: patch it',
+    `right hand holds ${holding.held.right}, ${holding.tears[1].hands} hand(s), ${holding.tears[1].closed ? 'shut' : 'open'}, leaking ${holding.leak.toFixed(3)}/s, sign ${holding.sign.join(' / ')}`);
+  // The other hand takes a patch from the box and presses it on, then the hammer from its rack and strikes up four rivets.
+  const slapsBefore = evalInApp('window.__audio.played.slap');
+  const rivetsBefore = evalInApp('window.__audio.played.rivet');
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.boxPoint(), false])');
+  await sleep(200);
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.boxPoint(), true])');
+  await sleep(200);
+  const tookPatch = evalInApp('window.__repairs.state().held.left');
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.patchHand(1), true])');
+  await sleep(300);
+  const patched = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText() })');
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.hammerPoint(), false])');
+  await sleep(200);
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.hammerPoint(), true])');
+  await sleep(200);
+  const tookHammer = evalInApp('window.__repairs.state().held.left');
+  evalInApp(`(() => {
+    const t0 = performance.now();
+    window.__repairs.setHand('left', (now) => {
+      const k = Math.max(0, now - t0) / 300;
+      const r = Math.min(3, Math.floor(k));
+      const p = window.__repairs.rivetHand(1, r);
+      return { x: p[0], y: p[1] - 0.18 + 0.24 * Math.min(1, k - r), z: p[2], squeeze: true };
+    });
+  })()`);
+  await sleep(1600);
+  const mended = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText(), slaps: window.__audio.played.slap, clinks: window.__audio.played.rivet })');
+  check('A patch from the box pressed on the held tear sticks, and four hammer strokes rivet it sound',
+    tookPatch === 'patch' && patched.tears[1].phase === 'patched' && !patched.tears[1].rushed && patched.sign[0] === 'PATCH ON' && tookHammer === 'hammer' &&
+      mended.tears[1].phase === 'sound' && mended.tears[1].rivets === 15 && mended.leak === 0 && mended.held.right === null && mended.slaps === slapsBefore + 1 && mended.clinks === rivetsBefore + 4 && mended.sign[1] === 'sound',
+    `took ${tookPatch}, then ${patched.tears[1].phase}${patched.tears[1].rushed ? ' (rushed)' : ''}, took ${tookHammer}, then ${mended.tears[1].phase} with rivets ${mended.tears[1].rivets.toString(2)}, ` +
+      `${mended.slaps - slapsBefore} slap(s) and ${mended.clinks - rivetsBefore} clinks, right hand ${mended.held.right}, sign ${mended.sign.join(' / ')}`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.3, y: 4.5, z: 0.5 } });
+  await sleep(400);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-repairs-riveted.png'], {});
+  await squeeze(0);
+  // A patch on a tear nobody holds is rushed: it peels in its last seconds and then the tear is open again.
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.hammerPoint(), false])');
+  await sleep(300);
+  evalInApp('window.__repairs.open(0)');
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.boxPoint(), false])');
+  await sleep(200);
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.boxPoint(), true])');
+  await sleep(200);
+  evalInApp('window.__repairs.setHand("left", [...window.__repairs.patchHand(0), true])');
+  await sleep(300);
+  const rushed = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText() })');
+  evalInApp('window.__repairs.setHand("left", null)');
+  evalInApp('window.__repairs.sim.tears[0].life = 8');
+  await sleep(600);
+  const peeling = evalInApp('({ ...window.__repairs.state(), board: window.__route.boardText(), sign: window.__repairs.signText() })');
+  evalInApp('window.__repairs.sim.tears[0].life = 0.05');
+  await sleep(400);
+  const reopened = evalInApp('window.__repairs.state()');
+  check('A patch on a tear nobody holds is rushed, peels off in its last seconds, and the tear is open again',
+    rushed.tears[0].phase === 'patched' && rushed.tears[0].rushed && rushed.tears[0].life > 55 && rushed.leak === 0 && rushed.sign[0] === 'RUSHED PATCH' &&
+      peeling.leak > 0 && peeling.board[4].includes('PEELING') && peeling.sign[1] === 'PEELING OFF' && reopened.tears[0].phase === 'open',
+    `${rushed.tears[0].phase}${rushed.tears[0].rushed ? ' (rushed)' : ''} for ${rushed.tears[0].life.toFixed(0)} s, then leaking ${peeling.leak.toFixed(3)}/s, board ${peeling.board[4]}, then ${reopened.tears[0].phase}`);
+  evalInApp('(window.__repairs.setHand("left", null), window.__climb.place(false), clearInterval(window.__holdHeat))');
+  evalInApp('window.__ship.fly()');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
+  await move([0.3, 1.1, 0.1]);
 
   // 6e. Phase 2 audio: the ship's sounds played through the tests above
   //     (crank ratchet, ring chime, touchdown thump, bell), and the burner

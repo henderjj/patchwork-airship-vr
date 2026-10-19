@@ -117,6 +117,10 @@ export function holdKindOf(side: 'left' | 'right', flags: number, use: string | 
     case 'tag': return HoldKind.Tag;
     case 'lever': return HoldKind.Lever;
     case 'crate': return HoldKind.Crate;
+    case 'ladder': return HoldKind.Ladder;
+    case 'edge': return HoldKind.Edge;
+    case 'patch': return HoldKind.Patch;
+    case 'hammer': return HoldKind.Hammer;
     default: return HoldKind.None;
   }
 }
@@ -150,6 +154,10 @@ export const netLink = {
   scriptedSqueeze: { left: false, right: false },
   /** A head pose to send instead of the camera's (the practice crewmate), or null. */
   headOverride: null as ((nowMs: number) => PoseSample) | null,
+  /** Where this player's feet are, m above the deck (ClimbSystem: up the ladder or on the patch loft). */
+  feet: 0,
+  /** Feet to send instead (the practice crewmate climbing), or null. */
+  feetOverride: null as ((nowMs: number) => number) | null,
   send: (_buffer: ArrayBuffer, _length: number): void => undefined,
   /** The clock offset to the crewmate is known (packet times can be placed). */
   clockSynced: false,
@@ -665,6 +673,9 @@ export class NetSystem extends createSystem({}) {
       pose.holds =
         holdKindOf('left', pose.flags, test === null ? handUse.left : null) |
         (holdKindOf('right', pose.flags, test === null ? handUse.right : null) << 4);
+      if (test === null || netLink.feetOverride) {
+        pose.feet = netLink.feetOverride ? netLink.feetOverride(now) : netLink.feet;
+      }
       const length = encodePose(this.sendBuffer, this.seq, now, pose);
       this.seq = (this.seq + 1) & 0xffff;
       session.sendUnreliable(this.sendBuffer, length);
@@ -735,11 +746,13 @@ export class NetSystem extends createSystem({}) {
     this.tmpQuat.set(r.head.qx, r.head.qy, r.head.qz, r.head.qw);
     this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ');
     this.torso.rotation.set(0, this.tmpEuler.y, 0);
-    // Legs stand on the deck under the torso and stretch or squash to reach
-    // it, so a crouching or seated crewmate never sinks into the floor.
-    this.legs.position.set(r.head.px, 0, r.head.pz);
+    // Legs stand on the deck (or a rung, or the patch loft) under the torso
+    // and stretch or squash to reach it, so a crouching or seated crewmate
+    // never sinks into the floor.
+    const feet = Math.max(0, r.feet);
+    this.legs.position.set(r.head.px, feet, r.head.pz);
     this.legs.rotation.set(0, this.tmpEuler.y, 0);
-    this.legs.scale.y = Math.min(1.3, Math.max(0.3, (r.head.py - HIP_BELOW_EYES) / LEG_LENGTH));
+    this.legs.scale.y = Math.min(1.3, Math.max(0.3, (r.head.py - feet - HIP_BELOW_EYES) / LEG_LENGTH));
     setFromPose(this.leftHand.mesh, r.left);
     setFromPose(this.rightHand.mesh, r.right);
     // Their fingers are posed, and hands locked to what they hold, in lockCrewHands.
@@ -789,6 +802,7 @@ function withFingers(pose: AvatarPose): AvatarPose {
   p.leftFingers ??= setCurls({} as FingerCurls, 1, 1, 1);
   p.rightFingers ??= setCurls({} as FingerCurls, 1, 1, 1);
   p.holds ??= 0;
+  p.feet ??= 0;
   return p;
 }
 

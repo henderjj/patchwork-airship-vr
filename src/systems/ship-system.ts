@@ -20,6 +20,8 @@ import {
 import { CargoSim, CRATE_KG } from '../sim/cargo.js';
 import { CRATE_COUNT, CrateYard, obstaclesFrom, PRACTICE_DECK } from '../sim/stowage.js';
 import { GONDOLA_COLLIDERS } from '../scene-assets/gondola.scene-asset.js';
+import { envelopeUnderside } from '../scene-assets/repairs.scene-asset.js';
+import { EnvelopeSim } from '../sim/envelope.js';
 import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
@@ -136,6 +138,14 @@ export const yard = new CrateYard(obstaclesFrom(GONDOLA_COLLIDERS));
  */
 export const wind = new WindSim();
 export const windControl = { auto: settings.gusts };
+
+/**
+ * The envelope's tears (Phase 3 repairs, docs/repairs.md): RepairSystem
+ * opens them on their schedule and mends them on the host, and the leak
+ * goes into the flight model here; tears left unmended at the finish cost
+ * points. The guest takes the host's tears to draw and hear them.
+ */
+export const envelope = new EnvelopeSim(envelopeUnderside());
 
 /**
  * Phase 2 ready check: with a crewmate, the ship stays moored to island A
@@ -525,9 +535,11 @@ export class ShipSystem extends createSystem({
     docking.reset();
     cargo.reset();
     yard.reset(ROUTE.loading, cargo);
-    // Each run gets its own gusts.
+    // Each run gets its own gusts, and its own tears.
     wind.reset(Math.floor(Math.random() * 0x7fffffff));
     wind.scale = settings.wind;
+    envelope.reset(Math.floor(Math.random() * 0x7fffffff));
+    envelope.rate = settings.tears;
     crewReady.host = crewReady.guest = false;
     this.sendRoute();
   }
@@ -663,6 +675,8 @@ export class ShipSystem extends createSystem({
           c.gustX = this.gustPush.x;
           c.gustZ = this.gustPush.z;
           c.draft = draftAt(ROUTE.drafts, ship.x, ship.y, ship.z) * settings.wind;
+          // Hot air out through any tears in the envelope (RepairSystem moves them on).
+          c.leak = envelope.leak;
           flight.step(ship, c, dt, ground, moored());
           // On the line to island B's post: held in by it, and held still once made fast.
           docking.constrain(ship, docking.lineOut, dt);
@@ -677,7 +691,7 @@ export class ShipSystem extends createSystem({
         }
         const crashed = islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
         countCrates();
-        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, routeCargo)) {
+        if (route.step(ship, flight.grounded, docking.phase === 'fast', flightInfo.bricksBurned, docking.tears, dt, crashed, routeCargo, envelope.unmended)) {
           this.sendRoute();
         }
         flightInfo.heat = flight.heat;

@@ -1,3 +1,4 @@
+import { TEAR_RATES, type TearRate } from './sim/envelope.js';
 import { clampCharacterHeight } from './sim/body-height.js';
 
 /**
@@ -67,6 +68,8 @@ export interface Settings {
   wind: number;
   /** Gusts come on their own during a run; `gusts=0` (the browser tests) sends them only from Practice → Send a gust. */
   gusts: boolean;
+  /** How often the envelope tears during a run (docs/repairs.md): `off` (the browser tests: only from Practice → Tear it now), `normal` or `often`; the host's counts in a crew. */
+  tears: TearRate;
   /** A tag for this session (tester or variant) written into the perf and comfort logs. */
   label: string;
   /**
@@ -113,6 +116,7 @@ export const DEFAULT_SETTINGS: Settings = {
   comfort: 0,
   wind: 1,
   gusts: true,
+  tears: 'normal',
   label: '',
   bot: false,
   height: 0,
@@ -134,6 +138,10 @@ function bool(params: URLSearchParams, key: string, fallback: boolean): boolean 
     return fallback;
   }
   return raw === '1' || raw === 'true' || raw === 'on' || raw === '';
+}
+
+function tearRate(raw: string | null, fallback: TearRate): TearRate {
+  return (TEAR_RATES as readonly string[]).includes(raw ?? '') ? (raw as TearRate) : fallback;
 }
 
 function voiceMode(raw: string | null, fallback: Settings['voice']): Settings['voice'] {
@@ -176,6 +184,7 @@ export function parseSettings(search: string): Settings {
     comfort: num(params, 'comfort', d.comfort, 0, 600),
     wind: num(params, 'wind', d.wind, 0, 3),
     gusts: bool(params, 'gusts', d.gusts),
+    tears: tearRate(params.get('tears'), d.tears),
     label: (params.get('label') ?? d.label).slice(0, 40),
     bot: bool(params, 'bot', d.bot),
     height: clampCharacterHeight(num(params, 'height', d.height, 0, 3)),

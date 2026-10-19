@@ -69,6 +69,16 @@ export const LIVE_ITEMS: readonly LiveItem[] = [
     ],
     current: (s) => String(s.wind),
   },
+  {
+    key: 'tears',
+    label: 'Tears',
+    options: [
+      ['off', 'Off'],
+      ['normal', 'Normal'],
+      ['often', 'Often'],
+    ],
+    current: (s) => s.tears,
+  },
 ];
 
 /** Most choices a setting may offer: the buttons in a menu row. */

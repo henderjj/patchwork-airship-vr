@@ -2,8 +2,10 @@
  * The ship's sounds (Phase 2), made in Web Audio rather than recorded, to
  * keep the download small: the burner's roar, wind that grows with speed,
  * timber creaks, the crank's ratchet, the ship's bell, a chime for a ring
- * flown through, a thump on touchdown, the haul call's mallet knock and
- * the mooring line creaking under strain.
+ * flown through, a thump on touchdown, the haul call's mallet knock, the
+ * mooring line creaking under strain, and the envelope's repairs: canvas
+ * ripping, hot air hissing out of a tear, a patch slapped on and rivets
+ * hammered home.
  *
  * Sources sit at fixed places in ship space (the gondola doesn't move in
  * the player's tracking space), so only the listener moves each frame.
@@ -41,11 +43,15 @@ export class ShipSounds {
   private bellOut!: AudioNode;
   private haulOut!: AudioNode;
   private lineOut!: AudioNode;
+  private loftOut!: AudioNode;
+  private hissGain!: GainNode;
   /** Sounds played so far, by name (tests and the HUD). */
-  readonly played: Record<string, number> = { ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0, lineCreak: 0 };
+  readonly played: Record<string, number> = {
+    ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0, lineCreak: 0, rip: 0, slap: 0, rivet: 0, dud: 0,
+  };
 
   constructor(
-    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3 },
+    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3; loft: Vec3 },
     private on = true,
   ) {}
 
@@ -139,6 +145,16 @@ export class ShipSounds {
     this.bellOut = this.panner(this.places.bell);
     this.haulOut = this.panner(this.places.haul);
     this.lineOut = this.panner(this.places.fairlead);
+
+    // The envelope's belly over the patch loft: the hiss of hot air out of a tear, and the repairs.
+    this.loftOut = this.panner(this.places.loft);
+    const hiss = ctx.createBiquadFilter();
+    hiss.type = 'bandpass';
+    hiss.frequency.value = 3800;
+    hiss.Q.value = 0.9;
+    this.hissGain = ctx.createGain();
+    this.hissGain.gain.value = 0;
+    this.loop(hiss).connect(this.hissGain).connect(this.loftOut);
   }
 
   /** Looped noise into `filter`; returns the filter to connect onwards. */
@@ -193,6 +209,79 @@ export class ShipSounds {
     this.burnerGain.gain.setTargetAtTime(burner * 0.5, t, burner > 0 ? FOLLOW * 0.6 : FOLLOW * 2.5);
     this.windGain.gain.setTargetAtTime(windGain, t, FOLLOW * 4);
     this.windFilter.frequency.setTargetAtTime(windCutoff, t, FOLLOW * 4);
+  }
+
+  /** Hot air hissing out of the envelope's tears, 0 (none) to 1 (a long open tear). */
+  setHiss(level: number): void {
+    if (!this.live) {
+      return;
+    }
+    this.hissGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.35, this.live.currentTime, FOLLOW * 2);
+  }
+
+  /** The envelope tearing: canvas ripping, a ragged burst of noise falling in pitch. */
+  rip(): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    const tear = ctx.createBufferSource();
+    tear.buffer = this.noise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.4;
+    band.frequency.setValueAtTime(2600, t);
+    band.frequency.exponentialRampToValueAtTime(700, t + 0.5);
+    // Threads giving way one after another: the level stutters.
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    for (let i = 0; i < 9; i++) {
+      gain.gain.setValueAtTime(0.25 + 0.35 * Math.random(), t + i * 0.05);
+      gain.gain.setValueAtTime(0.05, t + i * 0.05 + 0.025);
+    }
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    tear.connect(band).connect(gain).connect(this.loftOut);
+    tear.start(t, Math.random() * (NOISE_SECONDS - 1), 0.65);
+    this.played.rip++;
+  }
+
+  /** A patch slapped onto the canvas: a soft, low smack. */
+  slap(): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    const smack = ctx.createBufferSource();
+    smack.buffer = this.noise;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 900;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.6, t);
+    gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.12);
+    smack.connect(low).connect(gain).connect(this.loftOut);
+    smack.start(t, Math.random() * (NOISE_SECONDS - 0.2), 0.14);
+    this.played.slap++;
+  }
+
+  /** A rivet hammered home: a bright clink of iron on brass. `home` false is a dull knock on a patch nobody is holding (it won't take a rivet). */
+  rivet(home = true): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    if (home) {
+      this.tone(2150, 'sine', 0.22, 0.002, 0.25, this.loftOut, t);
+      this.tone(3420, 'sine', 0.12, 0.002, 0.14, this.loftOut, t);
+      this.tone(5150, 'sine', 0.06, 0.002, 0.08, this.loftOut, t);
+      this.played.rivet++;
+    } else {
+      this.tone(310, 'triangle', 0.2, 0.003, 0.08, this.loftOut, t);
+      this.played.dud++;
+    }
   }
 
   /** One pawl click of the crank's ratchet, louder with `strength` (0 to 1). */
@@ -392,8 +481,8 @@ export class ShipSounds {
   }
 
   /** The looped sounds' current gains (tests). */
-  loops(): { burner: number; wind: number } {
-    return { burner: this.burnerGain?.gain.value ?? 0, wind: this.windGain?.gain.value ?? 0 };
+  loops(): { burner: number; wind: number; hiss: number } {
+    return { burner: this.burnerGain?.gain.value ?? 0, wind: this.windGain?.gain.value ?? 0, hiss: this.hissGain?.gain.value ?? 0 };
   }
 
   dispose(): void {

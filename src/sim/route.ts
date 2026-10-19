@@ -1,4 +1,5 @@
 import type { DockPost } from './docking.js';
+import { UNMENDED_POINTS } from './envelope.js';
 import { KEEL_DEPTH } from './gondola-layout.js';
 import { type Island, restingDeck, SHIP_HEIGHT } from './islands.js';
 import type { Draft } from './wind.js';
@@ -213,9 +214,14 @@ export interface RouteResult {
   cratesTotal: number;
   /** Points for where on the cargo stage's target they were set down (`targetPoints`). */
   target: number;
+  /** Tears in the envelope not soundly mended at the end (src/sim/envelope.ts). */
+  unmended: number;
   score: number;
   stars: number;
 }
+
+/** What a run's score is worked out from (tears left unmended count nothing if not given). */
+export type ScoreInput = Omit<RouteResult, 'score' | 'stars' | 'unmended'> & { unmended?: number };
 
 /** Points lost per percent of a delivered crate's condition lost (a crate not delivered loses all 100). */
 export const CARGO_POINTS = 4;
@@ -243,13 +249,14 @@ export function targetPoints(route: Route, x: number, z: number): number {
 
 /**
  * Points: 1000, less time, fuel, missed rings, the grapple torn off the
- * post, and damage to the crates (each one not delivered counts as smashed),
- * plus the target's points.
+ * post, damage to the crates (each one not delivered counts as smashed) and
+ * tears in the envelope left unmended, plus the target's points.
  */
-export function scoreRun(r: Omit<RouteResult, 'score' | 'stars'>): { score: number; stars: number } {
+export function scoreRun(r: ScoreInput): { score: number; stars: number } {
   const missed = r.ringsTotal - r.rings;
   const damage = CARGO_POINTS * (r.crates * (100 - Math.max(0, Math.min(100, r.cargo))) + 100 * Math.max(0, r.cratesTotal - r.crates));
-  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears - damage + r.target));
+  const torn = UNMENDED_POINTS * Math.max(0, r.unmended ?? 0);
+  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears - damage - torn + r.target));
   const stars = score >= 600 ? 3 : score >= 450 ? 2 : score >= 250 ? 1 : 0;
   return { score, stars };
 }
@@ -332,10 +339,21 @@ export class RouteRun {
    * on an island's top, `fast` whether it is made fast to island B's post,
    * `tears` how often the grapple has been torn off it, and `crashed`
    * whether it has run into an island's rock (src/sim/islands.ts), and
-   * `cargo` how many crates are aboard and delivered, their condition and the target's points. Returns
+   * `cargo` how many crates are aboard and delivered, their condition and the target's points,
+   * and `unmended` how many tears in the envelope aren't soundly mended. Returns
    * true if anything the crew should see changed (phase or rings).
    */
-  step(s: RouteShip, grounded: boolean, fast: boolean, bricks: number, tears: number, dt: number, crashed: boolean, cargo: RouteCargo = NO_CARGO): boolean {
+  step(
+    s: RouteShip,
+    grounded: boolean,
+    fast: boolean,
+    bricks: number,
+    tears: number,
+    dt: number,
+    crashed: boolean,
+    cargo: RouteCargo = NO_CARGO,
+    unmended = 0,
+  ): boolean {
     const route = this.route;
     let changed = false;
     if (this.phase === 'ready') {
@@ -367,7 +385,7 @@ export class RouteRun {
     if (fast) {
       this.fastFor += dt;
       if (this.fastFor >= FAST_HOLD_SECONDS && cargo.aboard === 0) {
-        this.finish(bricks, tears, cargo);
+        this.finish(bricks, tears, cargo, unmended);
         return true;
       }
     } else {
@@ -391,7 +409,7 @@ export class RouteRun {
     return changed;
   }
 
-  private finish(bricks: number, tears: number, cargo: RouteCargo): void {
+  private finish(bricks: number, tears: number, cargo: RouteCargo, unmended: number): void {
     const base = {
       seconds: this.seconds,
       bricks,
@@ -402,6 +420,7 @@ export class RouteRun {
       crates: cargo.delivered,
       cratesTotal: cargo.total,
       target: cargo.target,
+      unmended,
     };
     this.result = { ...base, ...scoreRun(base) };
     this.phase = 'finished';

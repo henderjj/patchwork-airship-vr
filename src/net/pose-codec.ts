@@ -55,6 +55,8 @@ export interface AvatarPose {
   rightFingers: FingerCurls;
   /** What each hand holds (grip locking): the left's kind in the low four bits, the right's in the high (see HoldKind). */
   holds: number;
+  /** Where the feet are, m above the deck: 0 on it, higher up the ladder or on the patch loft (Phase 3 repairs). */
+  feet: number;
 }
 
 export function createPoseSample(): PoseSample {
@@ -70,6 +72,7 @@ export function createAvatarPose(): AvatarPose {
     leftFingers: createFingerCurls(1, 1, 1),
     rightFingers: createFingerCurls(1, 1, 1),
     holds: 0,
+    feet: 0,
   };
 }
 
@@ -80,7 +83,9 @@ export const POSE_PACKET_MIN_BYTES = 8 + 3 * 13;
 /** ... + finger curls u8 × 3 per hand (index, grip, thumb; left then right). */
 const FINGERS_END = POSE_PACKET_MIN_BYTES + 6;
 /** ... + what each hand holds, u8. */
-export const POSE_PACKET_BYTES = FINGERS_END + 1;
+const HOLDS_END = FINGERS_END + 1;
+/** ... + where the feet are, u8 cm above the deck. */
+export const POSE_PACKET_BYTES = HOLDS_END + 1;
 
 function clamp16(v: number): number {
   return v < -32767 ? -32767 : v > 32767 ? 32767 : Math.round(v);
@@ -143,7 +148,8 @@ export function encodePose(buffer: ArrayBuffer, seq: number, timeMs: number, pos
   o = writeFingers(view, o, pose.leftFingers);
   o = writeFingers(view, o, pose.rightFingers);
   view.setUint8(o, pose.holds & 0xff);
-  return o + 1;
+  view.setUint8(o + 1, Math.round(Math.min(2.55, Math.max(0, pose.feet)) * 100));
+  return o + 2;
 }
 
 function curlByte(v: number): number {
@@ -173,7 +179,8 @@ export interface PoseHeader {
  * Decode a pose packet; returns false if it isn't one. A packet from a
  * version without posed hands has no finger curls; its hands are drawn as
  * fists, as that version drew them. One from before grip locking says
- * nothing held (the crank and line still show in its flags).
+ * nothing held (the crank and line still show in its flags), and one from
+ * before repairs has its feet on the deck.
  */
 export function decodePose(view: DataView, header: PoseHeader, out: AvatarPose): boolean {
   if (view.byteLength < POSE_PACKET_MIN_BYTES || view.getUint8(0) !== PacketType.Pose) {
@@ -192,7 +199,8 @@ export function decodePose(view: DataView, header: PoseHeader, out: AvatarPose):
     setFist(out.leftFingers);
     setFist(out.rightFingers);
   }
-  out.holds = view.byteLength >= POSE_PACKET_BYTES ? view.getUint8(o) : 0;
+  out.holds = view.byteLength >= HOLDS_END ? view.getUint8(o) : 0;
+  out.feet = view.byteLength >= POSE_PACKET_BYTES ? view.getUint8(o + 1) / 100 : 0;
   return true;
 }
 

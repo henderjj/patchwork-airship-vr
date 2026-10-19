@@ -59,6 +59,8 @@ import { buzz } from './haptics.js';
 
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
+/** What other systems' hands hold (handUse): left to them. */
+const OTHERS_GEAR: ReadonlySet<string> = new Set(['grapple', 'winch', 'lever', 'tag', 'crate', 'ladder', 'edge', 'patch', 'hammer']);
 
 /** Guest control packets per second, and how long one counts after it arrives, ms. */
 const SEND_HZ = 20;
@@ -295,8 +297,8 @@ export class ControlsSystem extends createSystem({}) {
       const g = grip[side];
       this.player.gripSpaces[side].getWorldPosition(this.handPos);
       const p = this.handPos;
-      if (held === 'grapple' || held === 'winch' || held === 'lever' || held === 'tag' || held === 'crate') {
-        // GrappleSystem's, CargoSystem's and StowageSystem's: they take and let go of their gear themselves.
+      if (OTHERS_GEAR.has(held ?? '')) {
+        // GrappleSystem's, CargoSystem's, StowageSystem's, ClimbSystem's and RepairSystem's: they take and let go of their gear themselves.
         continue;
       }
       if (held) {

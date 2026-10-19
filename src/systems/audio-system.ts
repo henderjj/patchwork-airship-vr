@@ -8,6 +8,7 @@ import { CRANK_AXLE_HEIGHT, CRANK_POSITION } from '../scene-assets/gondola.scene
 import { onSettingChange } from '../live-settings.js';
 import { ROPE_RUN, ROPE_X, ROPE_Y, ROPE_Z0 } from '../scene-assets/rope.scene-asset.js';
 import { settings } from '../settings.js';
+import { LOFT, LOFT_EYE } from '../sim/loft.js';
 import { crankInfo } from './crank-system.js';
 import { gustStrength } from '../sim/wind.js';
 import { flightInfo, route, ship, wind as gusts } from './ship-system.js';
@@ -39,6 +40,7 @@ export const sounds = new ShipSounds(
     bell: [BELL_CENTER[0], BELL_CENTER[1], BELL_CENTER[2]],
     haul: [ROPE_X, ROPE_Y, ROPE_Z0 + ROPE_RUN / 2],
     fairlead: [ROPE_X, ROPE_Y, ROPE_Z0],
+    loft: [(LOFT.x0 + LOFT.x1) / 2, LOFT_EYE + 0.4, (LOFT.z0 + LOFT.z1) / 2],
   },
   settings.audio,
 );
