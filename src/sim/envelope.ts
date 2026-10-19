@@ -140,6 +140,8 @@ export class Tear {
   readonly holds: number[][] = [[], []];
   /** The host says it is held closed (on the guest, for hands it can't see holding). */
   heldOnHost = false;
+  /** Playing alone: one hand on its edge holds it closed, leaving the other free for the patch and the hammer. */
+  solo = false;
 
   reset(): void {
     this.phase = 'whole';
@@ -160,9 +162,10 @@ export class Tear {
     return this.holds[0].length + this.holds[1].length;
   }
 
-  /** Two hands hold it at least `HOLD_SPAN` apart along it (or the host says so). */
+  /** Two hands hold it at least `HOLD_SPAN` apart along it (or the host says so; or one, playing alone). */
   get closed(): boolean {
     if (this.heldOnHost) return true;
+    if (this.solo && this.hands > 0) return true;
     let lo = Number.POSITIVE_INFINITY;
     let hi = Number.NEGATIVE_INFINITY;
     for (const page of this.holds) {
@@ -272,6 +275,15 @@ export class EnvelopeSim {
     this.opened = 0;
     this.resets = (this.resets + 1) & 255;
     this.random = rng(seed);
+  }
+
+  /** Playing alone (no crewmate): one hand holds a tear closed. */
+  set solo(alone: boolean) {
+    for (const tear of this.tears) tear.solo = alone;
+  }
+
+  get solo(): boolean {
+    return this.tears[0].solo;
   }
 
   /** All the hot air lost through the tears: a share of the envelope's heat per second (FlightControls.leak). */

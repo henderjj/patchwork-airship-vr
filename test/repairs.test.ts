@@ -246,6 +246,24 @@ describe('tears and patches', () => {
     expect(sim.tears[0].closed).toBe(false);
   });
 
+  it('playing alone, are held shut by one hand, leaving the other for the patch and the hammer', () => {
+    const sim = new EnvelopeSim(canvas);
+    sim.reset(1);
+    sim.open(1);
+    sim.solo = true;
+    expect(sim.tears[1].closed).toBe(false);
+    sim.setHolds(0, [[1, 0.5]]);
+    expect(sim.tears[1].closed).toBe(true);
+    expect(sim.press(1)).toBe('held');
+    for (let r = 0; r < RIVETS; r++) expect(sim.rivet(1, r)).toBe(true);
+    expect(sim.tears[1].phase).toBe('sound');
+    // With a crewmate, one hand isn't enough.
+    sim.open(1);
+    sim.solo = false;
+    sim.setHolds(0, [[1, 0.5]]);
+    expect(sim.tears[1].closed).toBe(false);
+  });
+
   it("grow no longer than the longest, and full flame then can't hold height", () => {
     const sim = new EnvelopeSim(canvas);
     sim.reset(1);

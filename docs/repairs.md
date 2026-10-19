@@ -1,0 +1,66 @@
+# Repairs (Phase 3)
+
+From the concept: the envelope tears, and a crew member climbs up to it to patch the tear while the other keeps the ship flying, and in the development plan's Phase 3, "repairs: one player holds a tear closed while the other patches and rivets it". This first slice adds a patch loft under the envelope's belly reached by a ladder, tears that open in flight and leak hot air, and a way to mend them that takes two pairs of hands: one player holds the torn edges shut while the other presses a patch on and hammers in its rivets. Playing alone, one hand holds a tear shut. The practice crewmate climbs up and holds the tear for you.
+
+## How it plays
+
+1. **The patch loft** is a small railed platform of planks slung 2.45 m above the deck, over the port side between the vent cord and the stern, just under the envelope's belly. A **ladder** rises from the deck through a hatch in the loft's floor; its stiles stand on up past the floor as hand holds at the top. A box of canvas patches hangs inside the loft's inboard rail, and the riveting hammer hangs on two pegs on the same rail, aft. Signs on deck say LADDER, PATCHES and HAMMER.
+2. **Climbing.** Squeeze near a rung or a stile and the hand holds the ladder where it is: pull the hand down and you rise (push it up and you go down), hand over hand, with a knock in the hand at each rung. The gloves close on the rung. Let go partway and you stay there, feet on the rungs; let go near the top and you step up onto the loft. Standing on the loft your eyes are 4.1 m above the deck, whatever your character's height and whether you play standing or seated, so the envelope is the same reach overhead for everyone (about 40 cm above the eyes). On the loft the thumbstick walks you about inside its rail; partway up the ladder it does nothing. Climbing works only in VR.
+3. **Tears.** Once the ship has lifted off island A, the envelope tears for the first time 50 to 80 seconds later, then again 90 to 140 seconds after each tear, at one of three worn spots on the belly over the loft: across the loft forward of the hatch, fore and aft inboard of it, and across the loft aft of it. At most two are open (or only roughly patched) at a time. A tear opens with a ripping sound, 30 cm long, and grows by about 6 mm a second while nobody holds it, up to 70 cm. Its lips hang open and hot air puffs out of it, with a hiss from overhead.
+4. **What a tear costs.** Hot air leaks out through it, so the envelope cools faster and the burner has to work harder to hold height: a new tear takes as much again as the envelope loses on its own (holding height needs nearly full flame), and grown to its longest, full flame can't keep up and the ship sinks. The route board's fuel line ends in a red TEAR! while one is open, and a sign under the loft (seen from the deck) and one on it say what to do next: TEAR! / leaking hot air / hold it shut.
+5. **Holding it shut.** Squeeze a hand near the torn edge (a little below the canvas, where the lips sag) and the hand holds it, sliding along it as the hand moves; pull away and it slips off. One hand on it pinches it (60% of the leak still gets out) and stops it growing. Two hands at least 18 cm apart along it hold it shut: the lips close and only 15% of the leak gets out. The two hands can be one player's, or one each. Playing alone, one hand holds it shut, leaving the other hand free for the patch and the hammer.
+6. **Patching.** Take a patch from the box (squeeze over its open top) and press it up onto the middle of the tear. If the tear was held shut, the patch sticks and waits for its rivets (PATCH ON / rivets 0 of 4 / hammer them up); keep the tear held while you rivet. Take the hammer from its rack and strike upwards into each corner of the patch: each solid stroke sets a rivet with a clink and a buzz in the hand. The fourth makes the tear sound: the hiss stops and the sign says ENVELOPE sound.
+7. **Rushed patches.** A patch pressed onto a tear nobody holds shut (or one whose tear is let go of for more than half a second before its rivets are in) is a rushed patch: it stops the leak for a minute, then peels off over its last 10 seconds (the board says PEELING, the sign RUSHED PATCH / PEELING OFF), and the tear is open again. Hammering a rushed patch, or one nobody is holding, gives a dull knock and sets nothing. A rushed patch can be patched over again properly.
+8. **Scoring.** Each tear not soundly mended when the run finishes costs 50 points, shown on the board's finish line (Envelope torn 1 -50).
+
+## Who does what
+
+The concept's split: one player flies (burner, crank, tiller) while the other climbs up to the tear; or both go up, one holding it shut and the other patching and riveting, with the ship left to drift for a minute. With the crank and the burner unattended the ship sinks slowly, so leaving the deck has a cost, and a tear left open makes the burner's job harder for whoever stays below.
+
+## Settings and practice
+
+The game menu's **Practice → Repairs** has **Tear it now**, which tears the envelope at once at a sound spot (in a crew, the guest's press asks the host), and **Tears** (Off, Normal, Often): Often tears for the first time 20 to 35 s after lift-off and then every 45 to 70 s. In a crew the host's choice counts. Off stops tears coming on their own, but Tear it now still works.
+
+## The practice crewmate
+
+When the player goes up the ladder (or stands on the loft) while the envelope is torn, the practice crewmate walks to the ladder, climbs it, stands beside the tear nearest the player (on the side away from them, clear of the hatch) and takes hold of both ends of its slit with both hands, so the player can patch and rivet it. Once no tear needs mending, or the player goes back down, it climbs down again. Its legs stand on the rungs as it climbs and on the loft's floor up there.
+
+## Under the hood
+
+- **`src/sim/loft.ts`** (engine-free): the loft, its hatch, the ladder, the patch box and the hammer's rack; `ladderHold` (the nearest rung or stile to a hand) and `Climber` (each hand anchored where it took hold, the most recent one climbing, at most 20 cm a frame, and stepping up onto the loft); `loftRaise`, how far the loft raises a player with given eyes.
+- **`src/sim/envelope.ts`** (engine-free): `EnvelopeSim`, the host's tears: when and where they open (from a seed drawn fresh each run), how they grow and leak, the hands holding them from each page, patches, rivets, rushed patches peeling, and what it sends to the guest (`toWire`/`adopt`). `slitPoint`, `rivetPoint` and `patchTouches` give where the edge, the rivets and a patch's spot are on the canvas.
+- **`src/scene-assets/repairs.scene-asset.ts`**: the envelope's underside as the model really is (raycast once on a 5 cm grid over the loft, then read between points), and the tear, patch, rivet, hammer, patch-in-hand and escaping-air meshes. The loft itself is part of the gondola's rigging (`src/scene-assets/gondola.scene-asset.ts`), with colliders for its floor and the ladder.
+- **`src/systems/climb-system.ts`**: climbing with the grip spaces; it raises the whole tracked rig on top of the character height (`src/systems/body-height-system.ts`), sends where the feet are in each pose packet (one byte, cm) so the crewmate's legs stand on the rungs or the loft, and keeps the thumbstick to the loft (`src/systems/deck-walk-system.ts`).
+- **`src/systems/repair-system.ts`**: taking, working and letting go of the edges, patches and hammer (real or scripted hands); steps the tears on the host and passes their leak to the flight model (`FlightControls.leak`, `src/sim/flight.ts`); draws the tears, patches, rivets, puffs and the gear in both players' hands; plays the sounds; draws the two signs. Hands holding the edge, a patch or the hammer lock to them (`HoldKind` Edge, Patch, Hammer, and Ladder for climbing, in `src/systems/hand-lock.ts`).
+- **Network.** The host sends the tears (phase, length, rivets, rushed and its life left, patch length, patches put on, whether held shut: eight numbers each) on every change and once a second. The guest sends where its hands hold the edges (`repair-holds`) when that changes and once a second, and each patch and rivet it puts on (`repair-patch`, `repair-rivet`), shown at once on its own page; each carries the run's count so a late report from an old run is ignored. The crewmate's hands on the gear are drawn from the hold kinds in its pose packets.
+- **`src/systems/crew-bot-system.ts`**: the practice crewmate's repair mode; its way up and down the ladder and where it stands are in `src/sim/crew-bot.ts` (`viaLadder`, `tearStand`).
+
+## Cost
+
+When the envelope is sound: the loft, ladder, box and rack are part of the gondola's rigging meshes (no extra draw calls), plus the hammer on its rack and the two signs (three draw calls). Each open tear adds one, each patch one, the rivets one (instanced) and the escaping air one (points), so at most about ten while every spot is torn or patched. The tears' and patches' vertices are rewritten in place only when their shape changes; nothing is allocated per frame. The underside's grid is measured once at load (about 2,000 raycasts against the envelope's model).
+
+## Tests
+
+- Unit tests (`test/repairs.test.ts`): everyone's eyes are at the same height on the loft; a hand takes hold of the nearest rung or stile in reach; the ladder stands in the loft's hatch, clear of its floor; climbing hand over hand raises the player, stays put when let go partway, climbs down by pushing up, hands over to the other hand and steps up onto the loft near the top; the walking bounds on the loft; the measured underside is the modelled envelope and every tear spot, the patch box and the hammer are in reach from the loft; tears wait for lift-off, then come on the schedule, at most two at once, none with Tears off; a tear grows and leaks, much less held shut, and grown to its longest more than full flame can make up; playing alone one hand holds it shut; a held patch takes four rivets and goes sound, one let go of turns rushed, and a rushed one stops the leak for a minute and then peels off; edges, patches and rivets are taken only close to them; the guest takes the host's tears unchanged; unmended tears cost points; the crewmate's feet go in its pose packets. `test/crew-bot.test.ts`: the crewmate's way up and down the ladder, and where it stands beside each tear.
+- Geometry (`test/z-fighting.test.ts`): the loft, ladder, box and rack with the gondola; tears (short, longest, held), patches (smallest, largest) and rivets on the envelope's belly; the hammer and the patch in hand.
+- Emulated headset (`npm run test:xr`): climbing the ladder with a real emulated hand; standing on the loft at 4.1 m; the menu's Tear it now; a tear leaking, hissing and shown on the signs and board; a real hand holding the edge; a patch and four rivets making it sound; a rushed patch peeling off. Screenshots: `xr-repairs-tear.png` (an open tear from the loft), `xr-repairs-riveted.png` (a riveted patch). The other checks run with tears off.
+- Two players (`npm run test:net`, both pages loaded with `tears=off`): the practice crewmate climbs to the loft and holds the tear shut with both hands (its holds sent to the host), the player patches and rivets it, the crewmate sees it sound, and climbs back down.
+
+## Headset check
+
+1. On a PC page, Settings → This page plays as → Practice crewmate, as for the other practice. Restart from island A and lift off.
+2. Open the game menu (Y) → Practice → Repairs: Tear it now. You should hear a rip overhead, the board's fuel line ends in a red TEAR!, and the sign under the loft (port side, towards the stern) says what to do.
+3. Walk to the ladder (the LADDER sign on the port rail). Squeeze a rung and pull down, hand over hand, up through the hatch; let go at the top to step onto the loft.
+4. Look up: the tear hangs open in the canvas with air puffing out. The crewmate should climb up after you and hold its two ends shut.
+5. Take a patch from the box by the inboard rail and press it up onto the tear: PATCH ON. Take the hammer from the pegs aft on the same rail and strike up into each corner: four clinks and the sign says ENVELOPE sound.
+6. Try a rushed patch: Tear it now again, and press a patch on before anyone holds it. It holds for a minute, then peels.
+7. Try it without the crewmate (a solo game): hold the edge with one hand and patch and rivet with the other.
+
+What would help: whether the ladder climbs comfortably (speed, and whether it makes you queasy); whether the loft feels safe to stand on and the envelope is at a good reach; whether the tear, the patch and the hammer read clearly and the strokes feel solid; whether the hold-shut rule makes sense; whether tears come too often or too rarely; and whether the loft is in the way of anything on deck.
+
+## Later
+
+- More tear spots (on the sides of the envelope, reached from a rope ladder) and tears from hazards (a scrape on an island, a storm) rather than only on a schedule.
+- Damage elsewhere: a sprung plank, a snapped vent cord.
+- A patch held in place by the hand before the rivets, and riveting that takes a set of strokes per rivet.
+- The crewmate patching while the player holds.

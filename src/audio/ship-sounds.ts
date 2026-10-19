@@ -481,8 +481,8 @@ export class ShipSounds {
   }
 
   /** The looped sounds' current gains (tests). */
-  loops(): { burner: number; wind: number } {
-    return { burner: this.burnerGain?.gain.value ?? 0, wind: this.windGain?.gain.value ?? 0 };
+  loops(): { burner: number; wind: number; hiss: number } {
+    return { burner: this.burnerGain?.gain.value ?? 0, wind: this.windGain?.gain.value ?? 0, hiss: this.hissGain?.gain.value ?? 0 };
   }
 
   dispose(): void {

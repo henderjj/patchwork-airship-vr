@@ -111,6 +111,7 @@ interface RepairsDebug {
   tearNow(): void;
   /** Host or solo: tear spot `i` open now (tests pick the spot). */
   open(i: number): void;
+  /** How often the envelope tears, this run and the next (as the menu's setting, but not saved). */
   setRate(rate: TearRate): void;
   /** Work the repair gear with a scripted hand (ship space), or let it go with null. */
   setHand(side: Side, hand: RepairHand | [number, number, number, boolean] | null): void;
@@ -320,7 +321,8 @@ export class RepairSystem extends createSystem({}) {
         this.changed = true;
       },
       setRate: (rate) => {
-        if ((TEAR_RATES as readonly string[]).includes(rate)) envelope.rate = rate;
+        // For this page's runs from now on, like the menu's setting (not saved).
+        if ((TEAR_RATES as readonly string[]).includes(rate)) envelope.rate = settings.tears = rate;
       },
       setHand: (side, hand) => {
         if (hand === null || typeof hand === 'function') {
@@ -367,6 +369,8 @@ export class RepairSystem extends createSystem({}) {
     }
     this.updateHands(now, dt, host);
     envelope.setHolds(0, this.myHolds);
+    // Playing alone, one hand holds a tear shut (as the crank is quicker alone).
+    envelope.solo = !netLink.connected;
     if (host) {
       if (!netLink.connected) {
         envelope.setHolds(1, []);
