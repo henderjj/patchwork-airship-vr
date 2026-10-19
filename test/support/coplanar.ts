@@ -137,6 +137,7 @@ export function coplanarOverlaps(
     list.push(t);
   }
   const found: CoplanarOverlap[] = [];
+  const middle = new Vector3();
   for (const list of buckets.values()) {
     list.sort((x, y) => x.d - y.d);
     for (let i = 0; i < list.length; i++) {
@@ -144,9 +145,14 @@ export function coplanarOverlaps(
       for (let j = i + 1; j < list.length && list[j].d - a.d <= gap; j++) {
         const b = list[j];
         if (a.colour === b.colour || a.n.dot(b.n) < 0.999) continue;
+        // The planes' offsets from the origin differ by more than their real separation when the
+        // normals differ a little and the faces are metres from the origin (the envelope's belly):
+        // measure how far b's middle is off a's plane instead.
+        const separation = Math.abs(a.n.dot(middle.copy(b.p[0]).add(b.p[1]).add(b.p[2]).divideScalar(3)) - a.d);
+        if (separation > gap) continue;
         const { area, at } = overlap(a.p, b.p, a.n);
         if (area > minArea && !(ignore && ignore(at, a.n))) {
-          found.push({ a: a.owner, b: b.owner, gap: b.d - a.d, area, at: [at.x, at.y, at.z], normal: [a.n.x, a.n.y, a.n.z] });
+          found.push({ a: a.owner, b: b.owner, gap: separation, area, at: [at.x, at.y, at.z], normal: [a.n.x, a.n.y, a.n.z] });
         }
       }
     }

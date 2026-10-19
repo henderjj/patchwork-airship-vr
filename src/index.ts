@@ -10,6 +10,7 @@ import { BodyHeightSystem } from './systems/body-height-system.js';
 import { AudioSystem } from './systems/audio-system.js';
 import { CrankSystem } from './systems/crank-system.js';
 import { CrewBotSystem } from './systems/crew-bot-system.js';
+import { ClimbSystem } from './systems/climb-system.js';
 import { CrewStatusSystem } from './systems/crew-status-system.js';
 import { DeckWalkSystem } from './systems/deck-walk-system.js';
 import { FrameRateSystem } from './systems/frame-rate-system.js';
@@ -21,6 +22,7 @@ import { NetSystem } from './systems/net-system.js';
 import { OwnHandsSystem } from './systems/own-hands-system.js';
 import { PerfHudSystem } from './systems/perf-hud-system.js';
 import { PlatformSystem } from './systems/platform-system.js';
+import { RepairSystem } from './systems/repair-system.js';
 import { RopeSystem } from './systems/rope-system.js';
 import { ShipSystem } from './systems/ship-system.js';
 import { SignsSystem } from './systems/signs-system.js';
@@ -50,6 +52,8 @@ World.create(
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
   world.registerSystem(DeckWalkSystem);
+  // Before the systems that read the hands: climbing the ladder to the patch loft moves the player (and their hands) up or down.
+  world.registerSystem(ClimbSystem);
   // After NetSystem, which updates the crew presence it shows.
   world.registerSystem(CrewStatusSystem);
   // After NetSystem, so it sees the crewmate's pose drawn this frame.
@@ -64,6 +68,8 @@ World.create(
   world.registerSystem(CargoSystem);
   // After the cargo gear (whose hands it skips, and whose crate in the hatch it draws); before the throwables, which skip hands on crates.
   world.registerSystem(StowageSystem);
+  // After the cargo gear and crates (whose hands it skips); before the throwables, which skip hands on the repair gear.
+  world.registerSystem(RepairSystem);
   world.registerSystem(RouteSystem);
   world.registerSystem(SignsSystem);
   // After the ship, crank and route have moved on this frame.

@@ -19,6 +19,9 @@
  *   gradually, as a big envelope does, and the gondola leans with it.
  * - Trim: where the crew stands leans the gondola a little, and a ship
  *   trimmed nose-down flies slightly downhill.
+ * - Tears: hot air leaks out through tears in the envelope
+ *   (src/sim/envelope.ts), so it cools faster and the burner has to work
+ *   harder to hold height.
  *
  * Turn rate, climb rate, acceleration and tilt are capped by the comfort
  * limits, so nothing the crew does can make the motion harsher than spike S3
@@ -157,10 +160,12 @@ export interface FlightControls {
   gustX: number;
   gustZ: number;
   draft: number;
+  /** Hot air lost through tears in the envelope (src/sim/envelope.ts): an extra share of its heat per second. */
+  leak: number;
 }
 
 export function createFlightControls(): FlightControls {
-  return { burner: 0, vent: 0, rudder: 0, crankSpeed: 0, solo: false, ballastDropped: 0, trimPitch: 0, trimRoll: 0, gustX: 0, gustZ: 0, draft: 0 };
+  return { burner: 0, vent: 0, rudder: 0, crankSpeed: 0, solo: false, ballastDropped: 0, trimPitch: 0, trimRoll: 0, gustX: 0, gustZ: 0, draft: 0, leak: 0 };
 }
 
 const DEG = Math.PI / 180;
@@ -255,10 +260,10 @@ export class FlightSim {
     const lim = this.limits;
     this.time += dt;
 
-    // Envelope heat.
+    // Envelope heat: lost on its own, through the vent and through any tears.
     const burner = clamp(c.burner, 0, 1);
     const vent = clamp(c.vent, 0, 1);
-    this.heat += (p.burnerHeating * burner - (p.cooling + p.ventCooling * vent) * this.heat) * dt;
+    this.heat += (p.burnerHeating * burner - (p.cooling + p.ventCooling * vent + Math.max(0, c.leak)) * this.heat) * dt;
     this.heat = Math.max(0, this.heat);
 
     // Climb: lift against weight and vertical drag, then the comfort caps.

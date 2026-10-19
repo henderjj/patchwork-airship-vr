@@ -8,9 +8,10 @@
   LIVE_ITEMS in src/live-settings.ts). The crew section shows only in a crew.
   Practice starts a fresh run beside island B's mooring post, both rings
   flown, to try docking without flying the route, or already made fast
-  there to try lowering the crate, sends a gust on its way at once, and
-  sets the wind's strength (breeze, gusts and drafts; the host's choice
-  counts in a crew).
+  there to try lowering the crate, sends a gust on its way at once, sets
+  the wind's strength (breeze, gusts and drafts; the host's choice counts
+  in a crew), tears the envelope at once to try a repair, and sets how
+  often it tears on its own (the host's choice counts).
 -->
 <style>
   .root {
@@ -328,6 +329,21 @@
         <Button id="row-wind-1" class="choice" size="sm" variant="secondary">Choice</Button>
         <Button id="row-wind-2" class="choice" size="sm" variant="secondary">Choice</Button>
         <Button id="row-wind-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
+    </div>
+    <div class="setting">
+      <div class="label">Repairs</div>
+      <div class="choices">
+        <Button id="menu-tear" class="choice" size="sm" variant="secondary">Tear it now</Button>
+      </div>
+    </div>
+    <div id="row-tears" class="setting">
+      <div id="row-tears-label" class="label">Setting</div>
+      <div id="row-tears-choices" class="choices">
+        <Button id="row-tears-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-tears-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-tears-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-tears-3" class="choice" size="sm" variant="secondary">Choice</Button>
       </div>
     </div>
   </div>

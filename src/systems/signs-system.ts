@@ -3,13 +3,13 @@ import { CRANK_POSITION, FUEL_CRATE_POSITION, FUEL_CRATE_SIZE, RAIL_HEIGHT } fro
 import { TILLER_PIVOT, VENT_TOGGLE } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, BURNER_SIZE, DECK_WIDTH } from '../sim/gondola-layout.js';
 import { LEVER_PIVOT, TAG_RING, WINCH_AXLE } from '../sim/cargo.js';
+import { LOFT, LOFT_FLOOR, PATCH_BOX, PATCH_BOX_SIZE } from '../sim/loft.js';
 import { settings } from '../settings.js';
 
-/** Each sign's size, m, and its cell in the shared canvas, px (two columns of six). */
+/** Each sign's size, m, and its cell in the shared canvas, px (two columns, as many rows as the signs need). */
 const SIGN_SIZE = [0.24, 0.12] as const;
 const CELL = [512, 256] as const;
 const COLUMNS = 2;
-const CANVAS = [CELL[0] * COLUMNS, CELL[1] * 6] as const;
 
 interface Sign {
   title: string;
@@ -65,7 +65,19 @@ const SIGNS: readonly Sign[] = [
     facing: [0, 0, -1],
     twoSided: false,
   },
+  // The repair gear (docs/repairs.md): on the port rail forward of the ladder, on the patch box's outboard face, and on the loft's rail aft of the hammer.
+  { title: 'LADDER', hint: 'Squeeze a rung, pull down to climb', at: [PORT_RAIL, RAIL_TOP, 0.1], facing: [1, 0, 0], twoSided: true },
+  {
+    title: 'PATCHES',
+    hint: 'Press one up onto a tear held shut',
+    at: [PATCH_BOX[0] - PATCH_BOX_SIZE[0] / 2 - 0.004, PATCH_BOX[1] - 0.1, PATCH_BOX[2]],
+    facing: [-1, 0, 0],
+    twoSided: false,
+  },
+  { title: 'HAMMER', hint: 'Strike each rivet up into the patch', at: [LOFT.x1 - 0.03, LOFT_FLOOR + 0.72, 1.2], facing: [-1, 0, 0], twoSided: true },
 ];
+const ROWS = Math.ceil(new Set(SIGNS.map((s) => s.title + s.hint)).size / COLUMNS);
+const CANVAS = [CELL[0] * COLUMNS, CELL[1] * ROWS] as const;
 
 /**
  * Painted signs that say what each control on the gondola is for and how to

@@ -4,9 +4,12 @@ import * as avatar from '../src/scene-assets/avatar.scene-asset.js';
 import * as cargo from '../src/scene-assets/cargo.scene-asset.js';
 import * as controls from '../src/scene-assets/controls.scene-asset.js';
 import * as crank from '../src/scene-assets/crank.scene-asset.js';
+import * as repairs from '../src/scene-assets/repairs.scene-asset.js';
 import * as gondola from '../src/scene-assets/gondola.scene-asset.js';
 import * as rope from '../src/scene-assets/rope.scene-asset.js';
 import { HATCH, HATCH_CENTER, LEVER_PIVOT, TRUNK_DEPTH, WINCH_AXLE } from '../src/sim/cargo.js';
+import { PATCH_MAX, PATCH_MIN, RIVETS, rivetPoint, TEAR_MAX, TEAR_SPOTS, TEAR_START } from '../src/sim/envelope.js';
+import { HAMMER_REST } from '../src/sim/loft.js';
 import { CALM_SKIES } from '../src/sim/route.js';
 import * as route from '../src/world/route-assets.js';
 import * as sky from '../src/world/sky-assets.js';
@@ -76,9 +79,43 @@ describe('no faces that flicker through each other (z-fighting)', () => {
       crank.createPropeller(),
       rope.createGrapple(),
       gondola.createFuelBrick(),
+      repairs.createHammer(),
+      repairs.createPatchInHand(),
     ];
     for (const prop of props) {
       expectNone([prop], DECK_GAP);
+    }
+  });
+
+  it('on the envelope: tears, patches and rivets on its belly, and the hammer on its rack', () => {
+    const canvas = repairs.envelopeUnderside();
+    const rigging = gondola.createGondolaRigging();
+    const hammer = repairs.createHammer();
+    hammer.position.set(...HAMMER_REST);
+    hammer.rotation.x = Math.PI / 2;
+    hammer.updateMatrixWorld();
+    expectNone([rigging, hammer], DECK_GAP, onDeck);
+    for (let i = 0; i < TEAR_SPOTS.length; i++) {
+      for (const [length, held] of [[TEAR_START, 0], [TEAR_MAX, 0], [TEAR_MAX, 1]]) {
+        const tear = repairs.createTear();
+        repairs.layTear(tear, canvas, TEAR_SPOTS[i], { length, held, time: 0.3 });
+        expectNone([rigging, tear], DECK_GAP, onDeck);
+      }
+      for (const patchLength of [PATCH_MIN, PATCH_MAX]) {
+        const patch = repairs.createPatch();
+        repairs.layPatch(patch, canvas, TEAR_SPOTS[i], patchLength, 0);
+        // Its rivets, set, as RepairSystem draws them.
+        const rivets: Mesh[] = [];
+        const at = { x: 0, y: 0, z: 0 };
+        for (let r = 0; r < RIVETS; r++) {
+          const rivet = new Mesh(repairs.createRivets().geometry, material);
+          rivetPoint(canvas, TEAR_SPOTS[i], patchLength, r, at);
+          rivet.position.set(at.x, at.y, at.z);
+          rivet.updateMatrixWorld();
+          rivets.push(rivet);
+        }
+        expectNone([rigging, patch, ...rivets], DECK_GAP, onDeck);
+      }
     }
   });
 

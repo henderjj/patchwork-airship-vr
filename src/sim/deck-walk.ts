@@ -29,11 +29,16 @@ export const SNAP_TURN = Math.PI / 4;
  * out, but always lets it come back in.
  */
 export function clampStep(head: number, step: number, half: number): number {
+  return clampRange(head, step, -half, half);
+}
+
+/** As `clampStep`, between `lo` and `hi` (the patch loft's floor is not centred on the deck). */
+export function clampRange(head: number, step: number, lo: number, hi: number): number {
   if (step > 0) {
-    return Math.max(0, Math.min(step, half - head));
+    return Math.max(0, Math.min(step, hi - head));
   }
   if (step < 0) {
-    return Math.min(0, Math.max(step, -half - head));
+    return Math.min(0, Math.max(step, lo - head));
   }
   return 0;
 }

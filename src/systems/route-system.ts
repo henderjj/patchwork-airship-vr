@@ -4,10 +4,11 @@ import { BELL_HOOK } from '../sim/gondola-controls.js';
 import { FLUE_POSITION } from '../sim/gondola-layout.js';
 import { FAIRLEAD, MADE_FAST_HEIGHT, STRAIN_HEIGHT } from '../sim/docking.js';
 import { SHIP_MIDDLE } from '../sim/route.js';
+import { UNMENDED_POINTS } from '../sim/envelope.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
 import { gustStrength } from '../sim/wind.js';
-import { cargo, crewReady, docking, flightInfo, markReady, moored, restartRoute, route, ship, wind, yard } from './ship-system.js';
+import { cargo, crewReady, docking, envelope, flightInfo, markReady, moored, restartRoute, route, ship, wind, yard } from './ship-system.js';
 import { draftHere } from './wind-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
@@ -154,7 +155,7 @@ export class RouteSystem extends createSystem({}) {
       }
       case 'flying': {
         const top = [`TIME ${clock(route.seconds)}  ${cratesLine()}`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
-        const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}`;
+        const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}${envelopeWarning()}`;
         const air = windLine();
         if (docking.phase === 'fast') {
           const aboard = yard.aboard(cargo);
@@ -180,7 +181,7 @@ export class RouteSystem extends createSystem({}) {
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
           `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
           r.crates > 0 ? `Crates ${r.crates}/${r.cratesTotal} ${r.cargo}%   Target +${r.target}` : `Crates 0/${r.cratesTotal}`,
-          'Game menu: Restart to fly again',
+          r.unmended > 0 ? `Envelope torn ${r.unmended}  -${r.unmended * UNMENDED_POINTS}` : 'Game menu: Restart to fly again',
         ];
       }
       case 'lost':
@@ -235,9 +236,10 @@ export class RouteSystem extends createSystem({}) {
     lines.forEach((line, i) => {
       const heading = i === 0;
       ctx.font = heading ? 'bold 38px monospace' : 'bold 30px monospace';
-      // The wind's line goes red for a gust.
+      // The wind's line goes red for a gust, and the fuel's for a tear in the envelope.
       const gust = i === 5 && route.phase === 'flying' && line.startsWith('GUST');
-      ctx.fillStyle = heading ? (route.phase === 'lost' ? '#a3321f' : route.phase === 'finished' ? '#2c6e2f' : '#3a2a1a') : gust ? '#a3321f' : '#3a2a1a';
+      const torn = i === 4 && route.phase === 'flying' && envelopeWarning() !== '';
+      ctx.fillStyle = heading ? (route.phase === 'lost' ? '#a3321f' : route.phase === 'finished' ? '#2c6e2f' : '#3a2a1a') : gust || torn ? '#a3321f' : '#3a2a1a';
       ctx.fillText(line, 20, 16 + i * 49);
     });
     texture.needsUpdate = true;
@@ -281,6 +283,17 @@ function heightHint(): string {
   const by = `${Math.abs(off).toFixed(1)} m`;
   const warn = Math.abs(off) > STRAIN_HEIGHT ? '!' : '';
   return off > 0 ? `HIGH ${by}${warn} VENT` : `LOW ${by}${warn} BURN`;
+}
+
+/** A tear in the envelope, after the fuel (it burns more): open, or patched in a rush and peeling off. */
+function envelopeWarning(): string {
+  let open = false;
+  let peeling = false;
+  for (const tear of envelope.tears) {
+    open ||= tear.phase === 'open';
+    peeling ||= tear.peeling;
+  }
+  return open ? '  TEAR!' : peeling ? '  PEELING' : '';
 }
 
 /** How many crates are aboard, for the board while waiting on island A. */

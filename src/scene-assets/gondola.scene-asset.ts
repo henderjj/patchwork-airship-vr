@@ -31,6 +31,24 @@ import {
   NOZZLE_TOP,
   RAIL_HEIGHT,
 } from '../sim/gondola-layout.js';
+import {
+  HAMMER_HEAD,
+  HAMMER_REST,
+  LADDER_TOP,
+  LADDER_X,
+  LADDER_Z,
+  LOFT,
+  LOFT_FLOOR,
+  LOFT_HATCH,
+  LOFT_PLANKS,
+  LOFT_RAIL,
+  LOFT_THICKNESS,
+  PATCH_BOX,
+  PATCH_BOX_SIZE,
+  RUNG_RADIUS,
+  RUNGS,
+  STILE_SIZE,
+} from '../sim/loft.js';
 
 export { BURNER_POSITION, BURNER_SIZE, DECK_LENGTH, DECK_WIDTH, LANTERN_HOOK, RAIL_HEIGHT };
 
@@ -122,7 +140,31 @@ export const GONDOLA_COLLIDERS: BoxCollider[] = [
     size: [0.28, WINCH_AXLE[1] + 0.08, 0.16],
   },
   ...crateColliders(),
+  ...loftColliders(),
 ];
+
+/** The patch loft's floor round its hatch, and the ladder (src/sim/loft.ts), so a thrown brick or a dropped crate stops on them. */
+function loftColliders(): BoxCollider[] {
+  const y = LOFT_FLOOR - LOFT_THICKNESS / 2;
+  const width = LOFT.x1 - LOFT.x0;
+  const fore = LOFT_HATCH.z0 - LOFT.z0;
+  const aft = LOFT.z1 - LOFT_HATCH.z1;
+  const hatch = LOFT_HATCH.z1 - LOFT_HATCH.z0;
+  return [
+    { name: 'loft-fore', center: [(LOFT.x0 + LOFT.x1) / 2, y, LOFT.z0 + fore / 2], size: [width, LOFT_THICKNESS, fore] },
+    { name: 'loft-aft', center: [(LOFT.x0 + LOFT.x1) / 2, y, LOFT.z1 - aft / 2], size: [width, LOFT_THICKNESS, aft] },
+    {
+      name: 'loft-inboard',
+      center: [(LOFT_HATCH.x1 + LOFT.x1) / 2, y, (LOFT_HATCH.z0 + LOFT_HATCH.z1) / 2],
+      size: [LOFT.x1 - LOFT_HATCH.x1, LOFT_THICKNESS, hatch],
+    },
+    {
+      name: 'ladder',
+      center: [LADDER_X, LADDER_TOP / 2, (LADDER_Z[0] + LADDER_Z[1]) / 2],
+      size: [STILE_SIZE[0], LADDER_TOP, LADDER_Z[1] - LADDER_Z[0] + STILE_SIZE[1]],
+    },
+  ];
+}
 
 function crateColliders(): BoxCollider[] {
   const [cx, cy, cz] = FUEL_CRATE_POSITION;
@@ -238,10 +280,26 @@ function riggingParts(): Part[] {
   return parts;
 }
 
+/** The envelope's lumpy unit sphere, before it is scaled to `ENVELOPE_RADII`; the jitter takes the generator's first numbers. */
+function envelopeShape(random: () => number) {
+  return jitter(new IcosahedronGeometry(1, 3), 0.035, random);
+}
+
+/**
+ * The envelope's shape alone, scaled and placed in gondola space, for
+ * measuring its underside (the repair tears and patches lie on it,
+ * src/scene-assets/repairs.scene-asset.ts).
+ */
+export function createEnvelopeGeometry() {
+  const geometry = envelopeShape(rng(7));
+  geometry.scale(...ENVELOPE_RADII);
+  geometry.translate(...ENVELOPE_CENTER);
+  return geometry;
+}
+
 function envelopeParts(): Part[] {
   const random = rng(7);
-  const geometry = new IcosahedronGeometry(1, 3);
-  jitter(geometry, 0.035, random);
+  const geometry = envelopeShape(random);
   const [rx, ry, rz] = ENVELOPE_RADII;
   const patchColors = new Map<number, number>();
   return [
@@ -512,6 +570,92 @@ function cargoRigParts(): Part[] {
   ];
 }
 
+const PATCH_CANVAS = 0xd6a24a;
+
+/**
+ * The patch loft (src/sim/loft.ts): a railed plank platform slung from the
+ * envelope over the port side, the ladder that rises to it from the deck
+ * through the hatch in its floor, the box of patches inside its inboard
+ * rail and the rack the riveting hammer hangs on.
+ */
+function loftParts(): Part[] {
+  const parts: Part[] = [];
+  const t = LOFT_THICKNESS;
+  const y = LOFT_FLOOR - t / 2;
+  const length = LOFT.z1 - LOFT.z0;
+  const plank = (LOFT.x1 - LOFT.x0) / LOFT_PLANKS;
+  for (let i = 0; i < LOFT_PLANKS; i++) {
+    const x = LOFT.x0 + plank * (i + 0.5);
+    const color = i % 2 ? WOOD : WOOD_LIGHT;
+    if (x < LOFT_HATCH.x1) {
+      const fore = LOFT_HATCH.z0 - LOFT.z0;
+      const aft = LOFT.z1 - LOFT_HATCH.z1;
+      parts.push(box([plank - 0.01, t, fore], [x, y, LOFT.z0 + fore / 2], color));
+      parts.push(box([plank - 0.01, t, aft], [x, y, LOFT.z1 - aft / 2], color));
+    } else {
+      parts.push(box([plank - 0.01, t, length], [x, y, (LOFT.z0 + LOFT.z1) / 2], color));
+    }
+  }
+  // Bearers across under the planks, two of them framing the hatch.
+  const width = LOFT.x1 - LOFT.x0;
+  const mid = (LOFT.x0 + LOFT.x1) / 2;
+  for (const z of [LOFT.z0 + 0.05, LOFT_HATCH.z0 - 0.01, LOFT_HATCH.z1 + 0.01, LOFT.z1 - 0.05]) {
+    parts.push(box([width + 0.04, 0.06, 0.05], [mid, LOFT_FLOOR - t - 0.03, z], WOOD_DARK));
+  }
+  // Rail: corner posts (and one midway inboard), a top rail and a mid rail all round.
+  const px0 = LOFT.x0 + 0.03;
+  const px1 = LOFT.x1 - 0.03;
+  const pz0 = LOFT.z0 + 0.03;
+  const pz1 = LOFT.z1 - 0.03;
+  const top = LOFT_FLOOR + LOFT_RAIL;
+  for (const [x, z] of [[px0, pz0], [px1, pz0], [px0, pz1], [px1, pz1], [px1, (pz0 + pz1) / 2]]) {
+    parts.push(box([0.05, LOFT_RAIL, 0.05], [x, LOFT_FLOOR + LOFT_RAIL / 2, z], WOOD));
+  }
+  for (const h of [top, LOFT_FLOOR + 0.5]) {
+    for (const x of [px0, px1]) {
+      parts.push(box([0.06, 0.06, pz1 - pz0 + 0.06], [x, h, (pz0 + pz1) / 2], WOOD_LIGHT));
+    }
+    for (const z of [pz0, pz1]) {
+      parts.push(box([px1 - px0 + 0.06, 0.06, 0.06], [(px0 + px1) / 2, h, z], WOOD_LIGHT));
+    }
+  }
+  // Slung from the envelope by a rope at each corner, up into the canvas.
+  for (const [x, z] of [[px0, pz0], [px1, pz0], [px0, pz1], [px1, pz1]]) {
+    parts.push(beam([x, top + 0.03, z], [x * 0.92, 4.75, z * 0.92], 0.012, ROPE));
+  }
+
+  // The ladder, from the deck up through the hatch to rail height.
+  for (const z of LADDER_Z) {
+    parts.push(box([STILE_SIZE[0], LADDER_TOP, STILE_SIZE[1]], [LADDER_X, LADDER_TOP / 2, z], WOOD_DARK));
+  }
+  for (const ry of RUNGS) {
+    parts.push(beam([LADDER_X, ry, LADDER_Z[0]], [LADDER_X, ry, LADDER_Z[1]], RUNG_RADIUS, WOOD_LIGHT, 6));
+  }
+
+  // The box of patches, hung inside the inboard rail by two iron straps, with three patches standing in it.
+  const [bx, by, bz] = PATCH_BOX;
+  const [bw, bh, bd] = PATCH_BOX_SIZE;
+  const wall = 0.012;
+  parts.push(box([bw, wall, bd], [bx, by - bh + wall / 2, bz], WOOD_DARK));
+  for (const side of [-1, 1]) {
+    parts.push(box([wall, bh - wall, bd], [bx + side * (bw / 2 - wall / 2), by - (bh - wall) / 2, bz], WOOD_DARK));
+    parts.push(box([bw - 2 * wall, bh - wall, wall], [bx, by - (bh - wall) / 2, bz + side * (bd / 2 - wall / 2)], WOOD_DARK));
+    parts.push(box([0.01, top - 0.03 - by + 0.04, 0.025], [LOFT.x1 - 0.028, (by - 0.04 + top - 0.03) / 2, bz + side * (bd / 2 - 0.04)], IRON));
+  }
+  for (const k of [-1, 0, 1]) {
+    parts.push(box([0.015, 0.22, 0.28], [bx + k * 0.035, by - bh + wall + 0.11, bz], k ? PATCH_CANVAS : shade(PATCH_CANVAS, 0.9)));
+  }
+
+  // The hammer's rack: a board under the top rail, aft, and two pegs its head rests on, the handle hanging between.
+  const [hx, hy, hz] = HAMMER_REST;
+  const pegY = hy + HAMMER_HEAD - 0.026;
+  parts.push(box([0.02, top - 0.03 - (pegY - 0.08), 0.12], [px1 + 0.01, (top - 0.03 + pegY - 0.08) / 2, hz], WOOD_DARK));
+  for (const dz of [-0.025, 0.025]) {
+    parts.push(beam([px1, pegY, hz + dz], [hx - 0.06, pegY, hz + dz], 0.008, IRON, 5));
+  }
+  return parts;
+}
+
 const gondolaMaterial = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
 /**
@@ -525,7 +669,7 @@ export function createGondolaHull(): Mesh {
   return mesh;
 }
 
-/** Everything else that is static: envelope, rigging, burner, crate, pedestals, the cargo derrick. */
+/** Everything else that is static: envelope, rigging, burner, crate, pedestals, the cargo derrick, the patch loft and its ladder. */
 export function createGondolaRigging(): Mesh {
   const mesh = new Mesh(
     mergeParts([
@@ -539,6 +683,7 @@ export function createGondolaRigging(): Mesh {
       ...crankArrowParts(),
       ...tillerPostParts(),
       ...cargoRigParts(),
+      ...loftParts(),
     ]),
     gondolaMaterial,
   );

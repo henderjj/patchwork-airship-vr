@@ -9,7 +9,10 @@ import {
   ShaderMaterial,
   Vector3,
 } from '@iwsdk/core';
+import { LOFT_WALK } from '../sim/loft.js';
+import { climb } from './climb-system.js';
 import {
+  clampRange,
   clampStep,
   SNAP_TURN,
   turnAboutHead,
@@ -30,6 +33,8 @@ const VIGNETTE_STRENGTH = 0.5;
  * locomotion, whose collision capsule sits at the play-space origin rather
  * than the head (see src/sim/deck-walk.ts). The gondola never moves in
  * tracking space, so the deck is a fixed rectangle and needs no physics.
+ * On the patch loft the stick keeps to the loft's floor, and partway up its
+ * ladder (ClimbSystem) it doesn't walk at all.
  */
 export class DeckWalkSystem extends createSystem({}) {
   private stick = { x: 0, y: 0 };
@@ -73,7 +78,7 @@ export class DeckWalkSystem extends createSystem({}) {
     actions.getAxis2D(InputActions.LocomotionMove, this.stick);
     const tilt = Math.min(1, Math.hypot(this.stick.x, this.stick.y));
     let target = 0;
-    if (tilt > WALK_DEAD_ZONE) {
+    if (tilt > WALK_DEAD_ZONE && !climb.between) {
       // Stick up (y < 0) walks the way the head faces, flattened onto the deck.
       player.head.getWorldQuaternion(this.headQuat);
       this.forward.set(0, 0, -1).applyQuaternion(this.headQuat);
@@ -87,8 +92,13 @@ export class DeckWalkSystem extends createSystem({}) {
         const step = WALK_SPEED * tilt * delta;
         const dx = (fx * along - fz * across) * step;
         const dz = (fz * along + fx * across) * step;
-        player.position.x += clampStep(this.head.x, dx, WALK_HALF_WIDTH);
-        player.position.z += clampStep(this.head.z, dz, WALK_HALF_LENGTH);
+        if (climb.onLoft) {
+          player.position.x += clampRange(this.head.x, dx, LOFT_WALK.x0, LOFT_WALK.x1);
+          player.position.z += clampRange(this.head.z, dz, LOFT_WALK.z0, LOFT_WALK.z1);
+        } else {
+          player.position.x += clampStep(this.head.x, dx, WALK_HALF_WIDTH);
+          player.position.z += clampStep(this.head.z, dz, WALK_HALF_LENGTH);
+        }
         target = tilt * VIGNETTE_STRENGTH;
       }
     }

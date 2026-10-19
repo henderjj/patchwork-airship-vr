@@ -1,6 +1,7 @@
 import { createSystem } from '@iwsdk/core';
 import { type BodyChoice, clampCharacterHeight, glide, rigOffset, targetEyeHeight, UprightEye } from '../sim/body-height.js';
 import { saveSettings, settings } from '../settings.js';
+import { climb } from './climb-system.js';
 import { netLink } from './net-system.js';
 
 /** Character height and seated play, for the HUD and menus. */
@@ -34,8 +35,9 @@ export function chooseBody(choice: BodyChoice): void {
 /**
  * Puts the player's eyes at their character's height (src/sim/body-height.ts)
  * by raising or lowering the player rig, which carries the view and both
- * hands. Only in VR; the flat page's camera is left alone. Runs before
- * anything reads the head or hands this frame.
+ * hands, and raises it further by however far they have climbed the ladder
+ * to the patch loft (ClimbSystem). Only in VR; the flat page's camera is
+ * left alone. Runs before anything reads the head or hands this frame.
  */
 export class BodyHeightSystem extends createSystem({}) {
   private own = new UprightEye();
@@ -73,12 +75,13 @@ export class BodyHeightSystem extends createSystem({}) {
     }
     this.own.push(player.head.position.y, delta);
     if (Number.isNaN(this.own.upright)) {
+      player.position.y = body.offset + climb.height;
       return;
     }
     const want = rigOffset(targetEyeHeight(body.choice), this.own.upright);
     body.offset = this.snap ? want : glide(body.offset, want, delta);
     this.snap = false;
-    player.position.y = body.offset;
+    player.position.y = body.offset + climb.height;
     body.eye = this.own.upright + body.offset;
   }
 
@@ -91,7 +94,8 @@ export class BodyHeightSystem extends createSystem({}) {
       }
       return;
     }
-    this.crew.push(netLink.remote.head.py, delta);
+    // Measured from their feet, which are higher up the ladder or on the patch loft.
+    this.crew.push(netLink.remote.head.py - netLink.remote.feet, delta);
     body.crewEye = this.crew.upright;
   }
 }
