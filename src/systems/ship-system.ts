@@ -26,7 +26,8 @@ import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
 import { fendOff, groundBelow, islandHit, restingDeck } from '../sim/islands.js';
-import { type RoutePhase, type RouteResult, RouteRun, targetPoints } from '../sim/route.js';
+import { type RoutePhase, type RouteResult, routeGates, RouteRun, targetPoints } from '../sim/route.js';
+import { BRUSH_SPEED, CRATE_JOLT, fromPassage, type HullPart, PassageContact, PRACTICE_RUN_IN, TEAR_SPEED, windowMiddle } from '../sim/passages.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { draftAt, WindSim } from '../sim/wind.js';
 import { ROUTE, SHIP_ISLANDS, sceneryIslands } from '../world/route-world.js';
@@ -159,12 +160,28 @@ export function moored(): boolean {
   return netLink.connected && route.phase === 'ready' && !(crewReady.host && crewReady.guest);
 }
 
+/**
+ * The ship against the narrow passages' and arches' rock (Phase 3,
+ * docs/passages.md): on the host (or solo) this system eases the ship back
+ * out of it after each flight step and counts the scrapes.
+ */
+export const passageContact = new PassageContact();
+
+/**
+ * Scrapes as both players hear them: `count` goes up by one for each scrape
+ * or brush (wrapping at 256), with the part that touched and how hard, and
+ * `grinding` is whether the ship is touching rock now. The host sends them
+ * with the route; `heard` is the count PassageSystem has played.
+ */
+export const passageInfo = { count: 0, heard: 0, part: 'gondola' as HullPart, speed: 0, grinding: false };
+
 /** The ship system's own restart and ready check, set when it starts. */
 const routeControl = {
   restart: () => undefined as void,
   ready: () => undefined as void,
   practiceDocking: () => undefined as void,
   practiceCargo: () => undefined as void,
+  practicePassage: (_i: number) => undefined as void,
   sendGust: () => undefined as void,
 };
 
@@ -229,6 +246,20 @@ export function practiceCargo(): void {
     netLink.sendEvent({ t: 'route-cargo' });
   } else {
     routeControl.practiceCargo();
+  }
+}
+
+/**
+ * Practice passages (the game menu's "Before the Cleft" and "Before the
+ * Arch"): start a run with the ship 70 m short of passage `i`, lined up
+ * with it at the middle of its height window and still, everything before
+ * it counted as flown and the crates aboard (the guest asks the host).
+ */
+export function practicePassage(i: number): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'route-passage', i } as { t: string });
+  } else {
+    routeControl.practicePassage(i);
   }
 }
 
@@ -340,6 +371,8 @@ export class ShipSystem extends createSystem({
   private routeSentAt = Number.NEGATIVE_INFINITY;
   private wasConnected = false;
   private gustPush = { x: 0, z: 0 };
+  private heardRoute = false;
+  private tmpXZ = { x: 0, z: 0 };
 
   init(): void {
     // The breeze's strength from the game menu (only the host's or a solo ship's matters).
@@ -362,6 +395,7 @@ export class ShipSystem extends createSystem({
     routeControl.restart = () => this.restart();
     routeControl.practiceDocking = () => this.practiceDocking();
     routeControl.practiceCargo = () => this.practiceCargo();
+    routeControl.practicePassage = (i) => this.practicePassage(i);
     routeControl.sendGust = () => {
       const g = wind.send(ship.time, ship.yaw);
       console.info(`[Wind] gust sent: ${g.peak.toFixed(1)} m/s towards ${Math.round((g.heading * 180) / Math.PI)}°`);
@@ -449,6 +483,11 @@ export class ShipSystem extends createSystem({
         this.practiceCargo();
       }
     });
+    netLink.events.set('route-passage', (event) => {
+      if (netLink.isHost && typeof event.i === 'number') {
+        this.practicePassage(event.i);
+      }
+    });
     netLink.events.set('wind-gust', () => {
       if (netLink.isHost) {
         routeControl.sendGust();
@@ -462,7 +501,7 @@ export class ShipSystem extends createSystem({
     });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'wind-gust', 'crew-ready']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'route-passage', 'wind-gust', 'crew-ready']) {
         netLink.events.delete(name);
       }
     });
@@ -540,13 +579,15 @@ export class ShipSystem extends createSystem({
     wind.scale = settings.wind;
     envelope.reset(Math.floor(Math.random() * 0x7fffffff));
     envelope.rate = settings.tears;
+    passageContact.reset();
+    passageInfo.grinding = false;
     crewReady.host = crewReady.guest = false;
     this.sendRoute();
   }
 
   /**
    * Host or solo: a fresh run already under way beside island B's post,
-   * both rings flown, the crates aboard, the envelope at floating heat and
+   * the rings and passages flown, the crates aboard, the envelope at floating heat and
    * the ship still.
    */
   private practiceDocking(): void {
@@ -556,6 +597,7 @@ export class ShipSystem extends createSystem({
     flight.reset(ship, at.x, at.y, at.z, at.yaw);
     route.phase = 'flying';
     route.ringMask = (1 << ROUTE.rings.length) - 1;
+    route.passMask = (1 << ROUTE.passages.length) - 1;
     route.startTime = ship.time;
     route.jumped();
     crewReady.host = crewReady.guest = true;
@@ -565,7 +607,7 @@ export class ShipSystem extends createSystem({
 
   /**
    * Host or solo: a fresh run already under way with the ship made fast at
-   * island B's post (level with it, port side to it), both rings flown and
+   * island B's post (level with it, port side to it), the rings and passages flown and
    * the crates aboard: one in the hatch, one stowed on deck.
    */
   private practiceCargo(): void {
@@ -576,11 +618,72 @@ export class ShipSystem extends createSystem({
     docking.makeFast(ship, PRACTICE_CARGO_LINE);
     route.phase = 'flying';
     route.ringMask = (1 << ROUTE.rings.length) - 1;
+    route.passMask = (1 << ROUTE.passages.length) - 1;
     route.startTime = ship.time;
     route.jumped();
     crewReady.host = crewReady.guest = true;
     console.info('[Route] practice cargo: starting made fast at B');
     this.sendRoute();
+  }
+
+  /**
+   * Host or solo: a fresh run already under way, the ship 70 m short of
+   * passage `i` on its line, at the middle of its height window, still and
+   * at floating heat, the crates aboard, and every ring and passage before
+   * it counted as flown.
+   */
+  private practicePassage(i: number): void {
+    const p = ROUTE.passages[i];
+    if (!p) {
+      return;
+    }
+    this.restart();
+    yard.stowAboard(cargo, PRACTICE_DECK);
+    const back = fromPassage(p, 0, -PRACTICE_RUN_IN, this.tmpXZ);
+    flight.reset(ship, p.x + back.x, windowMiddle(p), p.z + back.z, p.yaw);
+    route.phase = 'flying';
+    const gates = routeGates(ROUTE);
+    route.flownBefore(gates, gates.findIndex((g) => g.kind === 'passage' && g.index === i));
+    route.startTime = ship.time;
+    route.jumped();
+    crewReady.host = crewReady.guest = true;
+    console.info(`[Route] practice passage: starting short of the ${p.name}`);
+    this.sendRoute();
+  }
+
+  /**
+   * Host or solo: the passages' rock (docs/passages.md). Eases the ship
+   * back out of any it went into and stops it pushing in; a scrape (more
+   * than a brush) costs points, tears the envelope if it was the envelope
+   * and hard enough, and knocks the crates aboard if it was the gondola.
+   */
+  private scrapeRock(): void {
+    const hit = passageContact.step(ROUTE.passages, ship, ship.time);
+    if (passageContact.touching) {
+      const n = passageContact.normal;
+      flight.bump(ship, n.x, n.y, n.z);
+    }
+    const grinding = passageContact.grinding(ship.time);
+    let changed = grinding !== passageInfo.grinding;
+    passageInfo.grinding = grinding;
+    if (hit) {
+      passageInfo.count = (passageInfo.count + 1) & 255;
+      passageInfo.part = hit.part;
+      passageInfo.speed = hit.speed;
+      changed = true;
+      if (hit.speed >= BRUSH_SPEED && route.phase === 'flying') {
+        route.scrapes++;
+        if (hit.part === 'envelope' && hit.speed >= TEAR_SPEED) {
+          envelope.tearNow();
+        } else if (hit.part === 'gondola') {
+          yard.jolt(cargo, CRATE_JOLT * (hit.speed - BRUSH_SPEED));
+        }
+      }
+      console.info(`[Passages] ${hit.speed < BRUSH_SPEED ? 'brushed' : 'scraped'} the rock with the ${hit.part} at ${hit.speed.toFixed(2)} m/s`);
+    }
+    if (changed) {
+      this.sendRoute();
+    }
   }
 
   /** Host: tell the guest how the run stands. */
@@ -593,6 +696,9 @@ export class ShipSystem extends createSystem({
       t: 'route',
       phase: route.phase,
       rings: route.ringMask,
+      passes: route.passMask,
+      scrapes: route.scrapes,
+      scrape: [passageInfo.count, passageInfo.part === 'envelope' ? 1 : 0, Math.round(passageInfo.speed * 100) / 100, passageInfo.grinding ? 1 : 0],
       start: route.startTime,
       seconds: route.seconds,
       reason: route.lostReason,
@@ -611,6 +717,18 @@ export class ShipSystem extends createSystem({
     }
     route.phase = event.phase as RoutePhase;
     route.ringMask = Number(event.rings) | 0;
+    route.passMask = Number(event.passes) | 0;
+    route.scrapes = Number(event.scrapes) | 0;
+    const scrape = Array.isArray(event.scrape) ? event.scrape : [];
+    passageInfo.count = Number(scrape[0]) & 255;
+    passageInfo.part = scrape[1] === 1 ? 'envelope' : 'gondola';
+    passageInfo.speed = Number(scrape[2]) || 0;
+    passageInfo.grinding = scrape[3] === 1;
+    if (!this.heardRoute) {
+      // Joining: scrapes before now aren't heard.
+      this.heardRoute = true;
+      passageInfo.heard = passageInfo.count;
+    }
     route.startTime = Number(event.start) || 0;
     route.seconds = Number(event.seconds) || 0;
     route.lostReason = String(event.reason ?? '');
@@ -684,9 +802,13 @@ export class ShipSystem extends createSystem({
             flight.airspeed = 0;
             flight.climb = 0;
             flight.yawRate = 0;
-          } else if (fendOff(ROUTE.cargo, ship, fromY, dt)) {
-            // Sitting on the cargo stage's planks: it rises again as soon as it has lift.
-            flight.climb = Math.max(0, flight.climb);
+          } else {
+            if (fendOff(ROUTE.cargo, ship, fromY, dt)) {
+              // Sitting on the cargo stage's planks: it rises again as soon as it has lift.
+              flight.climb = Math.max(0, flight.climb);
+            }
+            // The narrow passages' and arches' rock: eased back out of it, scraping.
+            this.scrapeRock();
           }
         }
         const crashed = islandHit(SHIP_ISLANDS, ship.x, ship.y, ship.z) >= 0 || islandHit(sceneryIslands, ship.x, ship.y, ship.z, wrapNear) >= 0;
@@ -772,6 +894,7 @@ export class ShipSystem extends createSystem({
     if (guest !== this.following) {
       this.following = guest;
       this.follower.reset();
+      this.heardRoute = false;
     }
     if (guest) {
       // The guest's ship is the host's: follow it.

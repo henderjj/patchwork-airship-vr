@@ -93,6 +93,7 @@ The crank's high gear, heaving the mooring line and throwing to each other need 
 - On island A it rings the bell once you have, so the ship casts off.
 - When you take a crank handle, it walks to the other one and turns in step with you, so the crank clicks into high gear.
 - When you haul the mooring line, it hauls beside you. After your first two strokes it has your rhythm and starts each stroke with yours, so you heave together.
+- Approaching a narrow passage in the rock, it goes to the bow, looks out and calls the way through (up, down, port, starboard or steady) with a whistle and a bubble over its head ([docs/passages.md](docs/passages.md)).
 - Otherwise it stands at the bow (or the stern, if you're at the bow) facing you. Throw a brick near its hand and it catches it, then throws it back to your chest.
 
 Keep the PC page showing: a hidden tab counts as a crewmate who stepped away and pauses the ship. Opening the game again without the link's `bot=1` makes the page a player again. The code is `src/systems/crew-bot-system.ts`; `npm run test:net` checks all four against a scripted player (`ONLY_BOT=1` runs just those).

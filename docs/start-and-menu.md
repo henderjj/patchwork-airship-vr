@@ -47,7 +47,7 @@ The rows:
 | Sound and view | Foveation | Off, Half, Full |
 | Sound and view | Comfort question | Never, 1 min, 2 min, 5 min |
 
-Under **Practice**, **Start beside B's post** (Docking) starts a fresh run already under way beside island B's mooring post, both rings counted as flown, the deck level with the post's top and its port side 5 m off it, so docking can be tried without flying the route ([docking.md](docking.md)). In a crew, the guest's press asks the host, who flies the ship for both. **Wind** (Off, Half, Normal, Double) sets the breeze's strength; in a crew the host's choice counts.
+Under **Practice**, **Start beside B's post** (Docking) starts a fresh run already under way beside island B's mooring post, both rings counted as flown, the deck level with the post's top and its port side 5 m off it, so docking can be tried without flying the route ([docking.md](docking.md)). In a crew, the guest's press asks the host, who flies the ship for both. **Wind** (Off, Half, Normal, Double) sets the breeze's strength; in a crew the host's choice counts. **Passages**: **Before the Cleft** and **Before the Arch** start a run 70 m short of that narrow passage, at a height that clears it ([passages.md](passages.md)).
 
 Below them, **Back to start screen** leaves any crew and shows the start screen, and **Exit VR** ends the session. A line at the bottom reminds the player of the controller buttons.
 

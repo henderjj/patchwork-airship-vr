@@ -2,6 +2,7 @@ import type { DockPost } from './docking.js';
 import { UNMENDED_POINTS } from './envelope.js';
 import { KEEL_DEPTH } from './gondola-layout.js';
 import { type Island, restingDeck, SHIP_HEIGHT } from './islands.js';
+import { crossesPassage, type Passage, SCRAPE_POINTS } from './passages.js';
 import type { Draft } from './wind.js';
 
 /**
@@ -63,6 +64,8 @@ export interface Route {
   drafts: Draft[];
   /** Where the crates wait to be loaded on the start island. */
   loading: LoadingStage;
+  /** Narrow passages and rock arches on the way (Phase 3, docs/passages.md), each after some of the rings. */
+  passages: Passage[];
 }
 
 const DEG = Math.PI / 180;
@@ -113,7 +116,58 @@ export const CALM_SKIES: Route = {
     ],
     yaw: Math.PI / 2,
   },
+  passages: [
+    // Between the rings, three quarters of the way to ring 2 and lined up
+    // with it: a gorge 13 m wide between two islands, open to the sky,
+    // its floor 6 m under the deck of a ship flying the straight line.
+    {
+      kind: 'cleft',
+      name: 'Cleft',
+      x: -87.4,
+      z: -290.4,
+      yaw: Math.atan2(115, 165),
+      floor: 119,
+      walls: 22,
+      half: 6.5,
+      radius: 18,
+      depth: 45,
+      beyond: 6,
+      after: 1,
+    },
+    // After ring 2, nearly half way to B's post: a stone arch on an island,
+    // 16 m between its legs and 14 m from the grass to the span, so the
+    // deck has just over 3 m of height to play with, on the way down from ring 2
+    // to the post.
+    {
+      kind: 'arch',
+      name: 'Arch',
+      x: -145.13,
+      z: -384.61,
+      yaw: Math.atan2(66.96, 121.36),
+      ground: 115,
+      half: 8,
+      legs: 6,
+      thickness: 2.8,
+      deep: 1.5,
+      radius: 15,
+      depth: 26,
+      after: 2,
+    },
+  ],
 };
+
+/** The rings and passages in the order the route flies them: each a ring's or a passage's index. */
+export type Gate = { kind: 'ring' | 'passage'; index: number };
+export function routeGates(route: Route): Gate[] {
+  const gates: Gate[] = [];
+  for (let i = 0; i <= route.rings.length; i++) {
+    route.passages.forEach((p, index) => {
+      if (p.after === i) gates.push({ kind: 'passage', index });
+    });
+    if (i < route.rings.length) gates.push({ kind: 'ring', index: i });
+  }
+  return gates;
+}
 
 /** Whether world (x, z) is on the loading stage's planks. */
 export function onLoadingStage(stage: LoadingStage, x: number, z: number): boolean {
@@ -216,12 +270,20 @@ export interface RouteResult {
   target: number;
   /** Tears in the envelope not soundly mended at the end (src/sim/envelope.ts). */
   unmended: number;
+  /** Passages flown through, of how many there were, and times the ship scraped their rock (docs/passages.md). */
+  passes: number;
+  passesTotal: number;
+  scrapes: number;
   score: number;
   stars: number;
 }
 
-/** What a run's score is worked out from (tears left unmended count nothing if not given). */
-export type ScoreInput = Omit<RouteResult, 'score' | 'stars' | 'unmended'> & { unmended?: number };
+/** What a run's score is worked out from (tears left unmended, missed passages and scrapes count nothing if not given). */
+export type ScoreInput = Omit<RouteResult, 'score' | 'stars' | 'unmended' | 'passes' | 'passesTotal' | 'scrapes'> &
+  Partial<Pick<RouteResult, 'unmended' | 'passes' | 'passesTotal' | 'scrapes'>>;
+
+/** Points lost for each ring or passage missed. */
+export const MISSED_POINTS = 150;
 
 /** Points lost per percent of a delivered crate's condition lost (a crate not delivered loses all 100). */
 export const CARGO_POINTS = 4;
@@ -248,15 +310,17 @@ export function targetPoints(route: Route, x: number, z: number): number {
 }
 
 /**
- * Points: 1000, less time, fuel, missed rings, the grapple torn off the
- * post, damage to the crates (each one not delivered counts as smashed) and
- * tears in the envelope left unmended, plus the target's points.
+ * Points: 1000, less time, fuel, missed rings and passages, scrapes on the
+ * passages' rock, the grapple torn off the post, damage to the crates (each
+ * one not delivered counts as smashed) and tears in the envelope left
+ * unmended, plus the target's points.
  */
 export function scoreRun(r: ScoreInput): { score: number; stars: number } {
-  const missed = r.ringsTotal - r.rings;
+  const missed = r.ringsTotal - r.rings + Math.max(0, (r.passesTotal ?? 0) - (r.passes ?? 0));
   const damage = CARGO_POINTS * (r.crates * (100 - Math.max(0, Math.min(100, r.cargo))) + 100 * Math.max(0, r.cratesTotal - r.crates));
   const torn = UNMENDED_POINTS * Math.max(0, r.unmended ?? 0);
-  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - 150 * missed - 100 * r.tears - damage - torn + r.target));
+  const scraped = SCRAPE_POINTS * Math.max(0, r.scrapes ?? 0);
+  const score = Math.max(0, Math.round(1000 - 2 * r.seconds - 15 * r.bricks - MISSED_POINTS * missed - 100 * r.tears - damage - torn - scraped + r.target));
   const stars = score >= 600 ? 3 : score >= 450 ? 2 : score >= 250 ? 1 : 0;
   return { score, stars };
 }
@@ -292,8 +356,8 @@ export interface RouteShip {
  * A; the run finishes once the ship has been made fast to island B's
  * mooring post for `FAST_HOLD_SECONDS` (src/sim/docking.ts) with no crate
  * left aboard (src/sim/stowage.ts), and is lost if the ship hits an island's rock, sinks into the haze, or strays
- * far from the route. Rings may be flown in any order; each missed one
- * costs points.
+ * far from the route. Rings and passages may be flown in any order; each
+ * missed one costs points, and so does each scrape on a passage's rock.
  */
 export class RouteRun {
   phase: RoutePhase = 'ready';
@@ -303,6 +367,10 @@ export class RouteRun {
   seconds = 0;
   /** One bit per ring flown through. */
   ringMask = 0;
+  /** One bit per passage flown through (docs/passages.md). */
+  passMask = 0;
+  /** Times the ship scraped a passage's rock (more than a brush), counted by the host's contact (src/sim/passages.ts). */
+  scrapes = 0;
   /** Why the run was lost. */
   lostReason = '';
   result: RouteResult | null = null;
@@ -317,6 +385,8 @@ export class RouteRun {
     this.startTime = 0;
     this.seconds = 0;
     this.ringMask = 0;
+    this.passMask = 0;
+    this.scrapes = 0;
     this.lostReason = '';
     this.result = null;
     this.fastFor = 0;
@@ -332,6 +402,20 @@ export class RouteRun {
     let n = 0;
     for (let i = 0; i < this.route.rings.length; i++) if (this.ringMask & (1 << i)) n++;
     return n;
+  }
+
+  get passes(): number {
+    let n = 0;
+    for (let i = 0; i < this.route.passages.length; i++) if (this.passMask & (1 << i)) n++;
+    return n;
+  }
+
+  /** Every ring and passage that comes before route gate `gate` (in `routeGates` order) counted as flown: for practice starts. */
+  flownBefore(gates: readonly Gate[], gate: number): void {
+    for (let g = 0; g < gate && g < gates.length; g++) {
+      if (gates[g].kind === 'ring') this.ringMask |= 1 << gates[g].index;
+      else this.passMask |= 1 << gates[g].index;
+    }
   }
 
   /**
@@ -378,6 +462,13 @@ export class RouteRun {
           changed = true;
         }
       });
+      route.passages.forEach((passage, i) => {
+        const bit = 1 << i;
+        if (!(this.passMask & bit) && crossesPassage(passage, this.prev.x, this.prev.y + SHIP_MIDDLE, this.prev.z, s.x, s.y + SHIP_MIDDLE, s.z)) {
+          this.passMask |= bit;
+          changed = true;
+        }
+      });
     }
     this.remember(s);
 
@@ -421,6 +512,9 @@ export class RouteRun {
       cratesTotal: cargo.total,
       target: cargo.target,
       unmended,
+      passes: this.passes,
+      passesTotal: this.route.passages.length,
+      scrapes: this.scrapes,
     };
     this.result = { ...base, ...scoreRun(base) };
     this.phase = 'finished';

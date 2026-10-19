@@ -1314,6 +1314,29 @@ async function botChecks(browser) {
   check('Practice crewmate: climbs back down once the envelope is mended', botDown !== null,
     botDown ? `waiting at ${botDown.head.map((v) => v.toFixed(2)).join(', ')}` : JSON.stringify(await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head }))));
 
+  // Narrow passages: started short of the Cleft (Practice → Passages), the
+  // bot goes to the bow and looks out, calling the way through to the
+  // player's page; with the deck brought too low, it calls UP.
+  await me.page.evaluate(() => window.__passages.practice(0));
+  const lookout = await waitFor('the bot to look out from the bow', async () => {
+    const b = await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, calls: window.__bot.stats.calls }));
+    const heard = await me.page.evaluate(() => ({ ...window.__passages.call }));
+    return b.mode === 'lookout' && b.head[2] < -1 && heard.count > 0 ? { b, heard } : null;
+  }, 20000).catch(() => null);
+  const low = await me.page.evaluate(() => window.__passages.window(0).low - 3);
+  await me.page.evaluate((y) => {
+    const s = window.__ship.state;
+    window.__ship.place(s.x, y, s.z);
+  }, low);
+  const calledUp = await waitFor('the bot to call UP', async () => {
+    const heard = await me.page.evaluate(() => ({ ...window.__passages.call }));
+    return heard.call === 'UP' ? heard : null;
+  }, 8000).catch(() => null);
+  check('Practice crewmate: approaching a passage it looks out from the bow and calls the way through, and UP when the deck is too low',
+    lookout !== null && calledUp !== null,
+    lookout ? `at ${lookout.b.head.map((v) => v.toFixed(2)).join(', ')}, first call heard ${lookout.heard.call}, then ${calledUp ? 'UP' : `still ${(await me.page.evaluate(() => window.__passages.call.call))}`}` :
+      JSON.stringify(await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, calls: window.__bot.stats.calls }))));
+
   const errors = [...me.errors, ...bot.errors].filter((m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'));
   await me.context.close();
   await bot.context.close();

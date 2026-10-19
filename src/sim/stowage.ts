@@ -280,6 +280,30 @@ export class CrateYard {
     return s === 'deck' || s === 'held' || s === 'falling' || (s === 'hatch' && cargo.carried);
   }
 
+  /**
+   * The ship scraped rock (src/sim/passages.ts): every crate aboard is
+   * knocked `cost` % of its condition (the one in the hatch through
+   * `cargo`, which keeps its condition while it is there).
+   */
+  jolt(cargo: CargoSim, cost: number): void {
+    if (cost <= 0) return;
+    let knocked = false;
+    for (let i = 0; i < this.crates.length; i++) {
+      const c = this.crates[i];
+      if (!this.isAboard(i, cargo)) continue;
+      if (c.state === 'hatch') {
+        cargo.jolt(cost);
+      } else {
+        c.condition = Math.max(0, c.condition - cost);
+        knocked = true;
+      }
+    }
+    if (knocked) {
+      this.lastKnock = cost;
+      this.knocks = (this.knocks + 1) & 255;
+    }
+  }
+
   /** Crates delivered so far, and the sum of their conditions, %. */
   delivered(): { count: number; condition: number } {
     let count = 0;

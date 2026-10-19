@@ -5,7 +5,8 @@
  * flown through, a thump on touchdown, the haul call's mallet knock, the
  * mooring line creaking under strain, and the envelope's repairs: canvas
  * ripping, hot air hissing out of a tear, a patch slapped on and rivets
- * hammered home.
+ * hammered home; the hull scraping a passage's rock, and the crewmate's
+ * whistle as it calls the way through.
  *
  * Sources sit at fixed places in ship space (the gondola doesn't move in
  * the player's tracking space), so only the listener moves each frame.
@@ -47,7 +48,7 @@ export class ShipSounds {
   private hissGain!: GainNode;
   /** Sounds played so far, by name (tests and the HUD). */
   readonly played: Record<string, number> = {
-    ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0, lineCreak: 0, rip: 0, slap: 0, rivet: 0, dud: 0,
+    ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0, lineCreak: 0, rip: 0, slap: 0, rivet: 0, dud: 0, scrape: 0, call: 0,
   };
 
   constructor(
@@ -431,6 +432,71 @@ export class ShipSounds {
     osc.start(t);
     osc.stop(t + duration + 0.05);
     this.played.lineCreak++;
+  }
+
+  /**
+   * The hull scraping rock (docs/passages.md), louder with `strength` (0 to
+   * 1): canvas rasping along it overhead for the envelope, or the gondola's
+   * timbers grinding and knocking on it underfoot. Played over and over,
+   * quieter, while the ship grinds along the rock.
+   */
+  scrape(envelope: boolean, strength: number): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    const level = 0.12 + 0.5 * Math.max(0, Math.min(1, strength));
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = envelope ? 0.9 : 1.6;
+    band.frequency.setValueAtTime(envelope ? 1300 : 380, t);
+    band.frequency.linearRampToValueAtTime(envelope ? 900 : 300, t + 0.45);
+    // Rough: the level jumps about as the surface catches and slips.
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    for (let i = 0; i < 8; i++) {
+      gain.gain.setValueAtTime(level * (0.4 + 0.6 * Math.random()), t + i * 0.055);
+    }
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    source.connect(band).connect(gain).connect(envelope ? this.loftOut : this.master);
+    source.start(t, Math.random() * (NOISE_SECONDS - 1), 0.55);
+    if (!envelope) {
+      // The timbers knocking on the rock.
+      this.tone(90, 'triangle', level * 0.8, 0.005, 0.18, this.master, t);
+    }
+    this.played.scrape++;
+  }
+
+  /** The crewmate's whistle as it calls (docs/passages.md): rising for up, falling for down, two short blasts to steer, one for steady. */
+  call(kind: 'up' | 'down' | 'steer' | 'steady'): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    const blasts = kind === 'steer' ? 2 : 1;
+    for (let i = 0; i < blasts; i++) {
+      const start = t + i * 0.16;
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      const from = kind === 'up' ? 1500 : kind === 'down' ? 2300 : 1900;
+      const to = kind === 'up' ? 2300 : kind === 'down' ? 1500 : 1900;
+      const length = blasts === 2 ? 0.1 : 0.32;
+      osc.frequency.setValueAtTime(from, start);
+      osc.frequency.linearRampToValueAtTime(to, start + length);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.12, start + 0.02);
+      gain.gain.setValueAtTime(0.12, start + length - 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+      osc.connect(gain).connect(this.master);
+      osc.start(start);
+      osc.stop(start + length + 0.05);
+    }
+    this.played.call++;
   }
 
   /** The gondola settling onto the ground, harder with a faster `speed` (m/s). */

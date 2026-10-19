@@ -993,7 +993,7 @@ async function main() {
   evalInApp(`(window.__ship.place(${ring.x}, ${ring.y - 5}, ${ring.z + 2}, 0), window.__ship.flight.airspeed = 4)`);
   const passed = await waitFor('ring 1', () => evalInApp('window.__route.run.ringMask & 1'), 10000).catch(() => 0);
   const flyingBoard = boardAfterRedraw('__route');
-  check('Flying through a ring counts it, and the board points to the next', passed === 1 && flyingBoard[1] === 'RINGS 1 of 2' && flyingBoard[2].startsWith('NEXT Ring 2'),
+  check('Flying through a ring counts it, and the board points to the next', passed === 1 && flyingBoard[1] === 'RINGS 1/2  PASSAGES 0/2' && flyingBoard[2].startsWith('NEXT Cleft'),
     flyingBoard.join(' | '));
   // 6e. Docking at island B: take the grapple off its hook, throw it at the
   //     mooring post on the jetty, then haul the ship in until it is made
@@ -1017,7 +1017,7 @@ async function main() {
   ];
   const postTop = dock.y + dock.height;
   const shipAt = [dock.x + outward[0] * 5 - fairleadOffset[0], postTop - FAIRLEAD[1], dock.z + outward[1] * 5 - fairleadOffset[2]];
-  // Ring 2 is taken as flown (to keep the test short), and the breeze is
+  // Ring 2 and the passages are taken as flown (to keep the test short), and the breeze is
   // stilled so the ship stays put while the emulator's hand moves.
   const placeAlongside = `(() => {
     window.__ship.place(${shipAt[0]}, ${shipAt[1]}, ${shipAt[2]}, ${dockYaw});
@@ -1027,6 +1027,7 @@ async function main() {
   })()`;
   evalInApp(`(() => {
     window.__route.run.ringMask |= 2;
+    window.__route.run.passMask |= 3;
     const f = window.__ship.flight;
     window.__savedBreeze = [f.params.windSpeed, f.params.windVariation];
     f.params.windSpeed = 0;
@@ -1403,6 +1404,76 @@ async function main() {
   evalInApp('window.__ship.fly()');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
   await move([0.3, 1.1, 0.1]);
+
+  // 6h. Phase 3 narrow passages and rock arches (docs/passages.md): the
+  //     menu's Practice → Passages starts a run short of the Cleft at a
+  //     height that clears it, flying through counts it, and the Arch's
+  //     span scrapes an envelope flown too high under it: the ship is eased
+  //     back out of the rock, and the board and the sound say so.
+  evalInApp(`(() => {
+    const f = window.__ship.flight;
+    window.__savedBreeze = [f.params.windSpeed, f.params.windVariation];
+    f.params.windSpeed = 0;
+    f.params.windVariation = 0;
+  })()`);
+  evalInApp("window.__gameMenu.click('menu-cleft')");
+  await sleep(500);
+  evalInApp(`(() => {
+    const f = window.__ship.flight;
+    clearInterval(window.__holdHeat);
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb = 0; }, 50);
+  })()`);
+  const cleftStart = evalInApp('({ where: window.__passages.where(0), window: window.__passages.window(0), phase: window.__route.run.phase, rings: window.__route.run.ringMask, passes: window.__passages.passes() })');
+  const cleftBoard = boardAfterRedraw('__route');
+  check("The menu's Before the Cleft starts a run 70 m short of it, ring 1 flown, at a height the board calls CLEAR",
+    cleftStart.phase === 'flying' && cleftStart.rings === 1 && cleftStart.passes === 0 && Math.abs(cleftStart.where.u) < 0.5 && Math.abs(cleftStart.where.w + 70) < 1 &&
+      cleftStart.where.y > cleftStart.window.low && cleftStart.where.y < cleftStart.window.high &&
+      cleftBoard[1] === 'RINGS 1/2  PASSAGES 0/2' && cleftBoard[2].startsWith('NEXT Cleft') && cleftBoard[3].includes('CLEAR'),
+    `${cleftStart.phase}, ${JSON.stringify(cleftStart.where)}, window ${cleftStart.window.low.toFixed(1)}-${cleftStart.window.high.toFixed(1)}, board: ${cleftBoard.join(' | ')}`);
+  // A look from 25 m short, then on from 3 m short (to keep the test short) at 3 m/s.
+  const placeInPassage = (i, u, deck, w, speed) => evalInApp(`(() => {
+    const p = window.__passages.route[${i}];
+    const c = Math.cos(p.yaw);
+    const s = Math.sin(p.yaw);
+    window.__ship.place(p.x + ${u} * c - ${w} * s, ${deck}, p.z - ${u} * s - ${w} * c, p.yaw);
+    window.__ship.flight.airspeed = ${speed};
+  })()`);
+  placeInPassage(0, 0, cleftStart.where.y, -25, 0);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, -0.8]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 4, z: -30 } });
+  await sleep(1500);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-passage-cleft.png'], {});
+  placeInPassage(0, 0, cleftStart.where.y, -3, 3);
+  const throughCleft = await waitFor('through the Cleft', () => evalInApp('window.__passages.passes() & 1 ? window.__route.boardText() : null'), 15000, 250).catch(() => null);
+  const cleftScrapes = evalInApp('window.__passages.scrapes()');
+  check('Flown down the middle of the Cleft, the passage counts and the ship never touches its walls',
+    throughCleft !== null && cleftScrapes === 0 && evalInApp('window.__passages.contact.touching') === false,
+    throughCleft ? `${cleftScrapes} scrapes, board: ${throughCleft.join(' | ')}` : `not through: ${JSON.stringify(evalInApp('window.__passages.where(0)'))}`);
+  evalInApp("window.__gameMenu.click('menu-arch')");
+  await sleep(500);
+  const archStart = evalInApp('({ where: window.__passages.where(1), window: window.__passages.window(1), rings: window.__route.run.ringMask, passes: window.__passages.passes() })');
+  placeInPassage(1, 0, archStart.where.y, -20, 0);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 5, z: -30 } });
+  await sleep(1500);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-passage-arch.png'], {});
+  // Now 1.5 m too high, going in at 2 m/s: the envelope's crown meets the span.
+  const scrapeSounds = evalInApp('window.__audio.played.scrape');
+  placeInPassage(1, 0, archStart.window.high + 1.5, -6, 2);
+  const scraped = await waitFor('a scrape on the Arch', () => evalInApp('window.__passages.scrapes() > 0 ? true : null'), 8000, 100).catch(() => null);
+  await sleep(300);
+  const archScrape = evalInApp(`({ board: window.__route.boardText(), info: { ...window.__passages.info }, scrapes: window.__passages.scrapes(), sounds: window.__audio.played.scrape,
+    clear: (() => { const s = window.__ship.state; return window.__passages.rock(1, s.x, s.y + 7.2, s.z); })() })`);
+  check('Under the Arch too high, the envelope scrapes the span: the ship is eased back out, the board and a rasp say so, and it counts',
+    archStart.rings === 3 && archStart.passes === 1 && scraped === true && archScrape.scrapes === 1 && archScrape.info.part === 'envelope' && archScrape.sounds > scrapeSounds &&
+      archScrape.clear > 2.5 && /SCRAP/.test(archScrape.board[5]),
+    `start rings ${archStart.rings} passes ${archStart.passes}; ${archScrape.scrapes} scrapes (${archScrape.info.part} at ${archScrape.info.speed.toFixed(2)} m/s), ${archScrape.sounds - scrapeSounds} rasps, envelope's middle ${archScrape.clear.toFixed(2)} m from the rock, board: ${archScrape.board[5]}`);
+  evalInApp(`(() => {
+    clearInterval(window.__holdHeat);
+    const f = window.__ship.flight;
+    [f.params.windSpeed, f.params.windVariation] = window.__savedBreeze;
+  })()`);
+  evalInApp('window.__ship.fly()');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
 
   // 6e. Phase 2 audio: the ship's sounds played through the tests above
   //     (crank ratchet, ring chime, touchdown thump, bell), and the burner
