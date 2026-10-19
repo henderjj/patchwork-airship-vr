@@ -361,6 +361,41 @@ export class FlightSim {
     updateQuaternion(state);
     updateFeltGravity(state);
   }
+
+  /**
+   * The ship touched rock (a passage's, src/sim/passages.ts) whose way out
+   * is the unit normal (nx, ny, nz), world, and has been moved out of it:
+   * take away the crank's drive, the gust's push, the climb and the draft
+   * wherever they carry the ship into it, so it stops pushing in and slides
+   * along. The velocity the felt gravity is worked out from loses the same,
+   * so the bump doesn't fling loose things about the deck.
+   */
+  bump(state: ShipState, nx: number, ny: number, nz: number): void {
+    const fx = -Math.sin(state.yaw);
+    const fz = -Math.cos(state.yaw);
+    const along = fx * nx + fz * nz;
+    if (this.airspeed * along < 0) {
+      this.airspeed *= 1 - along * along;
+    }
+    const gust = this.gustX * nx + this.gustZ * nz;
+    if (gust < 0) {
+      this.gustX -= nx * gust;
+      this.gustZ -= nz * gust;
+    }
+    if ((ny > 0.3 && this.climb < 0) || (ny < -0.3 && this.climb > 0)) {
+      this.climb = 0;
+    }
+    if ((ny > 0.3 && this.draft < 0) || (ny < -0.3 && this.draft > 0)) {
+      this.draft = 0;
+    }
+    const last = this.lastV;
+    const into = last.x * nx + last.y * ny + last.z * nz;
+    if (into < 0) {
+      last.x -= nx * into;
+      last.y -= ny * into;
+      last.z -= nz * into;
+    }
+  }
 }
 
 function approach(value: number, target: number, maxStep: number): number {

@@ -20,6 +20,7 @@ import { GrappleSystem } from './systems/grapple-system.js';
 import { GripSystem } from './systems/grip-system.js';
 import { NetSystem } from './systems/net-system.js';
 import { OwnHandsSystem } from './systems/own-hands-system.js';
+import { PassageSystem } from './systems/passage-system.js';
 import { PerfHudSystem } from './systems/perf-hud-system.js';
 import { PlatformSystem } from './systems/platform-system.js';
 import { RepairSystem } from './systems/repair-system.js';
@@ -74,6 +75,8 @@ World.create(
   world.registerSystem(SignsSystem);
   // After the ship, crank and route have moved on this frame.
   world.registerSystem(AudioSystem);
+  // After the ship has scraped (or not) this frame; it plays the scrapes and shows the crewmate's calls.
+  world.registerSystem(PassageSystem);
   // After the crank, rope and controls, so it knows which hands they hold.
   world.registerSystem(ThrowablesSystem);
   // After the systems it drives; their scripted hands are functions of time, so a frame late costs nothing.

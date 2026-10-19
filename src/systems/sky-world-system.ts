@@ -27,6 +27,7 @@ import { ISLAND_VARIANTS, islandVariantSeed } from '../sim/islands.js';
 import { rng } from '../sim/random.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { createBeaconLampGeometry, createBeaconMastGeometry, createJettyGeometry, createLandingIslandGeometry, createRingGeometry, jettyPlacement } from '../world/route-assets.js';
+import { createPassageGeometry, passageBase } from '../world/passage-assets.js';
 import { ROUTE, sceneryIslands } from '../world/route-world.js';
 import { flightInfo, route, ship } from './ship-system.js';
 
@@ -144,7 +145,7 @@ export class SkyWorldSystem extends createSystem({}) {
     }
   }
 
-  /** The route's islands, rings and beacon, shown while the crew flies the ship (`?motion=flight`). */
+  /** The route's islands, rings, beacon and passages, shown while the crew flies the ship (`?motion=flight`). */
   private buildRoute(): void {
     this.route = new Group();
     this.route.name = 'Route';
@@ -189,6 +190,14 @@ export class SkyWorldSystem extends createSystem({}) {
     jetty.position.set(dock.x, dock.y, dock.z);
     jetty.rotation.y = turn;
     this.route.add(jetty);
+    // The narrow passages and rock arches (docs/passages.md), each turned to face its way through.
+    for (const passage of ROUTE.passages) {
+      const mesh = new Mesh(createPassageGeometry(passage), material);
+      mesh.name = `Passage ${passage.name}`;
+      mesh.position.set(passage.x, passageBase(passage), passage.z);
+      mesh.rotation.y = passage.yaw;
+      this.route.add(mesh);
+    }
     this.route.visible = false;
   }
 

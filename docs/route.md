@@ -1,6 +1,6 @@
 # The route: "Calm skies" (Phase 2)
 
-The ship starts resting on island A, and the crew flies a short route: lift off, fly through two marker rings, make the ship fast to the mooring post at the end of island B's jetty (docking, Phase 3: [docking.md](docking.md)), and lower the crate it carries onto the cargo stage below the jetty ([cargo.md](cargo.md)). The run is timed, and the board on deck shows a score at the end. The layout and rules are in `src/sim/route.ts`, `src/sim/islands.ts` and `src/sim/docking.ts`; like the flight model, they have no rendering code.
+The ship starts resting on island A, and the crew flies a short route: lift off, fly through two marker rings and two narrow passages in the rock ([passages.md](passages.md)), make the ship fast to the mooring post at the end of island B's jetty (docking, Phase 3: [docking.md](docking.md)), and lower the crate it carries onto the cargo stage below the jetty ([cargo.md](cargo.md)). The run is timed, and the board on deck shows a score at the end. The layout and rules are in `src/sim/route.ts`, `src/sim/islands.ts` and `src/sim/docking.ts`; like the flight model, they have no rendering code.
 
 ## The course
 
@@ -8,8 +8,10 @@ The ship starts resting on island A, and the crew flies a short route: lift off,
 | --- | --- | --- |
 | Island A | The start, 120 m up | The ship rests on a plank pad with a green flag. While it waits there, the ground crew keeps the envelope just below floating heat, so one or two bricks lift it off within a few seconds |
 | Ring 1 | 165 m ahead, 16 m higher | Red and cream stripes, 28 m across. It turns green once flown through |
-| Ring 2 | 200 m on, about 35° to port, a little lower | |
-| Island B | 170 m on, about 30° to port, below the start | A plank pad with a red flag, a beacon mast whose lamp shows through the haze, and a jetty out towards ring 2 with a red and white mooring post at its end |
+| The Cleft | 150 m on, about 35° to port, on the straight line to ring 2 | A gorge 13 m wide between two islands, open to the sky ([passages.md](passages.md)) |
+| Ring 2 | 50 m on, lined up with the Cleft, a little lower | |
+| The Arch | 60 m on, about 30° to port, below ring 2 | A stone arch on an island, 16 m between its legs and 14 m from the grass to the span ([passages.md](passages.md)) |
+| Island B | 100 m on from the Arch, below the start | A plank pad with a red flag, a beacon mast whose lamp shows through the haze, and a jetty out towards ring 2 with a red and white mooring post at its end |
 
 About 550 m in all: roughly three minutes with one player cranking in a crew, two playing alone, and about a minute and a half with both cranking in step. Scenery islands are kept at least 45 m (plus their size) from the path.
 
@@ -19,7 +21,8 @@ The wind ([wind.md](wind.md)): an updraft (rising white streaks under a puffy cl
 
 - **Ready check:** with a crewmate, the ship stays moored to island A, however hot the envelope, until both players have rung the bell there. The board shows who is ready, then "CAST OFF!". Solo, the ship casts off as soon as it has lift.
 - **The clock starts** when the ship lifts off island A.
-- **A ring counts** when the middle of the ship passes through it at least 4 m inside the rim, in either direction. Rings can be flown in any order.
+- **A ring counts** when the middle of the ship passes through it at least 4 m inside the rim, in either direction. **A passage counts** when the middle of the ship goes through it between its walls or legs. Rings and passages can be flown in any order.
+- **The passages' rock** stops the ship: touching it eases the ship back out and doesn't lose the run, but a scrape costs points and can tear the envelope or knock the crates ([passages.md](passages.md)).
 - **The run finishes** after the ship has been made fast to island B's mooring post for 3 seconds and the crate has been delivered: throw the grapple onto the post, hold the deck level with the post's top, and haul the line in ([docking.md](docking.md)), then lower the crate through the hatch onto the cargo stage ([cargo.md](cargo.md)). Landing on island B no longer finishes it.
 - **The run is lost** if the ship runs into an island's rock (resting on any island's top is fine), sinks below 40 m into the haze, or strays more than 450 m from the route. The ship stops where it is.
 - **Restart** from the game menu (Y on the left controller, M on a keyboard): **Run → Restart from island A**. In a crew either player can, and the guest's press asks the host. Until 2026-10-16 two rings of the bell restarted a run, but John found that it stopped the crew playing with the bell on the move, and in a two-player playtest a ship that had just cast off kept going back to island A.
@@ -31,13 +34,13 @@ The ship can now rest on any island: its keel settles on the grass, and while it
 
 ## Score
 
-1000 points, less 2 per second, 15 per fuel brick, 150 per missed ring, 100 each time the grapple is torn off the post, and 4 per percent of the crate's condition lost. Three stars from 600, two from 450, one from 250. The best score is kept in the browser.
+1000 points, less 2 per second, 15 per fuel brick, 150 per missed ring or passage, 25 per scrape on a passage's rock, 100 each time the grapple is torn off the post, and 4 per percent of the crate's condition lost. Three stars from 600, two from 450, one from 250. The best score is kept in the browser.
 
 These weights are a first guess, in `scoreRun()` in `src/sim/route.ts`.
 
 ## The board
 
-The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference (for the post, from the deck height that puts the fairlead level with the post's top), and the fuel used, and on its bottom line the wind: a gust coming or blowing and from which side (in red), an updraft or downdraft the ship is in, or how fast the ship is drifting sideways; once the grapple is on the post, the line out and whether the deck is level with the post, or HIGH or LOW by how much; at the end it shows the score or why the run was lost.
+The route board is on the bow side of the burner flue, back to back with the instrument board, facing the crank. Before lift-off it explains the route; in flight it shows the time, rings and passages passed, the next target's distance, bearing (degrees to port or starboard of the bow) and height difference (for the post, from the deck height that puts the fairlead level with the post's top; for a passage, CLEAR or how far to burn or vent), and the fuel used, and on its bottom line the wind: a gust coming or blowing and from which side (in red), an updraft or downdraft the ship is in, or how fast the ship is drifting sideways, or (in red) a scrape on a passage's rock; once the grapple is on the post, the line out and whether the deck is level with the post, or HIGH or LOW by how much; at the end it shows the score or why the run was lost.
 
 ## Cost
 

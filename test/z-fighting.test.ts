@@ -11,6 +11,7 @@ import { HATCH, HATCH_CENTER, LEVER_PIVOT, TRUNK_DEPTH, WINCH_AXLE } from '../sr
 import { PATCH_MAX, PATCH_MIN, RIVETS, rivetPoint, TEAR_MAX, TEAR_SPOTS, TEAR_START } from '../src/sim/envelope.js';
 import { HAMMER_REST } from '../src/sim/loft.js';
 import { CALM_SKIES } from '../src/sim/route.js';
+import * as passages from '../src/world/passage-assets.js';
 import * as route from '../src/world/route-assets.js';
 import * as sky from '../src/world/sky-assets.js';
 import * as windAssets from '../src/world/wind-assets.js';
@@ -134,6 +135,12 @@ describe('no faces that flicker through each other (z-fighting)', () => {
     expectNone([mesh(route.createLandingIslandGeometry(CALM_SKIES.finish, 0x3a6fc8, 2), 'Island B')], WORLD_GAP);
     expectNone([mesh(route.createRingGeometry(4), 'Ring')], WORLD_GAP);
     expectNone([mesh(route.createBeaconMastGeometry(6), 'Mast'), mesh(route.createBeaconLampGeometry(), 'Lamp')], WORLD_GAP);
+  });
+
+  it('on the passages: the Cleft and the Arch, with its painted band', () => {
+    for (const passage of CALM_SKIES.passages) {
+      expectNone([mesh(passages.createPassageGeometry(passage), passage.name)], WORLD_GAP);
+    }
   });
 
   it('on the wind: the wind socks (seen from the deck at island A) and the streaks of moving air', () => {

@@ -10,8 +10,9 @@
   flown, to try docking without flying the route, or already made fast
   there to try lowering the crate, sends a gust on its way at once, sets
   the wind's strength (breeze, gusts and drafts; the host's choice counts
-  in a crew), tears the envelope at once to try a repair, and sets how
-  often it tears on its own (the host's choice counts).
+  in a crew), tears the envelope at once to try a repair, sets how
+  often it tears on its own (the host's choice counts), and starts a run
+  short of the Cleft or the Arch to try a narrow passage.
 -->
 <style>
   .root {
@@ -344,6 +345,13 @@
         <Button id="row-tears-1" class="choice" size="sm" variant="secondary">Choice</Button>
         <Button id="row-tears-2" class="choice" size="sm" variant="secondary">Choice</Button>
         <Button id="row-tears-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
+    </div>
+    <div class="setting">
+      <div class="label">Passages</div>
+      <div class="choices">
+        <Button id="menu-cleft" class="choice" size="sm" variant="secondary">Before the Cleft</Button>
+        <Button id="menu-arch" class="choice" size="sm" variant="secondary">Before the Arch</Button>
       </div>
     </div>
   </div>

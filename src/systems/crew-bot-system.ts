@@ -14,20 +14,22 @@ import {
   viaLadder,
 } from '../sim/crew-bot.js';
 import { EDGE_DROP, type Point, slitPoint, TEAR_SPOTS } from '../sim/envelope.js';
+import { type LookoutCall, lookoutCall, toPassage } from '../sim/passages.js';
+import { ROUTE } from '../world/route-world.js';
 import { LADDER_X, LADDER_Z, LOFT_EYE, LOFT_FLOOR } from '../sim/loft.js';
 import { CrankSystem } from './crank-system.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { RopeSystem } from './rope-system.js';
 import { bell } from './route-system.js';
 import { type RepairHand, type RepairHandPose, RepairSystem } from './repair-system.js';
-import { cargo, crewReady, envelope, moored, route, ship, yard } from './ship-system.js';
+import { cargo, crewReady, docking, envelope, moored, route, ship, yard } from './ship-system.js';
 import { type ScriptHand, StowageSystem } from './stowage-system.js';
 import { type ObjectView, type TestHand, ThrowablesSystem } from './throwables-system.js';
 import { handleAt } from '../sim/stowage.js';
 import { DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
 
 type Vec3 = [number, number, number];
-type Mode = 'idle' | 'crank' | 'rope' | 'crate' | 'repair';
+type Mode = 'idle' | 'crank' | 'rope' | 'crate' | 'repair' | 'lookout';
 type ThrowPhase = 'ready' | 'catching' | 'holding' | 'windup' | 'swing';
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -58,6 +60,19 @@ const CATCH_TIMEOUT_MS = 1000;
 const TEAR_HOLD_T = [0.15, 0.85] as const;
 /** A hand squeezing on a tear's edge that doesn't take hold in this long lets go to try again, ms. */
 const REGRAB_MS = 300;
+/** Where the lookout stands: at the bow rail, in the middle. */
+const LOOKOUT_SPOT: Vec3 = [0, EYE_HEIGHT, -1.15];
+/** The lookout calls no more often than this, and calls the same thing again after this long, ms. */
+const CALL_GAP_MS = 900;
+const CALL_REPEAT_MS = 2500;
+/** Where the lookout's right hand points for each call, from its head (facing the bow, starboard +x). */
+const POINT: Record<LookoutCall, Vec3> = {
+  UP: [0.2, 0.3, -0.15],
+  DOWN: [0.2, -0.75, -0.45],
+  PORT: [-0.6, -0.15, -0.3],
+  STARBOARD: [0.6, -0.15, -0.3],
+  STEADY: [0.15, -0.4, -0.4],
+};
 
 /**
  * The practice crewmate: with "This page plays as: Practice crewmate" in
@@ -77,6 +92,10 @@ const REGRAB_MS = 300;
  * - climbs to the patch loft when the player goes up while the envelope is
  *   torn, and holds the tear nearest them shut with both hands, so the
  *   player can patch and rivet it (docs/repairs.md);
+ * - approaching a narrow passage or a rock arch, lets go of the crank and
+ *   looks out from the bow rail, calling (and pointing) up, down, port,
+ *   starboard or steady as the ship lines up and goes through
+ *   (docs/passages.md);
  * - otherwise stands on deck facing the player, reaches for a brick thrown
  *   near it, and throws it back to their chest after a moment.
  *
@@ -93,7 +112,7 @@ export class CrewBotSystem extends createSystem({}) {
   private repairs: RepairSystem | undefined;
   private mode: Mode = 'idle';
   /** What the bot has done, for tests and the console. */
-  private stats = { rings: 0, catches: 0, throws: 0 };
+  private stats = { rings: 0, catches: 0, throws: 0, calls: 0 };
   private modeSet = false;
   private lastRing = Number.NEGATIVE_INFINITY;
 
@@ -128,6 +147,12 @@ export class CrewBotSystem extends createSystem({}) {
   private lastCrateMs = Number.NEGATIVE_INFINITY;
   private crate = -1;
   private crateHandle = 0;
+  // Looking out: the call it last made, and when.
+  private call: LookoutCall | null = null;
+  private lastCall: LookoutCall | null = null;
+  private lastCallAt = Number.NEGATIVE_INFINITY;
+  private pointGoal: Vec3 = [0, 0, 0];
+  private where = { u: 0, w: 0 };
   private playerHand: Vec3 = [0, 0, 0];
   private cratePose = { x: 0, y: 0, z: 0, yaw: 0 };
   private handleA = { x: 0, y: 0, z: 0 };
@@ -242,8 +267,10 @@ export class CrewBotSystem extends createSystem({}) {
       this.readPlayer(now);
     }
     this.ringWhenReady(now);
-    const mode: Mode =
-      now - this.lastCrankMs < LET_GO_MS
+    this.call = this.lookFor();
+    const mode: Mode = this.call !== null
+      ? 'lookout'
+      : now - this.lastCrankMs < LET_GO_MS
         ? 'crank'
         : now - this.lastRopeMs < ROPE_LET_GO_MS
           ? 'rope'
@@ -267,7 +294,50 @@ export class CrewBotSystem extends createSystem({}) {
       this.catchAndThrow(now, dt);
     } else if (mode === 'repair') {
       this.holdTear(now, dt);
+    } else if (mode === 'lookout') {
+      this.lookOut(now, dt);
     }
+  }
+
+  /**
+   * In flight and not made fast, the call for the first passage the ship
+   * is approaching or in (null when there is none): looking out takes
+   * priority over cranking, so one player flies while the other watches.
+   */
+  private lookFor(): LookoutCall | null {
+    if (route.phase !== 'flying' || docking.phase === 'fast') {
+      return null;
+    }
+    for (let i = 0; i < ROUTE.passages.length; i++) {
+      const p = ROUTE.passages[i];
+      const call = lookoutCall(p, ship.x, ship.y, ship.z, ship.vx, ship.vz);
+      if (call === null) continue;
+      // Flown through and out the other side: on to the next.
+      if (route.passMask & (1 << i) && toPassage(p, ship.x, ship.z, this.where).w > 0 && call === 'STEADY') continue;
+      return call;
+    }
+    return null;
+  }
+
+  /** At the bow rail facing ahead, pointing the way and calling it out (as a 'crew-call' the player's page shows and whistles). */
+  private lookOut(now: number, dt: number): void {
+    this.setHeadTarget(LOOKOUT_SPOT[0], LOOKOUT_SPOT[2]);
+    this.yaw = 0;
+    const call = this.call;
+    if (call === null) return;
+    const point = POINT[call];
+    this.pointGoal[0] = this.head[0] + point[0];
+    this.pointGoal[1] = this.head[1] + point[1];
+    this.pointGoal[2] = this.head[2] + point[2];
+    stepTowards(this.hand, this.pointGoal, HAND_SPEED * dt);
+    if (now - this.lastCallAt < CALL_GAP_MS || (call === this.lastCall && now - this.lastCallAt < CALL_REPEAT_MS)) {
+      return;
+    }
+    this.lastCall = call;
+    this.lastCallAt = now;
+    this.stats.calls++;
+    console.info(`[Bot] lookout: ${call}`);
+    netLink.sendEvent({ t: 'crew-call', c: call } as { t: string });
   }
 
   /** What the player is doing with the crank and the line, from their latest drawn pose. */
@@ -392,7 +462,14 @@ export class CrewBotSystem extends createSystem({}) {
       return;
     }
     this.modeSet = true;
-    const doing = { crank: 'cranking with you', rope: 'hauling the line with you', crate: 'carrying a crate with you', repair: 'holding the tear shut for you', idle: 'waiting for a throw' };
+    const doing = {
+      crank: 'cranking with you',
+      rope: 'hauling the line with you',
+      crate: 'carrying a crate with you',
+      repair: 'holding the tear shut for you',
+      lookout: 'looking out from the bow',
+      idle: 'waiting for a throw',
+    };
     console.info(`[Bot] ${doing[mode]}`);
     this.mode = mode;
     for (let h = 0; h < 2; h++) {
@@ -411,6 +488,7 @@ export class CrewBotSystem extends createSystem({}) {
     this.phase = 'ready';
     this.squeeze = false;
     this.catching = -1;
+    this.lastCall = null;
     if (mode === 'crank' && this.botHandle >= 0) {
       this.crank?.setScriptedHand(this.botHandle, this.crankHand);
       // Beside its handle, facing the axle.

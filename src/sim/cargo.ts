@@ -364,6 +364,11 @@ export class CargoSim {
     }
   }
 
+  /** The ship scraped rock (src/sim/passages.ts): a crate aboard, in the hatch or on its line, is knocked `cost` % of its condition. */
+  jolt(cost: number): void {
+    if (this.phase !== 'empty' && this.phase !== 'delivered' && this.phase !== 'landed') this.knock(cost);
+  }
+
   private knock(cost: number): void {
     if (cost <= 0) return;
     this.condition = Math.max(0, this.condition - cost);

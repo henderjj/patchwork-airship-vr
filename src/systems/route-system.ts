@@ -3,12 +3,13 @@ import { createBell, createBellBracket, createBoardFrame } from '../scene-assets
 import { BELL_HOOK } from '../sim/gondola-controls.js';
 import { FLUE_POSITION } from '../sim/gondola-layout.js';
 import { FAIRLEAD, MADE_FAST_HEIGHT, STRAIN_HEIGHT } from '../sim/docking.js';
-import { SHIP_MIDDLE } from '../sim/route.js';
+import { routeGates, SHIP_MIDDLE } from '../sim/route.js';
+import { BRUSH_SPEED, deckWindow, type Passage, windowMiddle } from '../sim/passages.js';
 import { UNMENDED_POINTS } from '../sim/envelope.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
 import { gustStrength } from '../sim/wind.js';
-import { cargo, crewReady, docking, envelope, flightInfo, markReady, moored, restartRoute, route, ship, wind, yard } from './ship-system.js';
+import { cargo, crewReady, docking, envelope, flightInfo, markReady, moored, passageInfo, restartRoute, route, ship, wind, yard } from './ship-system.js';
 import { draftHere } from './wind-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
@@ -17,6 +18,10 @@ const CANVAS = [512, 320] as const;
 const BOARD_REFRESH_MS = 250;
 /** Where the best score is kept in this browser. */
 const BEST_KEY = 'patchwork-airship.best';
+/** The board says the ship scraped the rock for this long after it did, ms. */
+const SCRAPED_MS = 3000;
+/** The rings and passages in the order the route flies them. */
+const GATES = routeGates(ROUTE);
 
 /**
  * The ship's bell: `ring` is what a ring means for the route (set here, and
@@ -46,6 +51,8 @@ export class RouteSystem extends createSystem({}) {
   private lastDraw = 0;
   private best = 0;
   private scored: unknown = null;
+  private scrapeSeen = 0;
+  private scrapedAt = Number.NEGATIVE_INFINITY;
 
   init(): void {
     this.bracket = createBellBracket([-0.19, 1.0 - BELL_HOOK[1], -0.17], 0.78);
@@ -112,6 +119,11 @@ export class RouteSystem extends createSystem({}) {
       }
     }
     const now = performance.now();
+    if (passageInfo.count !== this.scrapeSeen) {
+      this.scrapeSeen = passageInfo.count;
+      this.scrapedAt = now;
+      this.lastDraw = 0;
+    }
     if (now - this.lastDraw > BOARD_REFRESH_MS) {
       this.lastDraw = now;
       this.drawBoard();
@@ -154,9 +166,9 @@ export class RouteSystem extends createSystem({}) {
         return ['CALM SKIES', 'Waiting on island A', 'Load the crates aboard,', `fly ${ROUTE.rings.length} rings, moor at B`, cratesAboard(), best];
       }
       case 'flying': {
-        const top = [`TIME ${clock(route.seconds)}  ${cratesLine()}`, `RINGS ${route.rings} of ${ROUTE.rings.length}`];
+        const top = [`TIME ${clock(route.seconds)}  ${cratesLine()}`, `RINGS ${route.rings}/${ROUTE.rings.length}  PASSAGES ${route.passes}/${ROUTE.passages.length}`];
         const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}${envelopeWarning()}`;
-        const air = windLine();
+        const air = this.scrapeLine() || windLine();
         if (docking.phase === 'fast') {
           const aboard = yard.aboard(cargo);
           return [...top, 'MADE FAST', aboard === 0 ? '     ALL UNLOADED' : aboard === 1 ? '     LOWER THE CRATE' : '     LOWER THE CRATES', fuel, air];
@@ -179,9 +191,9 @@ export class RouteSystem extends createSystem({}) {
           `${r.crates > 0 ? 'DELIVERED!' : 'MOORED!'}  ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
           `SCORE ${r.score}${this.best > 0 ? `   BEST ${this.best}` : ''}`,
           `Time ${clock(r.seconds)}   Fuel ${r.bricks}`,
-          `Rings ${r.rings}/${r.ringsTotal}   Torn off ${r.tears}`,
+          `Rings ${r.rings}/${r.ringsTotal}  Passages ${r.passes}/${r.passesTotal}`,
           r.crates > 0 ? `Crates ${r.crates}/${r.cratesTotal} ${r.cargo}%   Target +${r.target}` : `Crates 0/${r.cratesTotal}`,
-          r.unmended > 0 ? `Envelope torn ${r.unmended}  -${r.unmended * UNMENDED_POINTS}` : 'Game menu: Restart to fly again',
+          r.unmended > 0 ? `Envelope torn ${r.unmended}  -${r.unmended * UNMENDED_POINTS}` : `Scrapes ${r.scrapes}   Torn off ${r.tears}`,
         ];
       }
       case 'lost':
@@ -189,21 +201,47 @@ export class RouteSystem extends createSystem({}) {
     }
   }
 
-  /** The first ring not yet flown through, or island B's post: how far, which way and how much higher. */
+  /**
+   * While the ship is touching a passage's rock, or for a few seconds after
+   * it scraped it: which part (red on the board, in place of the wind).
+   */
+  private scrapeLine(): string {
+    if (passageInfo.grinding) {
+      return 'SCRAPING THE ROCK!';
+    }
+    if (performance.now() - this.scrapedAt > SCRAPED_MS || passageInfo.count === 0) {
+      return '';
+    }
+    return passageInfo.speed < BRUSH_SPEED ? 'BRUSHED THE ROCK' : passageInfo.part === 'envelope' ? 'SCRAPED THE ENVELOPE!' : 'SCRAPED THE GONDOLA!';
+  }
+
+  /**
+   * The first ring or passage (in the route's order) not yet flown through,
+   * or island B's post: how far, which way and how much higher.
+   */
   private nextTarget(): { name: string; distance: number; bearing: string; height: string } {
     let name = 'Post at B';
     let tx = ROUTE.dock.x;
     let tz = ROUTE.dock.z;
     // For the post, the deck wants the line's fairlead level with the post's top.
     let ty = docking.postTop - FAIRLEAD[1];
-    for (let i = 0; i < ROUTE.rings.length; i++) {
-      if (!(route.ringMask & (1 << i))) {
-        const ring = ROUTE.rings[i];
-        name = `Ring ${i + 1}`;
+    let passage: Passage | null = null;
+    for (const gate of GATES) {
+      if (gate.kind === 'ring' && !(route.ringMask & (1 << gate.index))) {
+        const ring = ROUTE.rings[gate.index];
+        name = `Ring ${gate.index + 1}`;
         tx = ring.x;
         tz = ring.z;
         // For a ring, the deck wants to be the ship's middle below the ring's.
         ty = ring.y - SHIP_MIDDLE;
+        break;
+      }
+      if (gate.kind === 'passage' && !(route.passMask & (1 << gate.index))) {
+        passage = ROUTE.passages[gate.index];
+        name = passage.name;
+        tx = passage.x;
+        tz = passage.z;
+        ty = windowMiddle(passage);
         break;
       }
     }
@@ -215,7 +253,7 @@ export class RouteSystem extends createSystem({}) {
     const deg = Math.round(Math.abs(rel) * (180 / Math.PI));
     const bearing = deg < 8 ? 'AHEAD' : deg > 172 ? 'ASTERN' : `${deg}° ${rel > 0 ? 'PORT' : 'STBD'}`;
     const dy = ty - ship.y;
-    const height = Math.abs(dy) < 3 ? 'LEVEL' : `${dy > 0 ? '▲' : '▼'}${Math.round(Math.abs(dy))} m`;
+    const height = passage ? passageHeight(passage) : Math.abs(dy) < 3 ? 'LEVEL' : `${dy > 0 ? '▲' : '▼'}${Math.round(Math.abs(dy))} m`;
     return { name, distance: Math.round(Math.hypot(dx, dz)), bearing, height };
   }
 
@@ -237,7 +275,7 @@ export class RouteSystem extends createSystem({}) {
       const heading = i === 0;
       ctx.font = heading ? 'bold 38px monospace' : 'bold 30px monospace';
       // The wind's line goes red for a gust, and the fuel's for a tear in the envelope.
-      const gust = i === 5 && route.phase === 'flying' && line.startsWith('GUST');
+      const gust = i === 5 && route.phase === 'flying' && (line.startsWith('GUST') || line.startsWith('SCRAP'));
       const torn = i === 4 && route.phase === 'flying' && envelopeWarning() !== '';
       ctx.fillStyle = heading ? (route.phase === 'lost' ? '#a3321f' : route.phase === 'finished' ? '#2c6e2f' : '#3a2a1a') : gust || torn ? '#a3321f' : '#3a2a1a';
       ctx.fillText(line, 20, 16 + i * 49);
@@ -274,6 +312,19 @@ function windLine(): string {
   // Sideways over the ground: positive to starboard, which lies along (cos yaw, -sin yaw).
   const drift = ship.vx * Math.cos(ship.yaw) - ship.vz * Math.sin(ship.yaw);
   return Math.abs(drift) > 0.6 ? `DRIFT ${Math.abs(drift).toFixed(1)} m/s ${drift > 0 ? 'STBD' : 'PORT'}` : '';
+}
+
+/**
+ * For a passage ahead: CLEAR while the deck is at a height that takes the
+ * whole ship through (docs/passages.md), else how far up or down to go to
+ * get there, and how.
+ */
+function passageHeight(p: Passage): string {
+  const { low, high } = deckWindow(p);
+  if (ship.y >= low && ship.y <= high) return 'CLEAR';
+  const off = ship.y < low ? low - ship.y : ship.y - high;
+  const by = off < 10 ? off.toFixed(1) : String(Math.round(off));
+  return ship.y < low ? `▲${by} m BURN` : `▼${by} m VENT`;
 }
 
 /** On the line to the post: whether the deck is level with it, or which way to go. */
