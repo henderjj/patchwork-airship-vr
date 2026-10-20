@@ -60,7 +60,7 @@ import { buzz } from './haptics.js';
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
 /** What other systems' hands hold (handUse): left to them. */
-const OTHERS_GEAR: ReadonlySet<string> = new Set(['grapple', 'winch', 'lever', 'tag', 'crate', 'ladder', 'edge', 'patch', 'hammer']);
+const OTHERS_GEAR: ReadonlySet<string> = new Set(['grapple', 'winch', 'lever', 'tag', 'crate', 'ladder', 'edge', 'patch', 'hammer', 'pump']);
 
 /** Guest control packets per second, and how long one counts after it arrives, ms. */
 const SEND_HZ = 20;

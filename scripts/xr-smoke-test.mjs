@@ -1475,6 +1475,100 @@ async function main() {
   evalInApp('window.__ship.fly()');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
 
+  // 6i. Phase 3 storms and night (docs/storms-and-night.md): the menu's
+  //     Practice → Weather sets a storm, which murks the sky, rains, fills
+  //     the bilge in flight (its water weighs) and throws lightning with
+  //     thunder after it; the bilge pump's handle, worked up and down,
+  //     sends the water over the side; a night sky is dark with lamps on
+  //     the route. The sky eases between weathers over seconds: the test
+  //     skips the easing.
+  const skipEase = (night, storm) => evalInApp(`Object.assign(window.__weatherView, { night: ${night}, storm: ${storm} })`);
+  evalInApp("window.__gameMenu.click('row-weather-1')");
+  skipEase(0, 1);
+  evalInApp("window.__gameMenu.click('menu-restart')");
+  await sleep(500);
+  const stormBoard = boardAfterRedraw('__route');
+  evalInApp('window.__ship.fly()');
+  evalInApp('window.__ship.place(0, 135, -60, 0)');
+  await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
+  evalInApp(`(() => {
+    const f = window.__ship.flight;
+    clearInterval(window.__holdHeat);
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb = 0; }, 50);
+  })()`);
+  const wet0 = evalInApp('({ water: window.__storm.sim.water, off: window.__ship.controls.ballastDropped })');
+  await sleep(3000);
+  const wet = evalInApp(`({ weather: window.__storm.sim.weather, water: window.__storm.sim.water, off: window.__ship.controls.ballastDropped,
+    view: { ...window.__weatherView }, rain: window.__audio.loops().rain, fog: window.__debug.world.scene.fog.far })`);
+  check('Practice → Weather: Storm titles the board, murks the sky, rains and fills the bilge in flight, and the water weighs',
+    stormBoard[0] === 'STORMY SKIES' && wet.weather === 'storm' && wet.view.rain > 0.9 && wet.rain > 0.05 && wet.fog < 300 &&
+      wet.water - wet0.water > 1.2 && wet.water - wet0.water < 3 && wet0.off - wet.off > 1,
+    `board ${stormBoard[0]}, water ${wet0.water.toFixed(1)} → ${wet.water.toFixed(1)} L, weight off ${wet0.off.toFixed(1)} → ${wet.off.toFixed(1)} kg, rain ${wet.view.rain} (sound ${wet.rain.toFixed(2)}), fog to ${Math.round(wet.fog)} m`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0.6]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 3, z: -40 } });
+  const thunderBefore = evalInApp('window.__audio.played.thunder');
+  const strikesBefore = evalInApp('window.__weatherView.strikes');
+  evalInApp("window.__gameMenu.click('menu-lightning')");
+  await sleep(120);
+  const flash = evalInApp('({ ...window.__weatherView })');
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-storm-lightning.png'], {});
+  await sleep(900);
+  const struck = evalInApp('({ strike: window.__storm.sim.strike, thunder: window.__audio.played.thunder })');
+  check('Practice → Lightning now: a bolt and a flash about 150 m ahead, and thunder about half a second after',
+    flash.strikes === strikesBefore + 1 && flash.bolt && flash.flash > 0.1 && struck.strike?.distance === 150 && struck.thunder === thunderBefore + 1,
+    `strikes ${strikesBefore} → ${flash.strikes}, bolt ${flash.bolt}, flash ${flash.flash.toFixed(2)}, ${struck.strike?.distance} m off, thunder ${thunderBefore} → ${struck.thunder}`);
+  await sleep(1000);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-storm.png'], {});
+  // Practice → Flood the deck: 60 litres more; the board says PUMP! and the water shows on deck.
+  evalInApp("window.__gameMenu.click('menu-flood')");
+  const flooded = boardAfterRedraw('__route');
+  const deep = evalInApp('window.__pump.state()');
+  check('Practice → Flood the deck: water lies on deck, and the board and the pump\'s sign call for pumping',
+    deep.water >= 60 && deep.depth > 0.01 && flooded[4].includes('PUMP!') && deep.sign.some((line) => line.includes('PUMP')),
+    `${deep.water.toFixed(1)} L, drawn ${(deep.depth * 100).toFixed(1)} cm deep, board: ${flooded[4]}, sign: ${deep.sign.join(' / ')}`);
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.1, 1.55, -0.2]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0.75, y: 0.6, z: -0.75 } });
+  await sleep(800);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-storm-pump.png'], {});
+  // Work the handle a stroke a second for 5 s.
+  const gushesBefore = evalInApp('window.__audio.played.gush');
+  evalInApp(`(() => {
+    const start = performance.now();
+    window.__pump.setHand('right', (now) => {
+      const a = -0.46 * Math.cos(((now - start) / 1000) * 2 * Math.PI);
+      const [x, y, z] = window.__pump.handlePoint(a);
+      return { x, y, z, squeeze: true };
+    });
+  })()`);
+  await sleep(2500);
+  const pumping = evalInApp('window.__pump.state()');
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-storm-pumping.png'], {});
+  await sleep(2500);
+  const pumped = evalInApp('({ ...window.__pump.state(), gushes: window.__audio.played.gush })');
+  evalInApp("window.__pump.setHand('right', null)");
+  check('Working the pump handle up and down sends the water over the side, faster than the rain fills it, with a gush each stroke',
+    pumping.held.right && pumped.pumped > 8 && deep.water - pumped.water > 5 && pumped.gushes - gushesBefore >= 4,
+    `held ${pumping.held.right}, lever ${pumping.angle.toFixed(2)} rad, pumped ${pumped.pumped.toFixed(1)} L, bilge ${deep.water.toFixed(1)} → ${pumped.water.toFixed(1)} L, ${pumped.gushes - gushesBefore} gushes`);
+  // Night: dark, a moon and stars, lamps on the route; no rain, and the bilge stays as it is.
+  evalInApp("window.__gameMenu.click('row-weather-2')");
+  skipEase(1, 0);
+  evalInApp('window.__storm.setWater(0)');
+  evalInApp('window.__ship.place(-115, 128, -290, 0)');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, -0.8]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: 0, y: 1.5, z: -40 } });
+  await sleep(1500);
+  const night = evalInApp(`({ weather: window.__storm.sim.weather, view: { ...window.__weatherView }, water: window.__storm.sim.water, rain: window.__audio.loops().rain,
+    sky: window.__debug.world.scene.getObjectByName('SkyDome').material.color.toArray(), stars: window.__debug.world.scene.getObjectByName('Stars').visible })`);
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-night.png'], {});
+  check('Practice → Weather: Night darkens the sky, shows the stars and lights the route\'s lamps, with no rain filling the bilge',
+    night.weather === 'night' && night.view.lamps > 0.9 && night.view.rain === 0 && night.stars && night.sky.every((c) => c < 0.3) && night.water === 0,
+    `${night.weather}, lamps ${night.view.lamps.toFixed(2)}, rain ${night.view.rain}, sky tint ${night.sky.map((c) => c.toFixed(2)).join(' ')}, stars ${night.stars}, bilge ${night.water} L`);
+  evalInApp("window.__gameMenu.click('row-weather-0')");
+  skipEase(0, 0);
+  evalInApp('clearInterval(window.__holdHeat)');
+  evalInApp('window.__ship.fly()');
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
+
   // 6e. Phase 2 audio: the ship's sounds played through the tests above
   //     (crank ratchet, ring chime, touchdown thump, bell), and the burner
   //     and wind loops follow the flight.

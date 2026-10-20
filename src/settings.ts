@@ -1,5 +1,6 @@
 import { TEAR_RATES, type TearRate } from './sim/envelope.js';
 import { clampCharacterHeight } from './sim/body-height.js';
+import { isWeather, type Weather } from './sim/weather.js';
 
 /**
  * Runtime settings, read once when the page loads: first the ones saved from
@@ -14,7 +15,7 @@ export interface Settings {
   islands: number;
   /** Cloud clusters. */
   clouds: number;
-  /** Instanced rain around the gondola. */
+  /** Rain round the gondola whatever the weather (the S1 stress test); a storm brings it anyway. */
   rain: boolean;
   /** One shadow-casting directional light limited to the gondola. */
   shadows: boolean;
@@ -70,6 +71,8 @@ export interface Settings {
   gusts: boolean;
   /** How often the envelope tears during a run (docs/repairs.md): `off` (the browser tests: only from Practice → Tear it now), `normal` or `often`; the host's counts in a crew. */
   tears: TearRate;
+  /** The weather runs are flown in (docs/storms-and-night.md): `clear`, `storm`, `night` or `nightstorm`; the host's counts in a crew. */
+  weather: Weather;
   /** A tag for this session (tester or variant) written into the perf and comfort logs. */
   label: string;
   /**
@@ -117,6 +120,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wind: 1,
   gusts: true,
   tears: 'normal',
+  weather: 'clear',
   label: '',
   bot: false,
   height: 0,
@@ -185,6 +189,7 @@ export function parseSettings(search: string): Settings {
     wind: num(params, 'wind', d.wind, 0, 3),
     gusts: bool(params, 'gusts', d.gusts),
     tears: tearRate(params.get('tears'), d.tears),
+    weather: isWeather(params.get('weather')) ? (params.get('weather') as Weather) : d.weather,
     label: (params.get('label') ?? d.label).slice(0, 40),
     bot: bool(params, 'bot', d.bot),
     height: clampCharacterHeight(num(params, 'height', d.height, 0, 3)),

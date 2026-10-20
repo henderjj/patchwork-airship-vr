@@ -22,14 +22,15 @@ import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, net
 import { RopeSystem } from './rope-system.js';
 import { bell } from './route-system.js';
 import { type RepairHand, type RepairHandPose, RepairSystem } from './repair-system.js';
-import { cargo, crewReady, docking, envelope, moored, route, ship, yard } from './ship-system.js';
+import { cargo, crewReady, docking, envelope, moored, route, ship, storm, yard } from './ship-system.js';
 import { type ScriptHand, StowageSystem } from './stowage-system.js';
 import { type ObjectView, type TestHand, ThrowablesSystem } from './throwables-system.js';
 import { handleAt } from '../sim/stowage.js';
-import { DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
+import { DECK_LENGTH, DECK_WIDTH, PUMP, PUMP_LEVER, PUMP_SWING, pumpHandle } from '../sim/gondola-layout.js';
+import { type PumpHand, type PumpHandPose, PumpSystem, pumpView } from './pump-system.js';
 
 type Vec3 = [number, number, number];
-type Mode = 'idle' | 'crank' | 'rope' | 'crate' | 'repair' | 'lookout';
+type Mode = 'idle' | 'crank' | 'rope' | 'crate' | 'repair' | 'lookout' | 'pump';
 type ThrowPhase = 'ready' | 'catching' | 'holding' | 'windup' | 'swing';
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -58,6 +59,17 @@ const HAND_SPEED = 4;
 const CATCH_TIMEOUT_MS = 1000;
 /** Where along a tear's slit the bot's hands hold it shut (0 to 1), wide enough apart to close the shortest. */
 const TEAR_HOLD_T = [0.15, 0.85] as const;
+/**
+ * The bilge (docs/storms-and-night.md): the bot starts pumping at this many
+ * litres and keeps on until it is down to the next; with this many it
+ * pumps rather than cranks. It works the lever this many strokes a second,
+ * standing inboard of the handle.
+ */
+const PUMP_FROM = 25;
+const PUMP_UNTIL = 3;
+const PUMP_URGENT = 60;
+const PUMP_STROKES = 0.9;
+const PUMP_STAND = [PUMP[0] - PUMP_LEVER - 0.38, PUMP[1]] as const;
 /** A hand squeezing on a tear's edge that doesn't take hold in this long lets go to try again, ms. */
 const REGRAB_MS = 300;
 /** Where the lookout stands: at the bow rail, in the middle. */
@@ -96,6 +108,9 @@ const POINT: Record<LookoutCall, Vec3> = {
  *   looks out from the bow rail, calling (and pointing) up, down, port,
  *   starboard or steady as the ship lines up and goes through
  *   (docs/passages.md);
+ * - with water in the bilge (a storm, docs/storms-and-night.md), works
+ *   the bilge pump from 25 litres until it is nearly dry, before the crank
+ *   once it is deep (60 litres);
  * - otherwise stands on deck facing the player, reaches for a brick thrown
  *   near it, and throws it back to their chest after a moment.
  *
@@ -110,9 +125,10 @@ export class CrewBotSystem extends createSystem({}) {
   private stowage: StowageSystem | undefined;
   private throws: ThrowablesSystem | undefined;
   private repairs: RepairSystem | undefined;
+  private pump: PumpSystem | undefined;
   private mode: Mode = 'idle';
   /** What the bot has done, for tests and the console. */
-  private stats = { rings: 0, catches: 0, throws: 0, calls: 0 };
+  private stats = { rings: 0, catches: 0, throws: 0, calls: 0, pumped: 0 };
   private modeSet = false;
   private lastRing = Number.NEGATIVE_INFINITY;
 
@@ -193,6 +209,22 @@ export class CrewBotSystem extends createSystem({}) {
   private phaseSince = 0;
   private catching = -1;
   private rest: Vec3 = [0, 0, 0];
+  // Pump: whether it is bailing, where its right hand is and is going, and the stroke's start.
+  private pumping = false;
+  private pumpPos: Vec3 = [0, 0, 0];
+  private pumpGoal: Vec3 = [0, 0, 0];
+  private pumpStart = 0;
+  private handlePoint = { x: 0, y: 0, z: 0 };
+  private pumpOut: PumpHandPose = { x: 0, y: 0, z: 0, squeeze: false };
+  private pumpPose: PoseSample = { px: 0, py: 0, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 };
+  private readonly pumpHand: PumpHand = () => this.pumpOut;
+  private readonly pumpOverride = (): PoseSample => {
+    const p = this.pumpPose;
+    p.px = this.pumpOut.x;
+    p.py = this.pumpOut.y;
+    p.pz = this.pumpOut.z;
+    return p;
+  };
   private leftRest: Vec3 = [0, 0, 0];
   private hand: Vec3 = [0, 0, 0];
   private handGoal: Vec3 = [0, 0, 0];
@@ -257,6 +289,7 @@ export class CrewBotSystem extends createSystem({}) {
     this.throws ??= this.world.getSystem(ThrowablesSystem);
     this.stowage ??= this.world.getSystem(StowageSystem);
     this.repairs ??= this.world.getSystem(RepairSystem);
+    this.pump ??= this.world.getSystem(PumpSystem);
     const now = performance.now();
     const dt = Math.min(delta, 0.1);
     if (!netLink.connected) {
@@ -268,9 +301,11 @@ export class CrewBotSystem extends createSystem({}) {
     }
     this.ringWhenReady(now);
     this.call = this.lookFor();
+    // Bail from a few buckets' worth until it is nearly dry; a deep bilge comes before the crank.
+    this.pumping = storm.water >= PUMP_FROM || (this.pumping && storm.water > PUMP_UNTIL);
     const mode: Mode = this.call !== null
       ? 'lookout'
-      : now - this.lastCrankMs < LET_GO_MS
+      : now - this.lastCrankMs < LET_GO_MS && storm.water < PUMP_URGENT
         ? 'crank'
         : now - this.lastRopeMs < ROPE_LET_GO_MS
           ? 'rope'
@@ -278,7 +313,9 @@ export class CrewBotSystem extends createSystem({}) {
             ? 'crate'
             : now - this.lastRepairMs < ROPE_LET_GO_MS
               ? 'repair'
-              : 'idle';
+              : this.pumping
+                ? 'pump'
+                : 'idle';
     this.setMode(mode);
     if (mode === 'idle') {
       this.chooseWaitSpot();
@@ -296,7 +333,41 @@ export class CrewBotSystem extends createSystem({}) {
       this.holdTear(now, dt);
     } else if (mode === 'lookout') {
       this.lookOut(now, dt);
+    } else if (mode === 'pump') {
+      this.workPump(now, dt);
     }
+  }
+
+  /** Inboard of the pump facing it, its right hand on the handle working it up and down. */
+  private workPump(now: number, dt: number): void {
+    const there = Math.hypot(this.head[0] - PUMP_STAND[0], this.head[2] - PUMP_STAND[1]) < 0.05;
+    const out = this.pumpOut;
+    const goal = this.pumpGoal;
+    if (there) {
+      // On the handle where the lever is, then strokes from top to bottom and back.
+      const angle = out.squeeze ? -PUMP_SWING * 0.92 * Math.cos(((now - this.pumpStart) / 1000) * PUMP_STROKES * 2 * Math.PI) : pumpView.angle;
+      pumpHandle(angle, this.handlePoint);
+      goal[0] = this.handlePoint.x;
+      goal[1] = this.handlePoint.y;
+      goal[2] = this.handlePoint.z;
+    } else {
+      goal[0] = this.rest[0];
+      goal[1] = this.rest[1];
+      goal[2] = this.rest[2];
+    }
+    const left = stepTowards(this.pumpPos, goal, HAND_SPEED * dt);
+    out.x = this.pumpPos[0];
+    out.y = this.pumpPos[1];
+    out.z = this.pumpPos[2];
+    if (!there) {
+      out.squeeze = false;
+    } else if (!out.squeeze && left < 0.01) {
+      out.squeeze = true;
+      // Start the stroke where the handle is: at the bottom, from cos(0).
+      this.pumpStart = now;
+    }
+    netLink.scriptedSqueeze.right = out.squeeze;
+    this.stats.pumped = Math.round(pumpView.pumped * 10) / 10;
   }
 
   /**
@@ -468,6 +539,7 @@ export class CrewBotSystem extends createSystem({}) {
       crate: 'carrying a crate with you',
       repair: 'holding the tear shut for you',
       lookout: 'looking out from the bow',
+      pump: 'pumping out the bilge',
       idle: 'waiting for a throw',
     };
     console.info(`[Bot] ${doing[mode]}`);
@@ -485,6 +557,8 @@ export class CrewBotSystem extends createSystem({}) {
       if (netLink.handOverride[side] === this.repairOverrides[side]) netLink.handOverride[side] = null;
       netLink.scriptedSqueeze[side] = false;
     }
+    this.pump?.setScriptedHand('right', null);
+    if (netLink.handOverride.right === this.pumpOverride) netLink.handOverride.right = null;
     this.phase = 'ready';
     this.squeeze = false;
     this.catching = -1;
@@ -514,6 +588,11 @@ export class CrewBotSystem extends createSystem({}) {
         this.repairs?.setScriptedHand(side, this.repairHands[side]);
         netLink.handOverride[side] = this.repairOverrides[side];
       }
+    } else if (mode === 'pump') {
+      this.copyRest(this.pumpPos);
+      this.pumpOut.squeeze = false;
+      this.pump?.setScriptedHand('right', this.pumpHand);
+      netLink.handOverride.right = this.pumpOverride;
     } else {
       this.copyRest(this.hand);
       this.throws?.setScriptedHand('right', this.rightHand);
@@ -573,6 +652,10 @@ export class CrewBotSystem extends createSystem({}) {
       const z = Math.max(-DECK_LENGTH / 2 + 0.2, Math.min(DECK_LENGTH / 2 - 0.2, out.z + (dz / d) * 0.35));
       this.setHeadTarget(x, z);
       this.yaw = Math.atan2(-(out.x - x), -(out.z - z));
+    } else if (this.mode === 'pump') {
+      // Inboard of the handle, facing outboard (+X) over the pump.
+      this.setHeadTarget(PUMP_STAND[0], PUMP_STAND[1]);
+      this.yaw = -Math.PI / 2;
     } else if (this.mode === 'repair' && this.repairSpot >= 0) {
       // Beside the tear on the loft, facing it.
       const spot = TEAR_SPOTS[this.repairSpot];

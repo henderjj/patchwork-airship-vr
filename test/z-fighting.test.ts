@@ -4,12 +4,15 @@ import * as avatar from '../src/scene-assets/avatar.scene-asset.js';
 import * as cargo from '../src/scene-assets/cargo.scene-asset.js';
 import * as controls from '../src/scene-assets/controls.scene-asset.js';
 import * as crank from '../src/scene-assets/crank.scene-asset.js';
+import * as pump from '../src/scene-assets/pump.scene-asset.js';
 import * as repairs from '../src/scene-assets/repairs.scene-asset.js';
 import * as gondola from '../src/scene-assets/gondola.scene-asset.js';
 import * as rope from '../src/scene-assets/rope.scene-asset.js';
 import { HATCH, HATCH_CENTER, LEVER_PIVOT, TRUNK_DEPTH, WINCH_AXLE } from '../src/sim/cargo.js';
 import { PATCH_MAX, PATCH_MIN, RIVETS, rivetPoint, TEAR_MAX, TEAR_SPOTS, TEAR_START } from '../src/sim/envelope.js';
 import { HAMMER_REST } from '../src/sim/loft.js';
+import { PUMP_PIVOT, PUMP_SWING } from '../src/sim/gondola-layout.js';
+import { WATER_DEPTHS } from '../src/sim/weather.js';
 import { CALM_SKIES } from '../src/sim/route.js';
 import * as passages from '../src/world/passage-assets.js';
 import * as route from '../src/world/route-assets.js';
@@ -61,6 +64,28 @@ describe('no faces that flicker through each other (z-fighting)', () => {
     expectNone(gondolaAtRest(), DECK_GAP, onDeck);
   });
 
+  it('on the bilge pump, with its lever up, level and down (storms)', () => {
+    for (const angle of [-PUMP_SWING, 0, PUMP_SWING]) {
+      const lever = pump.createPumpLever();
+      lever.position.set(...PUMP_PIVOT);
+      lever.rotation.z = -angle;
+      const rod = pump.createPumpRod();
+      rod.position.set(PUMP_PIVOT[0] + pump.ROD_ARM * Math.cos(angle), PUMP_PIVOT[1] - pump.ROD_ARM * Math.sin(angle), PUMP_PIVOT[2]);
+      lever.updateMatrixWorld();
+      rod.updateMatrixWorld();
+      expectNone([...gondolaAtRest(), pump.createPumpBody(), lever, rod], DECK_GAP, onDeck);
+    }
+  });
+
+  it('on the water lying on deck in a storm, at each depth it is drawn at', () => {
+    for (const depth of WATER_DEPTHS) {
+      const water = pump.createDeckWater();
+      water.position.y = depth;
+      water.updateMatrixWorld();
+      expectNone([...gondolaAtRest(), pump.createPumpBody(), water], DECK_GAP, onDeck);
+    }
+  });
+
   it('in each prop that moves about the deck', () => {
     const props: Object3D[] = [
       cargo.createCrate(),
@@ -82,6 +107,8 @@ describe('no faces that flicker through each other (z-fighting)', () => {
       gondola.createFuelBrick(),
       repairs.createHammer(),
       repairs.createPatchInHand(),
+      pump.createPumpLever(),
+      pump.createPumpRod(),
     ];
     for (const prop of props) {
       expectNone([prop], DECK_GAP);

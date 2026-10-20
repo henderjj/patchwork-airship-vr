@@ -3,7 +3,7 @@ import { ShipSounds } from '../audio/ship-sounds.js';
 import { CreakTimer, ratchetClicks, strain, type StrainLimits, touchedDown, windGust, windSound } from '../sim/audio-cues.js';
 import { DEFAULT_FLIGHT_LIMITS } from '../sim/flight.js';
 import { BELL_CENTER } from '../sim/gondola-controls.js';
-import { BURNER_POSITION, DECK_LENGTH, DECK_WIDTH } from '../sim/gondola-layout.js';
+import { BURNER_POSITION, DECK_LENGTH, DECK_WIDTH, PUMP_SPOUT } from '../sim/gondola-layout.js';
 import { CRANK_AXLE_HEIGHT, CRANK_POSITION } from '../scene-assets/gondola.scene-asset.js';
 import { onSettingChange } from '../live-settings.js';
 import { ROPE_RUN, ROPE_X, ROPE_Y, ROPE_Z0 } from '../scene-assets/rope.scene-asset.js';
@@ -41,6 +41,7 @@ export const sounds = new ShipSounds(
     haul: [ROPE_X, ROPE_Y, ROPE_Z0 + ROPE_RUN / 2],
     fairlead: [ROPE_X, ROPE_Y, ROPE_Z0],
     loft: [(LOFT.x0 + LOFT.x1) / 2, LOFT_EYE + 0.4, (LOFT.z0 + LOFT.z1) / 2],
+    pump: [PUMP_SPOUT[0], PUMP_SPOUT[1], PUMP_SPOUT[2]],
   },
   settings.audio,
 );

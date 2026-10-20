@@ -79,6 +79,17 @@ export const LIVE_ITEMS: readonly LiveItem[] = [
     ],
     current: (s) => s.tears,
   },
+  {
+    key: 'weather',
+    label: 'Weather',
+    options: [
+      ['clear', 'Clear'],
+      ['storm', 'Storm'],
+      ['night', 'Night'],
+      ['nightstorm', 'Night storm'],
+    ],
+    current: (s) => s.weather,
+  },
 ];
 
 /** Most choices a setting may offer: the buttons in a menu row. */

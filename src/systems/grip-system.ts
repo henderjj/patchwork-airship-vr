@@ -43,7 +43,7 @@ export const grip: Record<Side, GripState> = {
  * GrappleSystem), the cargo gear ('winch', 'tag' or 'lever', held by
  * CargoSystem), a crate's handle ('crate', StowageSystem), the loft's
  * ladder ('ladder', ClimbSystem) or the repair gear ('edge' of a tear,
- * 'patch' or 'hammer', RepairSystem), or null. Loose objects aren't picked up by a hand that
+ * 'patch' or 'hammer', RepairSystem), the bilge pump ('pump', PumpSystem), or null. Loose objects aren't picked up by a hand that
  * holds a control.
  */
 export const handUse: Record<Side, string | null> = { left: null, right: null };

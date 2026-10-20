@@ -31,6 +31,8 @@ import { SkyWorldSystem } from './systems/sky-world-system.js';
 import { StartScreenSystem } from './systems/start-screen-system.js';
 import { ThrowablesSystem } from './systems/throwables-system.js';
 import { WindSystem } from './systems/wind-system.js';
+import { PumpSystem } from './systems/pump-system.js';
+import { WeatherSystem } from './systems/weather-system.js';
 
 // On a two-GPU PC, start on the graphics card Link uses (src/gpu-preference.ts).
 preferHighPerformanceGpu();
@@ -49,6 +51,8 @@ World.create(
   world.registerSystem(GripSystem, { priority: -5 });
   world.registerSystem(SkyWorldSystem);
   world.registerSystem(WindSystem);
+  // Before the sky's tint is applied this frame (SkyWorldSystem reads its weatherView next frame, which is fine).
+  world.registerSystem(WeatherSystem);
   world.registerSystem(ComfortSystem);
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
@@ -71,6 +75,8 @@ World.create(
   world.registerSystem(StowageSystem);
   // After the cargo gear and crates (whose hands it skips); before the throwables, which skip hands on the repair gear.
   world.registerSystem(RepairSystem);
+  // After the cargo and repair gear (whose hands it skips); before the throwables, which skip hands on the pump.
+  world.registerSystem(PumpSystem);
   world.registerSystem(RouteSystem);
   world.registerSystem(SignsSystem);
   // After the ship, crank and route have moved on this frame.

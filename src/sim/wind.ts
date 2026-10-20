@@ -57,6 +57,10 @@ export const GUST_HOLD: readonly [number, number] = [4, 8];
 export const GUST_RAMP = 6;
 /** Gusts come from abeam, give or take this much, radians. */
 const GUST_SPREAD = 0.4;
+/** In a storm (docs/storms-and-night.md) the first gust comes sooner, the calms between are shorter, and gusts blow this much harder. */
+export const STORM_FIRST_GUST: readonly [number, number] = [10, 20];
+export const STORM_GUST_GAP: readonly [number, number] = [15, 25];
+export const STORM_GUST_PEAK = 1.4;
 
 function smooth(x: number): number {
   const t = x < 0 ? 0 : x > 1 ? 1 : x;
@@ -106,6 +110,8 @@ export class WindSim {
   scale = 1;
   /** Ship time the next gust's warning starts, s; NaN until the run is under way. */
   nextAt = Number.NaN;
+  /** A storm is blowing (the host's weather): gusts come sooner, more often and harder. */
+  storm = false;
   private random: () => number = rng(1);
   private count = 0;
 
@@ -129,7 +135,7 @@ export class WindSim {
       return false;
     }
     if (Number.isNaN(this.nextAt)) {
-      this.nextAt = t + this.between(FIRST_GUST);
+      this.nextAt = t + this.between(this.storm ? STORM_FIRST_GUST : FIRST_GUST);
     }
     if (t < this.nextAt || (this.gust && t < gustEnd(this.gust))) {
       return false;
@@ -145,13 +151,13 @@ export class WindSim {
       id: (this.count = (this.count + 1) & 255),
       start: t + GUST_WARNING,
       heading: yaw + side * (Math.PI / 2) + (this.random() * 2 - 1) * GUST_SPREAD,
-      peak: this.between(GUST_PEAK),
+      peak: this.between(GUST_PEAK) * (this.storm ? STORM_GUST_PEAK : 1),
       rise: GUST_RAMP,
       hold: this.between(GUST_HOLD),
       fall: GUST_RAMP,
     };
     this.gust = g;
-    this.nextAt = gustEnd(g) + this.between(GUST_GAP);
+    this.nextAt = gustEnd(g) + this.between(this.storm ? STORM_GUST_GAP : GUST_GAP);
     return g;
   }
 

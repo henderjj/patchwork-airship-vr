@@ -11,8 +11,10 @@
   there to try lowering the crate, sends a gust on its way at once, sets
   the wind's strength (breeze, gusts and drafts; the host's choice counts
   in a crew), tears the envelope at once to try a repair, sets how
-  often it tears on its own (the host's choice counts), and starts a run
-  short of the Cleft or the Arch to try a narrow passage.
+  often it tears on its own (the host's choice counts), starts a run
+  short of the Cleft or the Arch to try a narrow passage, sets the weather
+  (clear, storm, night or a storm at night; the host's choice counts), and
+  strikes lightning or floods the deck at once to try the bilge pump.
 -->
 <style>
   .root {
@@ -352,6 +354,22 @@
       <div class="choices">
         <Button id="menu-cleft" class="choice" size="sm" variant="secondary">Before the Cleft</Button>
         <Button id="menu-arch" class="choice" size="sm" variant="secondary">Before the Arch</Button>
+      </div>
+    </div>
+    <div id="row-weather" class="setting">
+      <div id="row-weather-label" class="label">Setting</div>
+      <div id="row-weather-choices" class="choices">
+        <Button id="row-weather-0" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-weather-1" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-weather-2" class="choice" size="sm" variant="secondary">Choice</Button>
+        <Button id="row-weather-3" class="choice" size="sm" variant="secondary">Choice</Button>
+      </div>
+    </div>
+    <div class="setting">
+      <div class="label">Storm</div>
+      <div class="choices">
+        <Button id="menu-lightning" class="choice" size="sm" variant="secondary">Lightning now</Button>
+        <Button id="menu-flood" class="choice" size="sm" variant="secondary">Flood the deck</Button>
       </div>
     </div>
   </div>

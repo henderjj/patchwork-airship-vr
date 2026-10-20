@@ -121,6 +121,7 @@ export function holdKindOf(side: 'left' | 'right', flags: number, use: string | 
     case 'edge': return HoldKind.Edge;
     case 'patch': return HoldKind.Patch;
     case 'hammer': return HoldKind.Hammer;
+    case 'pump': return HoldKind.Pump;
     default: return HoldKind.None;
   }
 }
