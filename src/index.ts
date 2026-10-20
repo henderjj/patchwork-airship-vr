@@ -57,7 +57,7 @@ World.create(
   world.registerSystem(GondolaSystem);
   world.registerSystem(NetSystem);
   world.registerSystem(DeckWalkSystem);
-  // Before the systems that read the hands: climbing the ladder to the patch loft moves the player (and their hands) up or down.
+  // Before the systems that read the hands: climbing the rigging to the envelope moves the player (and their hands) up or down.
   world.registerSystem(ClimbSystem);
   // After NetSystem, which updates the crew presence it shows.
   world.registerSystem(CrewStatusSystem);

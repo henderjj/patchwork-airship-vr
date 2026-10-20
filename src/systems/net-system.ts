@@ -99,6 +99,9 @@ export const FLAG_RIGHT_CRANK = 8;
 export const FLAG_LEFT_ROPE = 16;
 export const FLAG_RIGHT_ROPE = 32;
 
+/** The repair gear's hand uses (RepairSystem). */
+const REPAIR_USES: readonly (string | null)[] = ['edge', 'patch', 'hammer'];
+
 /**
  * What a hand holds, as a HoldKind, for grip locking: the crank or the line
  * from the pose flags (this player's from the crank and rope systems'
@@ -155,7 +158,7 @@ export const netLink = {
   scriptedSqueeze: { left: false, right: false },
   /** A head pose to send instead of the camera's (the practice crewmate), or null. */
   headOverride: null as ((nowMs: number) => PoseSample) | null,
-  /** Where this player's feet are, m above the deck (ClimbSystem: up the ladder or on the patch loft). */
+  /** Where this player's feet are, m above the deck (ClimbSystem: up the rigging to the envelope). */
   feet: 0,
   /** Feet to send instead (the practice crewmate climbing), or null. */
   feetOverride: null as ((nowMs: number) => number) | null,
@@ -671,9 +674,10 @@ export class NetSystem extends createSystem({}) {
         const holding = (pose.flags & (FLAG_RIGHT_CRANK | FLAG_RIGHT_ROPE)) !== 0 || netLink.scriptedSqueeze.right;
         copyCurls(holding ? SCRIPTED_HOLDING : SCRIPTED_RELAXED, pose.rightFingers);
       }
+      // A test pose's hands hold nothing, but the repair gear (worked by scripted hands in tests too) shows, as the crewmate hands it up by what the player holds.
       pose.holds =
-        holdKindOf('left', pose.flags, test === null ? handUse.left : null) |
-        (holdKindOf('right', pose.flags, test === null ? handUse.right : null) << 4);
+        holdKindOf('left', pose.flags, test === null || REPAIR_USES.includes(handUse.left) ? handUse.left : null) |
+        (holdKindOf('right', pose.flags, test === null || REPAIR_USES.includes(handUse.right) ? handUse.right : null) << 4);
       if (test === null || netLink.feetOverride) {
         pose.feet = netLink.feetOverride ? netLink.feetOverride(now) : netLink.feet;
       }
@@ -747,7 +751,7 @@ export class NetSystem extends createSystem({}) {
     this.tmpQuat.set(r.head.qx, r.head.qy, r.head.qz, r.head.qw);
     this.tmpEuler.setFromQuaternion(this.tmpQuat, 'YXZ');
     this.torso.rotation.set(0, this.tmpEuler.y, 0);
-    // Legs stand on the deck (or a rung, or the patch loft) under the torso
+    // Legs stand on the deck (or up the rigging) under the torso
     // and stretch or squash to reach it, so a crouching or seated crewmate
     // never sinks into the floor.
     const feet = Math.max(0, r.feet);

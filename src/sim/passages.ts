@@ -252,7 +252,7 @@ export const HULL_SPHERES: readonly { x: number; y: number; z: number; r: number
   // The gondola: the 2 × 3 m deck, its keel 0.56 m under the deck and its rail 1 m above.
   { x: 0, y: 0.3, z: -0.75, r: 1.0, part: 'gondola' },
   { x: 0, y: 0.3, z: 0.75, r: 1.0, part: 'gondola' },
-  // The rigging between them, the load ring and the patch loft.
+  // The rigging between them, the load ring and the shrouds up to the envelope.
   { x: 0, y: 2.9, z: 0, r: 1.5, part: 'gondola' },
 ];
 

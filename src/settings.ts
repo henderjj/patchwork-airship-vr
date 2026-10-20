@@ -69,7 +69,7 @@ export interface Settings {
   wind: number;
   /** Gusts come on their own during a run; `gusts=0` (the browser tests) sends them only from Practice → Send a gust. */
   gusts: boolean;
-  /** How often the envelope tears during a run (docs/repairs.md): `off` (the browser tests: only from Practice → Tear it now), `normal` or `often`; the host's counts in a crew. */
+  /** How often the envelope tears during a run (docs/repairs.md): `off` (the browser tests: only from Practice → Tear it now), `normal` or `often`; in a crew the gentler of the two players' choices. */
   tears: TearRate;
   /** The weather runs are flown in (docs/storms-and-night.md): `clear`, `storm`, `night` or `nightstorm`; the host's counts in a crew. */
   weather: Weather;

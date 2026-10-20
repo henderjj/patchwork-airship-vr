@@ -7,7 +7,8 @@ import {
   edgeHold,
   ELLIPSOID_UNDERSIDE,
   EnvelopeSim,
-  HOLD_GRACE,
+  gentlerRate,
+  HELD_LIFE,
   MAX_UNMENDED,
   PATCH_DROP,
   PATCH_MAX,
@@ -30,69 +31,73 @@ import { createShipState } from '../src/sim/ship-motion.js';
 import {
   Climber,
   DEFAULT_EYE,
-  HAMMER_HEAD,
   HAMMER_REST,
-  LADDER_REACH,
-  LADDER_TOP,
-  LADDER_X,
-  LADDER_Z,
-  LOFT,
-  LOFT_EYE,
-  LOFT_FLOOR,
-  LOFT_HATCH,
-  LOFT_WALK,
-  ladderHold,
-  type LadderHold,
-  loftRaise,
   PATCH_BOX,
-  RUNGS,
-} from '../src/sim/loft.js';
+  RATLINES,
+  RIG_EYE,
+  RIG_REACH,
+  RIG_WORK,
+  RIG_X,
+  RIG_Z,
+  rigHold,
+  type RigHold,
+  rigRaise,
+  SHROUD_HOLD_LOW,
+  SHROUD_TOP,
+} from '../src/sim/rigging.js';
+import { DECK_WIDTH, RAIL_HEIGHT } from '../src/sim/gondola-layout.js';
 import { scoreRun } from '../src/sim/route.js';
 
-const hold = (): LadderHold => ({ x: 0, y: 0, z: 0, stile: false, distance: 0 });
+const hold = (): RigHold => ({ x: 0, y: 0, z: 0, shroud: false, distance: 0 });
 const point = () => ({ x: 0, y: 0, z: 0 });
 
-describe('the patch loft and its ladder', () => {
-  it("puts everyone's eyes at the same height on the loft", () => {
-    expect(loftRaise(DEFAULT_EYE) + DEFAULT_EYE).toBeCloseTo(LOFT_EYE);
-    expect(loftRaise(Number.NaN)).toBeCloseTo(LOFT_EYE - DEFAULT_EYE);
-    expect(loftRaise(1.85) + 1.85).toBeCloseTo(LOFT_EYE);
+describe('the rigging up to the envelope', () => {
+  const canvas = envelopeUnderside();
+
+  it("puts everyone's eyes at the same height at the top", () => {
+    expect(rigRaise(DEFAULT_EYE) + DEFAULT_EYE).toBeCloseTo(RIG_EYE);
+    expect(rigRaise(Number.NaN)).toBeCloseTo(RIG_EYE - DEFAULT_EYE);
+    expect(rigRaise(1.85) + 1.85).toBeCloseTo(RIG_EYE);
     // Seated (eyes low) or very tall: raised as far as it goes, and no further.
-    expect(loftRaise(0.6)).toBe(3);
-    expect(loftRaise(2.4)).toBe(2);
+    expect(rigRaise(0.6)).toBe(3);
+    expect(rigRaise(2.4)).toBe(2);
   });
 
-  it('takes hold of the nearest rung or stile in reach', () => {
+  it('takes hold of the nearest ratline or shroud in reach', () => {
     const h = hold();
-    expect(ladderHold(LADDER_X + 0.05, RUNGS[2] + 0.02, 0.55, h)).toBe(true);
-    expect(h.stile).toBe(false);
-    expect(h.y).toBeCloseTo(RUNGS[2]);
-    expect(ladderHold(LADDER_X, 3.0, LADDER_Z[0] - 0.04, h)).toBe(true);
-    expect(h.stile).toBe(true);
+    const mid = (RIG_Z[0] + RIG_Z[1]) / 2;
+    expect(rigHold(RIG_X + 0.05, RATLINES[2] + 0.02, mid, h)).toBe(true);
+    expect(h.shroud).toBe(false);
+    expect(h.y).toBeCloseTo(RATLINES[2]);
+    expect(rigHold(RIG_X, 3.0, RIG_Z[0] - 0.04, h)).toBe(true);
+    expect(h.shroud).toBe(true);
     expect(h.y).toBeCloseTo(3.0);
-    expect(ladderHold(LADDER_X + LADDER_REACH + 0.05, 1, 0.55, h)).toBe(false);
-    // Above the stiles' tops, nothing to hold.
-    expect(ladderHold(LADDER_X, LADDER_TOP + 0.2, LADDER_Z[0], h)).toBe(false);
+    expect(rigHold(RIG_X + RIG_REACH + 0.05, RATLINES[0], mid, h)).toBe(false);
+    // Down by the rail, where the mooring line runs, there is nothing to take hold of.
+    expect(rigHold(RIG_X + 0.05, RAIL_HEIGHT + 0.1, RIG_Z[0], h)).toBe(false);
   });
 
-  it("stands the ladder in the loft's hatch, clear of its floor", () => {
-    for (const z of LADDER_Z) {
-      expect(z).toBeGreaterThan(LOFT_HATCH.z0);
-      expect(z).toBeLessThan(LOFT_HATCH.z1);
+  it('stands on the port rail clear of the mooring line, and runs up into the envelope', () => {
+    // Shrouds aft of the rail's middle post (z 0) and outboard of the mooring line's coil (at x -0.81, z 0.706, 0.13 across).
+    expect(RIG_Z[0]).toBeGreaterThan(0.1);
+    for (const z of RIG_Z) expect(Math.hypot(RIG_X + 0.81, z - 0.706)).toBeGreaterThan(0.13 + 0.03);
+    expect(RIG_X).toBeGreaterThanOrEqual(-DECK_WIDTH / 2);
+    // The ratlines start above head height, over the line along the rail.
+    expect(RATLINES[0]).toBeGreaterThan(1.7);
+    expect(SHROUD_HOLD_LOW).toBeGreaterThan(RAIL_HEIGHT + 0.4);
+    for (const z of RIG_Z) {
+      expect(SHROUD_TOP).toBeGreaterThan(canvas(RIG_X, z) - 0.02);
+      expect(RATLINES[RATLINES.length - 1]).toBeLessThan(canvas(RIG_X, z) - 0.1);
     }
-    expect(LADDER_X).toBeGreaterThan(LOFT_HATCH.x0);
-    expect(LADDER_X).toBeLessThan(LOFT_HATCH.x1);
-    // The top rung is at the floor, so the last step up is onto the loft.
-    expect(RUNGS[RUNGS.length - 1]).toBeLessThanOrEqual(LOFT_FLOOR);
   });
 
   it('climbs hand over hand: pulling a hand down raises the player', () => {
     const c = new Climber();
-    const top = loftRaise(DEFAULT_EYE);
+    const top = rigRaise(DEFAULT_EYE);
     let rig = 0;
     // Each stroke: take hold at chest height, pull down 0.4 m over a few frames, let go.
     let strokes = 0;
-    while (!c.onLoft && strokes < 20) {
+    while (!c.atTop && strokes < 20) {
       const side = strokes % 2 ? 'right' : 'left';
       const grabAt = 1.2 + rig;
       c.grab(side, grabAt);
@@ -100,68 +105,63 @@ describe('the patch loft and its ladder', () => {
         // The tracked hand moves down in the room; the rig carries it up as the player climbs.
         const tracked = 1.2 - 0.05 * f;
         const y = tracked + rig;
-        rig = c.update(1 / 72, side === 'left' ? y : 0, side === 'right' ? y : 0, top);
+        rig = c.update(side === 'left' ? y : 0, side === 'right' ? y : 0, top);
       }
       c.release(side);
-      for (let f = 0; f < 30; f++) rig = c.update(1 / 72, 0, 0, top);
+      for (let f = 0; f < 30; f++) rig = c.update(0, 0, top);
       strokes++;
     }
-    expect(c.onLoft).toBe(true);
+    expect(c.atTop).toBe(true);
     expect(c.height).toBeCloseTo(top);
-    expect(c.feet).toBe(LOFT_FLOOR);
+    expect(c.feet).toBe(c.height);
     expect(strokes).toBeGreaterThan(4);
   });
 
   it('stays put when let go partway, and climbs down by pushing up', () => {
     const c = new Climber();
     c.grab('left', 1.5);
-    c.update(1 / 72, 1.0, 0, 2.5);
+    c.update(1.0, 0, 2.5);
     expect(c.height).toBeCloseTo(0.2); // at most 0.2 m a frame
     // What the clamp held back is lost (the hand's hold moved with it): a tracking glitch can't throw the player up.
-    c.update(1 / 72, 1.2, 0, 2.5);
+    c.update(1.2, 0, 2.5);
     expect(c.height).toBeCloseTo(0.2);
-    c.update(1 / 72, 0.95, 0, 2.5);
+    c.update(0.95, 0, 2.5);
     expect(c.height).toBeCloseTo(0.4);
     c.release('left');
-    for (let f = 0; f < 50; f++) c.update(1 / 72, 0, 0, 2.5);
+    for (let f = 0; f < 50; f++) c.update(0, 0, 2.5);
     expect(c.height).toBeCloseTo(0.4);
-    expect(c.between).toBe(true);
-    // Hold on and push up: down the ladder, and no lower than the deck.
+    expect(c.aloft).toBe(true);
+    // Hold on and push up: down the rigging, and no lower than the deck.
     c.grab('right', 1.5);
-    for (let f = 1; f <= 10; f++) c.update(1 / 72, 0, 1.5 + 0.1 * f, 2.5);
+    for (let f = 1; f <= 10; f++) c.update(0, 1.5 + 0.1 * f, 2.5);
     expect(c.height).toBe(0);
     c.release('right');
-    expect(c.between).toBe(false);
+    expect(c.aloft).toBe(false);
   });
 
-  it('hands over to the other hand still on the ladder', () => {
+  it('hands over to the other hand still on the rigging', () => {
     const c = new Climber();
     c.grab('left', 1.4);
     c.grab('right', 1.6);
-    c.update(1 / 72, 1.4, 1.5, 2.5); // the right (the latest) climbs
+    c.update(1.4, 1.5, 2.5); // the right (the latest) climbs
     expect(c.height).toBeCloseTo(0.1);
     c.release('right');
     // The left takes over from where it is now: no jump.
-    c.update(1 / 72, 1.5, 0, 2.5);
+    c.update(1.5, 0, 2.5);
     expect(c.height).toBeCloseTo(0.1);
-    c.update(1 / 72, 1.3, 0, 2.5);
+    c.update(1.3, 0, 2.5);
     expect(c.height).toBeCloseTo(0.3);
   });
 
-  it('steps up onto the loft when let go just below it', () => {
+  it('stands on the deck when let go just above it', () => {
     const c = new Climber();
-    c.height = 2.35;
-    for (let f = 0; f < 30; f++) c.update(1 / 72, 0, 0, 2.48);
-    expect(c.onLoft).toBe(true);
-  });
-
-  it('keeps the walking bounds on the loft', () => {
-    expect(LOFT_WALK.x0).toBeGreaterThan(LOFT.x0);
-    expect(LOFT_WALK.x1).toBeLessThan(LOFT.x1);
+    c.height = 0.03;
+    c.update(0, 0, 2.5);
+    expect(c.height).toBe(0);
   });
 });
 
-describe("the envelope's underside over the loft", () => {
+describe("the envelope's underside round the rigging", () => {
   const canvas = envelopeUnderside();
 
   it('is the modelled envelope, close to its ellipsoid', () => {
@@ -173,24 +173,25 @@ describe("the envelope's underside over the loft", () => {
     expect(canvas(-0.8, 1.15)).toBeCloseTo(4.625, 1);
   });
 
-  it('puts every tear in reach overhead from the loft, over its floor', () => {
+  it('puts every tear in reach overhead from the top of the rigging, over the deck', () => {
     for (const spot of TEAR_SPOTS) {
       for (const t of [0, 0.5, 1]) {
         const p = slitPoint(canvas, spot, TEAR_MAX, t, EDGE_DROP, point());
-        expect(p.x).toBeGreaterThan(LOFT.x0 - 0.05);
-        expect(p.x).toBeLessThan(LOFT.x1 + 0.05);
-        expect(p.z).toBeGreaterThan(LOFT.z0 - 0.05);
-        expect(p.z).toBeLessThan(LOFT.z1 + 0.05);
+        expect(Math.abs(p.x)).toBeLessThan(DECK_WIDTH / 2);
+        expect(Math.hypot(p.x - RIG_WORK[0], p.y - RIG_WORK[1], p.z - RIG_WORK[2])).toBeLessThan(0.75);
         // Above the eyes, but not out of reach.
-        expect(p.y - LOFT_EYE).toBeGreaterThan(0.2);
-        expect(p.y - LOFT_EYE).toBeLessThan(0.65);
+        expect(p.y - RIG_EYE).toBeGreaterThan(0.2);
+        expect(p.y - RIG_EYE).toBeLessThan(0.65);
       }
     }
   });
 
-  it('keeps the patch box and the hammer in reach on the loft', () => {
-    expect(PATCH_BOX[1] - LOFT_EYE).toBeGreaterThan(-1);
-    expect(HAMMER_REST[1] + HAMMER_HEAD - LOFT_FLOOR).toBeLessThan(LOFT_EYE - LOFT_FLOOR);
+  it('keeps the patch box and the hammer in reach from the deck, inboard of the rail', () => {
+    for (const at of [PATCH_BOX, HAMMER_REST]) {
+      expect(at[1]).toBeGreaterThan(1.2);
+      expect(at[1]).toBeLessThan(1.8);
+      expect(at[0]).toBeGreaterThan(-DECK_WIDTH / 2);
+    }
   });
 });
 
@@ -232,36 +233,17 @@ describe('tears and patches', () => {
     for (let i = 0; i < 30; i++) sim.step(i, true, 1);
     expect(sim.tears[0].length).toBeCloseTo(TEAR_START + 30 * TEAR_GROWTH);
     expect(sim.leak).toBeGreaterThan(fresh);
-    // Two hands far enough apart along it hold it shut, and it stops growing.
-    sim.setHolds(0, [[0, 0.1]]);
-    sim.setHolds(1, [[0, 0.9]]);
+    // One hand holds it shut, leaving the other for the patch, and it stops growing.
+    sim.setHolds(0, [[0, 0.5]]);
     expect(sim.tears[0].closed).toBe(true);
     const held = sim.leak;
     expect(held).toBeLessThan(fresh / 3);
     const length = sim.tears[0].length;
     sim.step(31, true, 10);
     expect(sim.tears[0].length).toBe(length);
-    // Two hands close together don't.
-    sim.setHolds(1, [[0, 0.2]]);
+    // Let go, it gapes again.
+    sim.setHolds(0, []);
     expect(sim.tears[0].closed).toBe(false);
-  });
-
-  it('playing alone, are held shut by one hand, leaving the other for the patch and the hammer', () => {
-    const sim = new EnvelopeSim(canvas);
-    sim.reset(1);
-    sim.open(1);
-    sim.solo = true;
-    expect(sim.tears[1].closed).toBe(false);
-    sim.setHolds(0, [[1, 0.5]]);
-    expect(sim.tears[1].closed).toBe(true);
-    expect(sim.press(1)).toBe('held');
-    for (let r = 0; r < RIVETS; r++) expect(sim.rivet(1, r)).toBe(true);
-    expect(sim.tears[1].phase).toBe('sound');
-    // With a crewmate, one hand isn't enough.
-    sim.open(1);
-    sim.solo = false;
-    sim.setHolds(0, [[1, 0.5]]);
-    expect(sim.tears[1].closed).toBe(false);
   });
 
   it("grow no longer than the longest, and full flame then can't hold height", () => {
@@ -280,14 +262,19 @@ describe('tears and patches', () => {
     expect(flight.heat).toBeLessThan(DEFAULT_FLIGHT.balanceHeat);
   });
 
-  it('a patch on a tear held shut waits for four rivets, then is sound', () => {
+  it('a patch on a tear held shut waits for four rivets, with nobody holding it, then is sound', () => {
     const sim = new EnvelopeSim(canvas);
     sim.reset(1);
     sim.open(1);
-    sim.setHolds(1, [[1, 0.15], [1, 0.85]]);
+    sim.setHolds(1, [[1, 0.5]]);
     expect(sim.press(1)).toBe('held');
     expect(sim.leak).toBe(0);
     expect(sim.tears[1].patchLength).toBe(patchLengthFor(TEAR_START));
+    expect(sim.tears[1].life).toBe(HELD_LIFE);
+    // Let go to climb down for the hammer: the patch keeps waiting.
+    sim.setHolds(1, []);
+    sim.step(0, true, HELD_LIFE / 2);
+    expect(sim.tears[1].riveting).toBe(true);
     for (let r = 0; r < RIVETS - 1; r++) expect(sim.rivet(1, r)).toBe(true);
     expect(sim.rivet(1, 0)).toBe(false); // already in
     expect(sim.tears[1].phase).toBe('patched');
@@ -299,18 +286,20 @@ describe('tears and patches', () => {
     expect(sim.tears[1].phase).toBe('sound');
   });
 
-  it('a patch let go of before its rivets are in turns rushed', () => {
+  it('a patch held shut but not riveted in time peels off', () => {
     const sim = new EnvelopeSim(canvas);
     sim.reset(1);
     sim.open(2);
-    sim.setHolds(0, [[2, 0.1], [2, 0.9]]);
+    sim.setHolds(0, [[2, 0.5]]);
     expect(sim.press(2)).toBe('held');
     sim.setHolds(0, []);
-    sim.step(0, true, HOLD_GRACE / 2);
-    expect(sim.tears[2].rushed).toBe(false);
-    sim.step(1, true, HOLD_GRACE);
-    expect(sim.tears[2].rushed).toBe(true);
-    expect(sim.rivet(2, 0)).toBe(false);
+    expect(sim.rivet(2, 0)).toBe(true);
+    sim.step(0, true, HELD_LIFE - PEEL_SECONDS + 1);
+    expect(sim.tears[2].peeling).toBe(true);
+    expect(sim.leak).toBeGreaterThan(0);
+    sim.step(1, true, PEEL_SECONDS);
+    expect(sim.tears[2].phase).toBe('open');
+    expect(sim.tears[2].rivets).toBe(0);
   });
 
   it('a rushed patch stops the leak for a minute, then peels off', () => {
@@ -327,7 +316,7 @@ describe('tears and patches', () => {
     expect(sim.tears[0].phase).toBe('open');
     // A fresh patch can go over a rushed one, held shut this time.
     expect(sim.press(0)).toBe('rushed');
-    sim.setHolds(0, [[0, 0.1], [0, 0.9]]);
+    sim.setHolds(0, [[0, 0.5]]);
     expect(sim.press(0)).toBe('held');
     expect(sim.tears[0].patches).toBe(3);
   });
@@ -352,15 +341,23 @@ describe('tears and patches', () => {
     host.reset(5);
     host.open(0);
     host.open(2);
-    host.setHolds(0, [[2, 0.1], [2, 0.9]]);
+    host.setHolds(0, [[2, 0.5]]);
     host.press(2);
     host.rivet(2, 1);
+    host.setHolds(0, [[0, 0.3]]);
     const guest = new EnvelopeSim(canvas);
     expect(guest.adopt(JSON.parse(JSON.stringify(host.toWire())))).toBe(true);
     expect(guest.toWire()).toEqual(host.toWire());
-    // Held shut on the host: the guest can rivet it too.
-    expect(guest.tears[2].closed).toBe(true);
+    // Held shut on the host: the guest draws it held.
+    expect(guest.tears[0].closed).toBe(true);
+    expect(guest.tears[2].riveting).toBe(true);
     expect(guest.adopt({ r: 1, n: 0, s: [[0]] })).toBe(false);
+  });
+
+  it("in a crew, either player's choice of how often they come counts: the gentler wins", () => {
+    expect(gentlerRate('often', 'off')).toBe('off');
+    expect(gentlerRate('normal', 'often')).toBe('normal');
+    expect(gentlerRate('off', 'normal')).toBe('off');
   });
 
   it('cost points left unmended at the finish', () => {
@@ -373,11 +370,11 @@ describe("the crewmate's feet", () => {
   it('go with their pose, in centimetres', () => {
     const buffer = new ArrayBuffer(POSE_PACKET_BYTES);
     const pose = createAvatarPose();
-    pose.feet = LOFT_FLOOR;
+    pose.feet = 2.5;
     const out = createAvatarPose();
     encodePose(buffer, 1, 0, pose);
     expect(decodePose(new DataView(buffer), { seq: 0, timeMs: 0 }, out)).toBe(true);
-    expect(out.feet).toBeCloseTo(LOFT_FLOOR, 2);
+    expect(out.feet).toBeCloseTo(2.5, 2);
     // From a page before repairs: on the deck.
     expect(decodePose(new DataView(buffer, 0, POSE_PACKET_BYTES - 1), { seq: 0, timeMs: 0 }, out)).toBe(true);
     expect(out.feet).toBe(0);

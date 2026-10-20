@@ -1,18 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOT_GRAVITY,
-  BOT_LADDER,
   crankFollowAngle,
+  handUpNeed,
   HaulRhythm,
   interceptPoint,
   ropeFollowAlong,
   stepTowards,
-  tearStand,
   throwVelocity,
-  viaLadder,
 } from '../src/sim/crew-bot.js';
-import { TEAR_SPOTS } from '../src/sim/envelope.js';
-import { LOFT_HATCH, LOFT_WALK } from '../src/sim/loft.js';
 
 describe('practice crewmate', () => {
   it('holds the other crank handle, moved on by the time since the player was seen', () => {
@@ -114,41 +110,16 @@ describe('practice crewmate', () => {
     expect(held!).toBeGreaterThan(0.9);
   });
 
-  it('goes up and down the ladder to reach the patch loft', () => {
-    type V = [number, number, number];
-    const out: V = [0, 0, 0];
-    // Same level: straight there.
-    expect(viaLadder([0.5, 1.6, 0], [0, 1.6, 1], 1.6, 4.1, out)).toEqual([0, 1.6, 1]);
-    // On the deck, wanting the loft: to the ladder first, then up it.
-    expect(viaLadder([0.5, 1.6, 0], [-0.3, 4.1, 1], 1.6, 4.1, out)).toEqual([BOT_LADDER[0], 1.6, BOT_LADDER[1]]);
-    expect(viaLadder([BOT_LADDER[0], 1.6, BOT_LADDER[1]], [-0.3, 4.1, 1], 1.6, 4.1, out)).toEqual([BOT_LADDER[0], 4.1, BOT_LADDER[1]]);
-    // Partway up, wanting the deck: down.
-    expect(viaLadder([BOT_LADDER[0], 3, BOT_LADDER[1]], [0.5, 1.6, 0], 1.6, 4.1, out)).toEqual([BOT_LADDER[0], 1.6, BOT_LADDER[1]]);
-    // On the loft, wanting the deck: back to the ladder along the loft.
-    expect(viaLadder([-0.3, 4.1, 1], [0.5, 1.6, 0], 1.6, 4.1, out)).toEqual([BOT_LADDER[0], 4.1, BOT_LADDER[1]]);
-    // Walked step by step, it gets there by the ladder.
-    const head: V = [0.5, 1.6, -0.5];
-    for (let i = 0; i < 500; i++) stepTowards(head, viaLadder(head, [-0.3, 4.1, 1], 1.6, 4.1, out), 0.03);
-    expect(head).toEqual([-0.3, 4.1, 1]);
-  });
-
-  it('stands beside each tear on the loft, clear of the hatch and away from the player', () => {
-    const out: [number, number] = [0, 0];
-    for (const spot of TEAR_SPOTS) {
-      for (const player of [[spot.x - 0.3, spot.z - 0.3], [spot.x + 0.3, spot.z + 0.3]]) {
-        const [x, z] = tearStand(spot, player[0], player[1], out);
-        expect(x).toBeGreaterThanOrEqual(LOFT_WALK.x0);
-        expect(x).toBeLessThanOrEqual(LOFT_WALK.x1);
-        expect(z).toBeGreaterThanOrEqual(LOFT_WALK.z0);
-        expect(z).toBeLessThanOrEqual(LOFT_WALK.z1);
-        const overHatch = x < LOFT_HATCH.x1 && z > LOFT_HATCH.z0 && z < LOFT_HATCH.z1;
-        expect(overHatch).toBe(false);
-        // Within arm's reach of the slit's middle.
-        expect(Math.hypot(x - spot.x, z - spot.z)).toBeLessThan(0.4);
-      }
-    }
-    // Of the two sides of the across-the-loft tear forward of the hatch, the one further from the player.
-    const fore = TEAR_SPOTS[0];
-    expect(tearStand(fore, fore.x, fore.z + 0.5, out)[1]).toBeLessThan(fore.z);
+  it('hands up a patch to mend a tear, then the hammer to rivet it', () => {
+    const tear = (phase: string, rushed = false) => ({ phase, rushed });
+    expect(handUpNeed([tear('whole'), tear('sound')], false, false)).toBeNull();
+    expect(handUpNeed([tear('open'), tear('whole')], false, false)).toBe('patch');
+    // Already holding one: nothing to hand up.
+    expect(handUpNeed([tear('open')], true, false)).toBeNull();
+    // A rushed patch needs a fresh one over it.
+    expect(handUpNeed([tear('patched', true)], false, false)).toBe('patch');
+    // A patch waiting for its rivets: the hammer, before any other tear's patch.
+    expect(handUpNeed([tear('open'), tear('patched')], false, false)).toBe('hammer');
+    expect(handUpNeed([tear('patched')], false, true)).toBeNull();
   });
 });

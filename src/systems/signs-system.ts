@@ -3,7 +3,7 @@ import { CRANK_POSITION, FUEL_CRATE_POSITION, FUEL_CRATE_SIZE, RAIL_HEIGHT } fro
 import { TILLER_PIVOT, VENT_TOGGLE } from '../sim/gondola-controls.js';
 import { BURNER_POSITION, BURNER_SIZE, DECK_WIDTH, PUMP } from '../sim/gondola-layout.js';
 import { LEVER_PIVOT, TAG_RING, WINCH_AXLE } from '../sim/cargo.js';
-import { LOFT, LOFT_FLOOR, PATCH_BOX, PATCH_BOX_SIZE } from '../sim/loft.js';
+import { GEAR_BATTEN, PATCH_BOX, PATCH_BOX_SIZE, RIG_X, RIG_Z } from '../sim/rigging.js';
 import { settings } from '../settings.js';
 
 /** Each sign's size, m, and its cell in the shared canvas, px (two columns, as many rows as the signs need). */
@@ -65,16 +65,16 @@ const SIGNS: readonly Sign[] = [
     facing: [0, 0, -1],
     twoSided: false,
   },
-  // The repair gear (docs/repairs.md): on the port rail forward of the ladder, on the patch box's outboard face, and on the loft's rail aft of the hammer.
-  { title: 'LADDER', hint: 'Squeeze a rung, pull down to climb', at: [PORT_RAIL, RAIL_TOP, 0.1], facing: [1, 0, 0], twoSided: true },
+  // The repair gear (docs/repairs.md): on the port rail between the shrouds, on the patch box's inboard face, and between the shrouds over the hammer.
+  { title: 'RIGGING', hint: 'Squeeze a ratline, pull down to climb', at: [PORT_RAIL, RAIL_TOP, (RIG_Z[0] + RIG_Z[1]) / 2], facing: [1, 0, 0], twoSided: true },
   {
     title: 'PATCHES',
-    hint: 'Press one up onto a tear held shut',
-    at: [PATCH_BOX[0] - PATCH_BOX_SIZE[0] / 2 - 0.004, PATCH_BOX[1] - 0.1, PATCH_BOX[2]],
-    facing: [-1, 0, 0],
+    hint: 'Hold a tear shut, press one onto it',
+    at: [PATCH_BOX[0] + PATCH_BOX_SIZE[0] / 2 + 0.004, PATCH_BOX[1] - PATCH_BOX_SIZE[1] / 2, PATCH_BOX[2]],
+    facing: [1, 0, 0],
     twoSided: false,
   },
-  { title: 'HAMMER', hint: 'Strike each rivet up into the patch', at: [LOFT.x1 - 0.03, LOFT_FLOOR + 0.72, 1.2], facing: [-1, 0, 0], twoSided: true },
+  { title: 'HAMMER', hint: 'Strike each ring on the patch upwards', at: [RIG_X + 0.012, GEAR_BATTEN + 0.15, (RIG_Z[0] + RIG_Z[1]) / 2], facing: [1, 0, 0], twoSided: true },
   // The bilge pump (docs/storms-and-night.md): on the starboard rail just aft of it.
   { title: 'BILGE PUMP', hint: 'Work the handle up and down', at: [STARBOARD_RAIL, RAIL_TOP, PUMP[1] + 0.3], facing: [-1, 0, 0], twoSided: true },
 ];

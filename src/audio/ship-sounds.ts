@@ -45,7 +45,7 @@ export class ShipSounds {
   private bellOut!: AudioNode;
   private haulOut!: AudioNode;
   private lineOut!: AudioNode;
-  private loftOut!: AudioNode;
+  private riggingOut!: AudioNode;
   private hissGain!: GainNode;
   private rainGain!: GainNode;
   private pumpOut!: AudioNode;
@@ -56,7 +56,7 @@ export class ShipSounds {
   };
 
   constructor(
-    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3; loft: Vec3; pump: Vec3 },
+    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3; rigging: Vec3; pump: Vec3 },
     private on = true,
   ) {}
 
@@ -151,15 +151,15 @@ export class ShipSounds {
     this.haulOut = this.panner(this.places.haul);
     this.lineOut = this.panner(this.places.fairlead);
 
-    // The envelope's belly over the patch loft: the hiss of hot air out of a tear, and the repairs.
-    this.loftOut = this.panner(this.places.loft);
+    // The envelope's belly round the top of the rigging: the hiss of hot air out of a tear, and the repairs.
+    this.riggingOut = this.panner(this.places.rigging);
     const hiss = ctx.createBiquadFilter();
     hiss.type = 'bandpass';
     hiss.frequency.value = 3800;
     hiss.Q.value = 0.9;
     this.hissGain = ctx.createGain();
     this.hissGain.gain.value = 0;
-    this.loop(hiss).connect(this.hissGain).connect(this.loftOut);
+    this.loop(hiss).connect(this.hissGain).connect(this.riggingOut);
 
     // Rain: a bright patter everywhere at once, over a softer hush of it on the envelope.
     this.rainGain = ctx.createGain();
@@ -343,7 +343,7 @@ export class ShipSounds {
       gain.gain.setValueAtTime(0.05, t + i * 0.05 + 0.025);
     }
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-    tear.connect(band).connect(gain).connect(this.loftOut);
+    tear.connect(band).connect(gain).connect(this.riggingOut);
     tear.start(t, Math.random() * (NOISE_SECONDS - 1), 0.65);
     this.played.rip++;
   }
@@ -363,7 +363,7 @@ export class ShipSounds {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.6, t);
     gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.12);
-    smack.connect(low).connect(gain).connect(this.loftOut);
+    smack.connect(low).connect(gain).connect(this.riggingOut);
     smack.start(t, Math.random() * (NOISE_SECONDS - 0.2), 0.14);
     this.played.slap++;
   }
@@ -376,12 +376,12 @@ export class ShipSounds {
     }
     const t = ctx.currentTime;
     if (home) {
-      this.tone(2150, 'sine', 0.22, 0.002, 0.25, this.loftOut, t);
-      this.tone(3420, 'sine', 0.12, 0.002, 0.14, this.loftOut, t);
-      this.tone(5150, 'sine', 0.06, 0.002, 0.08, this.loftOut, t);
+      this.tone(2150, 'sine', 0.22, 0.002, 0.25, this.riggingOut, t);
+      this.tone(3420, 'sine', 0.12, 0.002, 0.14, this.riggingOut, t);
+      this.tone(5150, 'sine', 0.06, 0.002, 0.08, this.riggingOut, t);
       this.played.rivet++;
     } else {
-      this.tone(310, 'triangle', 0.2, 0.003, 0.08, this.loftOut, t);
+      this.tone(310, 'triangle', 0.2, 0.003, 0.08, this.riggingOut, t);
       this.played.dud++;
     }
   }
@@ -562,7 +562,7 @@ export class ShipSounds {
       gain.gain.setValueAtTime(level * (0.4 + 0.6 * Math.random()), t + i * 0.055);
     }
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-    source.connect(band).connect(gain).connect(envelope ? this.loftOut : this.master);
+    source.connect(band).connect(gain).connect(envelope ? this.riggingOut : this.master);
     source.start(t, Math.random() * (NOISE_SECONDS - 1), 0.55);
     if (!envelope) {
       // The timbers knocking on the rock.
