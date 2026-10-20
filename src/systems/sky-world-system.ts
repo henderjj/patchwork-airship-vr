@@ -4,6 +4,9 @@ import {
   createSystem,
   DirectionalLight,
   Fog,
+  BufferAttribute,
+  BufferGeometry as Geometry,
+  CircleGeometry,
   Group,
   HemisphereLight,
   InstancedMesh,
@@ -11,6 +14,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  Points,
+  PointsMaterial,
   Quaternion,
   Vector3,
 } from '@iwsdk/core';
@@ -29,7 +34,9 @@ import { wrapNear } from '../sim/world-tile.js';
 import { createBeaconLampGeometry, createBeaconMastGeometry, createJettyGeometry, createLandingIslandGeometry, createRingGeometry, jettyPlacement } from '../world/route-assets.js';
 import { createPassageGeometry, passageBase } from '../world/passage-assets.js';
 import { ROUTE, sceneryIslands } from '../world/route-world.js';
+import { blend, fogFor } from '../sim/weather.js';
 import { flightInfo, route, ship } from './ship-system.js';
+import { weatherView } from './weather-system.js';
 
 const CLOUD_VARIANTS = 3;
 /** Islands nearer than this (m) use the detailed mesh. */
@@ -40,6 +47,36 @@ const SKY_RADIUS = 1000;
 const BEACON_HEIGHT = 22;
 const PASSED_TINT = 0x7be07b;
 const SUN_DIRECTION = new Vector3(0.45, 0.8, 0.3).normalize();
+
+/**
+ * How each weather looks (docs/storms-and-night.md), as [clear, night,
+ * storm, night storm], blended by how far night and storm have come in.
+ * Night and storm only retint what is already drawn: no new lights.
+ */
+const LOOK = {
+  hemi: [1.6, 0.55, 0.95, 0.4],
+  sun: [1.8, 0.35, 0.45, 0.08],
+  /** The dome's colours are multiplied by this (and the fog's with it), r g b. */
+  sky: [
+    [1, 1, 1],
+    [0.1, 0.13, 0.25],
+    [0.16, 0.18, 0.22],
+    [0.07, 0.08, 0.11],
+  ],
+  hemiSky: [0xdfeeff, 0x5a6c9a, 0xa0a8b4, 0x3a4252],
+  /** The light from below: warm from the burner's glow at night. */
+  hemiGround: [0x8a7a66, 0x7a4a26, 0x6a6460, 0x6a4024],
+  sunColor: [0xfff1dc, 0x9fb4ff, 0xccd2dc, 0x8f9ab8],
+  clouds: [1, 0.3, 0.4, 0.2],
+  /** The rings glow warmer and brighter in the dark and murk, so they read. */
+  ringGlow: [0x3a2a20, 0x8a5a30, 0x6a4a2c, 0x9a6232],
+} as const;
+/** A lightning flash lights everything up: this much more hemisphere light, and the sky this far towards white. */
+const FLASH_LIGHT = 2.6;
+const FLASH_SKY = 0.75;
+const FLASH_TINT = new Color(0.86, 0.9, 1);
+/** Stars on the night sky. */
+const STARS = 700;
 
 interface Placement {
   position: Vector3;
@@ -60,6 +97,19 @@ export class SkyWorldSystem extends createSystem({}) {
   private worldRoot!: Group;
   private sky!: Mesh;
   private sun!: DirectionalLight;
+  private hemi!: HemisphereLight;
+  private skyMaterial!: MeshBasicMaterial;
+  private fog!: Fog;
+  private cloudMaterial!: MeshLambertMaterial;
+  private stars!: Points;
+  private starMaterial!: PointsMaterial;
+  private moon!: Mesh;
+  private moonMaterial!: MeshBasicMaterial;
+  private shownLook = [-1, -1, -1];
+  private fogRange = { near: 0, far: 0 };
+  private colorA = new Color();
+  private colorB = new Color();
+  private weights = [1, 0, 0, 0];
   private islands: Placement[] = [];
   private clouds: Placement[] = [];
   private cloudMeshes: InstancedMesh[] = [];
@@ -77,26 +127,28 @@ export class SkyWorldSystem extends createSystem({}) {
   private worldUp = new Vector3(0, 1, 0);
 
   init(): void {
-    this.scene.fog = new Fog(SKY_HORIZON.getHex(), 180, 950);
+    this.fog = new Fog(SKY_HORIZON.getHex(), 180, 950);
+    this.scene.fog = this.fog;
 
     this.worldRoot = new Group();
     this.worldRoot.name = 'WorldRoot';
     this.world.createTransformEntity(this.worldRoot, { persistent: true });
 
-    const skyMaterial = new MeshBasicMaterial({
+    const skyMaterial = (this.skyMaterial = new MeshBasicMaterial({
       vertexColors: true,
       side: SKY_DOME_SIDE,
       fog: false,
       depthWrite: false,
-    });
+    }));
     this.sky = new Mesh(createSkyDomeGeometry(SKY_RADIUS), skyMaterial);
     this.sky.name = 'SkyDome';
     this.sky.renderOrder = -10;
     this.sky.frustumCulled = false;
     this.world.createTransformEntity(this.sky, { persistent: true });
 
-    const hemi = new HemisphereLight(0xdfeeff, 0x8a7a66, 1.6);
-    this.world.createTransformEntity(hemi, { persistent: true });
+    this.hemi = new HemisphereLight(0xdfeeff, 0x8a7a66, 1.6);
+    this.world.createTransformEntity(this.hemi, { persistent: true });
+    this.buildNightSky();
     this.sun = new DirectionalLight(0xfff1dc, 1.8);
     this.sun.castShadow = settings.shadows;
     if (settings.shadows) {
@@ -215,7 +267,7 @@ export class SkyWorldSystem extends createSystem({}) {
 
   private buildClouds(): void {
     const random = rng(settings.seed * 211 + 9);
-    const material = new MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: new Color(0x5a6470) });
+    const material = (this.cloudMaterial = new MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: new Color(0x5a6470) }));
     const meshes: InstancedMesh[] = [];
     const perVariant = Math.ceil(settings.clouds / CLOUD_VARIANTS);
     for (let v = 0; v < CLOUD_VARIANTS && settings.clouds > 0; v++) {
@@ -293,6 +345,90 @@ export class SkyWorldSystem extends createSystem({}) {
     mesh.setMatrixAt(mesh.count++, this.tmpMatrix);
   }
 
+  /** Stars and a moon on the dome (children of it, so they turn with it), shown at night under a clear sky. */
+  private buildNightSky(): void {
+    const random = rng(4242);
+    const positions = new Float32Array(STARS * 3);
+    for (let i = 0; i < STARS; i++) {
+      // Spread over the upper sky, thinning towards the horizon.
+      const angle = random() * Math.PI * 2;
+      const up = 0.05 + Math.pow(random(), 0.7) * 0.95;
+      const across = Math.sqrt(1 - up * up);
+      positions.set([Math.cos(angle) * across * SKY_RADIUS * 0.9, up * SKY_RADIUS * 0.9, Math.sin(angle) * across * SKY_RADIUS * 0.9], i * 3);
+    }
+    const geometry = new Geometry();
+    geometry.setAttribute('position', new BufferAttribute(positions, 3));
+    this.starMaterial = new PointsMaterial({ color: 0xe8eeff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
+    this.stars = new Points(geometry, this.starMaterial);
+    this.stars.name = 'Stars';
+    this.stars.renderOrder = -9;
+    this.stars.frustumCulled = false;
+    this.stars.visible = false;
+    this.moonMaterial = new MeshBasicMaterial({ color: 0xf4f1e0, transparent: true, opacity: 0, fog: false, depthWrite: false, toneMapped: false });
+    this.moon = new Mesh(new CircleGeometry(26, 24), this.moonMaterial);
+    this.moon.name = 'Moon';
+    this.moon.renderOrder = -9;
+    // Low in the sky, roughly where the sun is by day, so the moonlight comes from it.
+    this.moon.position.set(SUN_DIRECTION.x, 0.45, SUN_DIRECTION.z).normalize().multiplyScalar(SKY_RADIUS * 0.85);
+    this.moon.lookAt(0, 0, 0);
+    this.moon.visible = false;
+    this.sky.add(this.stars, this.moon);
+  }
+
+  /** Night, storm and lightning (weatherView, docs/storms-and-night.md): retint the sky, fog, lights, clouds and rings. */
+  private updateWeather(): void {
+    const { night: n, storm: s, flash } = weatherView;
+    const shown = this.shownLook;
+    if (shown[0] === n && shown[1] === s && shown[2] === flash) {
+      return;
+    }
+    shown[0] = n;
+    shown[1] = s;
+    shown[2] = flash;
+    const weights = this.weights;
+    weights[0] = (1 - n) * (1 - s);
+    weights[1] = n * (1 - s);
+    weights[2] = (1 - n) * s;
+    weights[3] = n * s;
+    // The dome's tint, and the fog in the horizon's colour under it, both brightened by a flash.
+    const tint = this.colorA.setRGB(0, 0, 0);
+    for (let i = 0; i < 4; i++) {
+      tint.r += LOOK.sky[i][0] * weights[i];
+      tint.g += LOOK.sky[i][1] * weights[i];
+      tint.b += LOOK.sky[i][2] * weights[i];
+    }
+    tint.lerp(FLASH_TINT, flash * FLASH_SKY);
+    this.skyMaterial.color.copy(tint);
+    this.fog.color.copy(SKY_HORIZON).multiply(tint);
+    fogFor(n, s, this.fogRange);
+    this.fog.near = this.fogRange.near;
+    this.fog.far = this.fogRange.far + flash * 200;
+    this.hemi.intensity = blend(LOOK.hemi[0], LOOK.hemi[1], LOOK.hemi[2], LOOK.hemi[3], n, s) + flash * FLASH_LIGHT;
+    this.mixColor(LOOK.hemiSky, this.hemi.color);
+    this.mixColor(LOOK.hemiGround, this.hemi.groundColor);
+    this.sun.intensity = blend(LOOK.sun[0], LOOK.sun[1], LOOK.sun[2], LOOK.sun[3], n, s);
+    this.mixColor(LOOK.sunColor, this.sun.color);
+    const cloud = Math.min(1, blend(LOOK.clouds[0], LOOK.clouds[1], LOOK.clouds[2], LOOK.clouds[3], n, s) + flash * 0.6);
+    this.cloudMaterial.color.setScalar(cloud);
+    this.cloudMaterial.emissive.setHex(0x5a6470).multiplyScalar(cloud);
+    this.mixColor(LOOK.ringGlow, this.colorA);
+    for (const ring of this.rings) (ring.material as MeshLambertMaterial).emissive.copy(this.colorA);
+    // Stars and moon: a clear night only.
+    const clearNight = n * (1 - s);
+    this.stars.visible = this.moon.visible = clearNight > 0.02;
+    this.starMaterial.opacity = clearNight;
+    this.moonMaterial.opacity = clearNight;
+  }
+
+  /** The four weathers' colours `hexes` blended by this.weights. */
+  private mixColor(hexes: readonly number[], out: Color): Color {
+    out.setRGB(0, 0, 0);
+    for (let i = 0; i < 4; i++) {
+      if (this.weights[i] > 0) out.add(this.colorB.setHex(hexes[i]).multiplyScalar(this.weights[i]));
+    }
+    return out;
+  }
+
   update(): void {
     // World = inverse(ship pose): rotate by q⁻¹ and translate by −q⁻¹·p.
     this.shipQuat.set(ship.qx, ship.qy, ship.qz, ship.qw);
@@ -309,6 +445,7 @@ export class SkyWorldSystem extends createSystem({}) {
     this.sun.target.position.set(0, 0, 0);
 
     this.updateRoute();
+    this.updateWeather();
     if (this.frame++ % LOD_INTERVAL_FRAMES === 0) {
       this.updateIslandLod();
       this.updateClouds();

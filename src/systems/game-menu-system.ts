@@ -9,7 +9,7 @@ import { body, chooseBody } from './body-height-system.js';
 import { OPEN_MENU_EVENT } from './net-system.js';
 import { PanelUi } from './panel-ui.js';
 import { tearNow } from './repair-system.js';
-import { practiceCargo, practiceDocking, practicePassage, restartRoute, sendGust, stopButton } from './ship-system.js';
+import { floodDeck, practiceCargo, practiceDocking, practicePassage, restartRoute, sendGust, stopButton, strikeLightning } from './ship-system.js';
 import { startScreen } from './start-screen-system.js';
 
 /** Where the menu stands in VR when opened: ahead of the head and a little below the eyes, m. */
@@ -202,6 +202,15 @@ export class GameMenuSystem extends createSystem({}) {
     ui.on('menu-arch', () => {
       this.setOpen(false);
       practicePassage(1);
+    });
+    // Storms (docs/storms-and-night.md): lightning at once, and water in the bilge to pump out.
+    ui.on('menu-lightning', () => {
+      this.setOpen(false);
+      strikeLightning();
+    });
+    ui.on('menu-flood', () => {
+      this.setOpen(false);
+      floodDeck();
     });
     ui.on('menu-exit', () => {
       this.setOpen(false);

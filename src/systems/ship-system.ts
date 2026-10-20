@@ -30,6 +30,7 @@ import { type RoutePhase, type RouteResult, routeGates, RouteRun, targetPoints }
 import { BRUSH_SPEED, CRATE_JOLT, fromPassage, type HullPart, PassageContact, PRACTICE_RUN_IN, TEAR_SPEED, windowMiddle } from '../sim/passages.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { draftAt, WindSim } from '../sim/wind.js';
+import { FLOOD_LITRES, isStorm, SOAK_FROM, SOAK_RATE, StormSim, WATER_KG } from '../sim/weather.js';
 import { ROUTE, SHIP_ISLANDS, sceneryIslands } from '../world/route-world.js';
 import { onSettingChange } from '../live-settings.js';
 import { settings } from '../settings.js';
@@ -141,6 +142,16 @@ export const wind = new WindSim();
 export const windControl = { auto: settings.gusts };
 
 /**
+ * The weather (Phase 3 storms and night, docs/storms-and-night.md): on the
+ * host (or solo) the menu's weather, the rain filling the bilge while the
+ * run is under way in a storm and the lightning; the water's weight goes
+ * into the flight model here and PumpSystem pumps it out. The guest takes
+ * the host's weather, water and strikes with the route.
+ */
+export const storm = new StormSim();
+storm.weather = settings.weather;
+
+/**
  * The envelope's tears (Phase 3 repairs, docs/repairs.md): RepairSystem
  * opens them on their schedule and mends them on the host, and the leak
  * goes into the flight model here; tears left unmended at the finish cost
@@ -183,6 +194,8 @@ const routeControl = {
   practiceCargo: () => undefined as void,
   practicePassage: (_i: number) => undefined as void,
   sendGust: () => undefined as void,
+  strike: () => undefined as void,
+  flood: () => undefined as void,
 };
 
 /** The crates, as the route counts them (filled in each step on the host). */
@@ -272,6 +285,24 @@ export function sendGust(): void {
   }
 }
 
+/** Lightning now, about ahead (the game menu's Practice → Storm; the guest asks the host). */
+export function strikeLightning(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'storm-strike' });
+  } else {
+    routeControl.strike();
+  }
+}
+
+/** Water into the bilge at once (the game menu's Practice → Flood the deck; the guest asks the host). */
+export function floodDeck(): void {
+  if (netLink.connected && !netLink.isHost) {
+    netLink.sendEvent({ t: 'storm-flood' });
+  } else {
+    routeControl.flood();
+  }
+}
+
 /** The gondola's controls as the crew works them (written by the controls system on the host or solo). */
 export const stations = { vent: 0 };
 
@@ -285,9 +316,13 @@ function setBallast(mask: number): void {
   flightControls.ballastDropped = weightOff();
 }
 
-/** What the envelope no longer has to lift: the sandbags dropped, and each crate not aboard (on the stage, delivered or lost). */
+/**
+ * What the envelope no longer has to lift: the sandbags dropped, and each
+ * crate not aboard (on the stage, delivered or lost), less the water in the
+ * bilge (which it has to lift as well).
+ */
 function weightOff(): number {
-  return ballastDropped(flightInfo.ballastMask) + CRATE_KG * (CRATE_COUNT - yard.aboard(cargo));
+  return ballastDropped(flightInfo.ballastMask) + CRATE_KG * (CRATE_COUNT - yard.aboard(cargo)) - WATER_KG * storm.water;
 }
 
 /** A fuel brick went into the hopper: burn it (the guest tells the host, who flies the ship). */
@@ -389,6 +424,10 @@ export class ShipSystem extends createSystem({
       onSettingChange((key) => {
         if (key === 'wind') {
           applyWind();
+        } else if (key === 'weather' && (!netLink.connected || netLink.isHost)) {
+          // The host's weather counts in a crew: tell the guest straight away.
+          storm.weather = settings.weather;
+          this.sendRoute();
         }
       }),
     );
@@ -399,6 +438,16 @@ export class ShipSystem extends createSystem({
     routeControl.sendGust = () => {
       const g = wind.send(ship.time, ship.yaw);
       console.info(`[Wind] gust sent: ${g.peak.toFixed(1)} m/s towards ${Math.round((g.heading * 180) / Math.PI)}°`);
+      this.sendRoute();
+    };
+    routeControl.strike = () => {
+      const s = storm.strikeNow(ship.time, ship.x, ship.z, ship.yaw);
+      console.info(`[Storm] practice: lightning ${Math.round(s.distance)} m off`);
+      this.sendRoute();
+    };
+    routeControl.flood = () => {
+      storm.flood(FLOOD_LITRES);
+      console.info(`[Storm] practice: flooded the deck, ${Math.round(storm.water)} litres in the bilge`);
       this.sendRoute();
     };
     routeControl.ready = () => {
@@ -493,6 +542,16 @@ export class ShipSystem extends createSystem({
         routeControl.sendGust();
       }
     });
+    netLink.events.set('storm-strike', () => {
+      if (netLink.isHost) {
+        routeControl.strike();
+      }
+    });
+    netLink.events.set('storm-flood', () => {
+      if (netLink.isHost) {
+        routeControl.flood();
+      }
+    });
     netLink.events.set('crew-ready', () => {
       if (netLink.isHost && route.phase === 'ready') {
         crewReady.guest = true;
@@ -501,7 +560,7 @@ export class ShipSystem extends createSystem({
     });
     this.cleanupFuncs.push(() => {
       netLink.handlers.delete(PacketType.Ship);
-      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'route-passage', 'wind-gust', 'crew-ready']) {
+      for (const name of ['ship-pause', 'feed', 'ballast', 'route', 'route-restart', 'route-dock', 'route-cargo', 'route-passage', 'wind-gust', 'storm-strike', 'storm-flood', 'crew-ready']) {
         netLink.events.delete(name);
       }
     });
@@ -559,6 +618,17 @@ export class ShipSystem extends createSystem({
       /** The gust's push the ship has taken up, and the draft's, m/s. */
       push: () => ({ x: flight.gustX, z: flight.gustZ, up: flight.draft }),
     };
+    (window as { __storm?: unknown }).__storm = {
+      sim: storm,
+      /** What Practice → Lightning now and Flood the deck do (the guest asks the host). */
+      strike: () => strikeLightning(),
+      flood: () => floodDeck(),
+      /** Host or solo, tests: set the bilge's water, litres. */
+      setWater: (litres: number) => {
+        storm.water = Math.max(0, litres);
+        this.sendRoute();
+      },
+    };
   }
 
   /** Host or solo: back to island A with the crates on the loading stage, fresh ballast and a fresh route. */
@@ -579,6 +649,8 @@ export class ShipSystem extends createSystem({
     wind.scale = settings.wind;
     envelope.reset(Math.floor(Math.random() * 0x7fffffff));
     envelope.rate = settings.tears;
+    // And its own lightning, with a dry bilge.
+    storm.reset(Math.floor(Math.random() * 0x7fffffff));
     passageContact.reset();
     passageInfo.grinding = false;
     crewReady.host = crewReady.guest = false;
@@ -706,6 +778,8 @@ export class ShipSystem extends createSystem({
       ready: [crewReady.host, crewReady.guest],
       wind: settings.wind,
       gust: wind.toWire(),
+      weather: storm.weather,
+      storm: storm.toWire(),
     } as { t: string });
   }
 
@@ -737,6 +811,7 @@ export class ShipSystem extends createSystem({
     crewReady.host = ready[0] === true;
     crewReady.guest = ready[1] === true;
     wind.adopt(event.gust, Number(event.wind));
+    storm.adopt(event.storm, event.weather);
   }
 
   private togglePause(): void {
@@ -769,6 +844,17 @@ export class ShipSystem extends createSystem({
         c.rudder = Math.max(-1, Math.min(1, c.rudder + swing * RUDDER_KEY_RATE * dt));
         c.crankSpeed = crankInfo.speed;
         c.solo = !netLink.connected;
+        // The weather (the menu's, the host's in a crew): rain into the bilge and lightning while under way in a storm.
+        storm.weather = settings.weather;
+        wind.storm = isStorm(storm.weather);
+        if (storm.step(ship.time, dt, route.phase === 'flying', ship.x, ship.z)) {
+          console.info(`[Storm] lightning ${Math.round(storm.strike!.distance)} m off`);
+          this.sendRoute();
+        }
+        if (route.phase === 'flying' && storm.water >= SOAK_FROM) {
+          // Crates standing in the water on the deck soak.
+          yard.soak(SOAK_RATE * dt);
+        }
         c.ballastDropped = weightOff();
         if (route.phase === 'ready') {
           // The ground crew keeps the envelope just below floating heat for what is aboard (the crates

@@ -29,6 +29,9 @@ import {
   FUNNEL_POSITION,
   LANTERN_HOOK,
   NOZZLE_TOP,
+  PUMP,
+  PUMP_HEIGHT,
+  PUMP_RADIUS,
   RAIL_HEIGHT,
 } from '../sim/gondola-layout.js';
 import {
@@ -138,6 +141,12 @@ export const GONDOLA_COLLIDERS: BoxCollider[] = [
     name: 'winch',
     center: [WINCH_AXLE[0], (WINCH_AXLE[1] + 0.08) / 2, WINCH_AXLE[2]],
     size: [0.28, WINCH_AXLE[1] + 0.08, 0.16],
+  },
+  {
+    // The bilge pump's barrel (storms, src/scene-assets/pump.scene-asset.ts).
+    name: 'pump',
+    center: [PUMP[0], PUMP_HEIGHT / 2, PUMP[1]],
+    size: [PUMP_RADIUS * 2, PUMP_HEIGHT, PUMP_RADIUS * 2],
   },
   ...crateColliders(),
   ...loftColliders(),

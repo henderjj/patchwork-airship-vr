@@ -28,6 +28,8 @@ import type { ShipState } from './ship-motion.js';
  */
 
 export const CRATE_COUNT = 2;
+/** A crate on deck with its bottom lower than this stands in the water on the deck, m. */
+const SOAK_HEIGHT = 0.05;
 
 /**
  * Where a crate is: resting in the world, on deck, in someone's hands,
@@ -301,6 +303,18 @@ export class CrateYard {
     if (knocked) {
       this.lastKnock = cost;
       this.knocks = (this.knocks + 1) & 255;
+    }
+  }
+
+  /**
+   * Water on the deck (storms, docs/storms-and-night.md): each crate
+   * standing on the deck boards loses `cost` % of its condition; one in the
+   * hatch, held, or stacked on another stays dry.
+   */
+  soak(cost: number): void {
+    if (cost <= 0) return;
+    for (const c of this.crates) {
+      if (c.state === 'deck' && c.y < SOAK_HEIGHT) c.condition = Math.max(0, c.condition - cost);
     }
   }
 

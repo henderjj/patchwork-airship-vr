@@ -455,3 +455,20 @@ describe('loading and stowing crates', () => {
     expect(s.cargo.phase).toBe('aboard');
   });
 });
+
+describe('crates in a flooded gondola (storms)', () => {
+  it('soak while standing on the deck boards, but not in the hatch or up off the boards', () => {
+    const s = setup();
+    // One in the hatch, one stowed on deck.
+    s.yard.stowAboard(s.cargo, [[0.5, -1]]);
+    s.yard.soak(5);
+    expect(s.yard.crates.map((c) => c.condition)).toEqual([100, 95]);
+    // Lifted onto another crate (or anything else off the boards): dry.
+    s.yard.crates[1].y = 0.4;
+    s.yard.soak(5);
+    expect(s.yard.crates[1].condition).toBe(95);
+    s.yard.crates[1].y = 0;
+    s.yard.soak(200);
+    expect(s.yard.crates[1].condition).toBe(0);
+  });
+});

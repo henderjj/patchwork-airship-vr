@@ -1337,6 +1337,40 @@ async function botChecks(browser) {
     lookout ? `at ${lookout.b.head.map((v) => v.toFixed(2)).join(', ')}, first call heard ${lookout.heard.call}, then ${calledUp ? 'UP' : `still ${(await me.page.evaluate(() => window.__passages.call.call))}`}` :
       JSON.stringify(await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, calls: window.__bot.stats.calls }))));
 
+  // Storms (docs/storms-and-night.md): in a storm with the deck flooded,
+  // the bot works the bilge pump, its strokes taking the water out of the
+  // host's bilge, and the player sees its hand move the lever; once the
+  // bilge is nearly dry it leaves the pump.
+  await me.page.evaluate(() => {
+    window.__gameMenu.click('row-weather-1');
+    window.__ship.place(0, 135, -60, 0);
+    const f = window.__ship.flight;
+    window.__holdHeat = setInterval(() => { f.heat = f.balanceHeat(window.__ship.controls.ballastDropped); f.climb = 0; }, 50);
+    window.__storm.setWater(0);
+    window.__storm.flood();
+  });
+  const flooded = await me.page.evaluate(() => window.__storm.sim.water);
+  let crewSeen = false;
+  const pumping = await waitFor('the bot to pump the bilge', async () => {
+    const b = await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, pumped: window.__bot.stats.pumped }));
+    const p = await me.page.evaluate(() => window.__pump.state());
+    crewSeen ||= p.crewHeld;
+    return b.mode === 'pump' && flooded - p.water > 10 && crewSeen ? { b, p } : null;
+  }, 25000).catch(() => null);
+  await me.page.evaluate(() => window.__storm.setWater(2));
+  const leftPump = await waitFor('the bot to leave the pump', async () => {
+    const mode = await bot.page.evaluate(() => window.__bot.mode);
+    return mode !== 'pump' ? mode : null;
+  }, 5000).catch(() => null);
+  check('Practice crewmate: in a storm with the deck flooded it works the bilge pump, the player sees its strokes, and the host\'s bilge empties',
+    pumping !== null && leftPump !== null,
+    pumping ? `bot ${pumping.b.mode} at ${pumping.b.head.map((v) => v.toFixed(2)).join(', ')}, pumped ${pumping.b.pumped} L, bilge ${flooded.toFixed(1)} → ${pumping.p.water.toFixed(1)} L, lever ${pumping.p.angle.toFixed(2)}, then ${leftPump ?? 'still pumping'}` :
+      JSON.stringify({ bot: await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, stats: window.__bot.stats, weather: window.__storm.sim.weather, water: window.__storm.sim.water })), host: await me.page.evaluate(() => window.__pump.state()), crewSeen }));
+  await me.page.evaluate(() => {
+    clearInterval(window.__holdHeat);
+    window.__gameMenu.click('row-weather-0');
+  });
+
   const errors = [...me.errors, ...bot.errors].filter((m) => !m.includes('net::ERR_') && !m.includes('Failed to load resource'));
   await me.context.close();
   await bot.context.close();

@@ -9,7 +9,8 @@ import { UNMENDED_POINTS } from '../sim/envelope.js';
 import { ROUTE } from '../world/route-world.js';
 import { netLink } from './net-system.js';
 import { gustStrength } from '../sim/wind.js';
-import { cargo, crewReady, docking, envelope, flightInfo, markReady, moored, passageInfo, restartRoute, route, ship, wind, yard } from './ship-system.js';
+import { PUMP_WARNING, type Weather } from '../sim/weather.js';
+import { cargo, crewReady, docking, envelope, flightInfo, markReady, moored, passageInfo, restartRoute, route, ship, storm, wind, yard } from './ship-system.js';
 import { draftHere } from './wind-system.js';
 
 /** Route board size, m, its canvas, px, and how often it is redrawn, ms. */
@@ -160,14 +161,14 @@ export class RouteSystem extends createSystem({}) {
           const [mine, theirs] = netLink.isHost ? [crewReady.host, crewReady.guest] : [crewReady.guest, crewReady.host];
           const mark = (ready: boolean) => (ready ? 'READY' : '...');
           return moored()
-            ? ['CALM SKIES', 'Moored on island A', 'Load, then ring the bell', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, cratesAboard(), best]
+            ? [WEATHER_TITLES[storm.weather], 'Moored on island A', 'Load, then ring the bell', `You ${mark(mine)}  Crewmate ${mark(theirs)}`, cratesAboard(), best]
             : ['CAST OFF!', 'The crew is ready.', 'Feed the burner to lift off,', `fly ${ROUTE.rings.length} rings, moor at B`, cratesAboard(), best];
         }
-        return ['CALM SKIES', 'Waiting on island A', 'Load the crates aboard,', `fly ${ROUTE.rings.length} rings, moor at B`, cratesAboard(), best];
+        return [WEATHER_TITLES[storm.weather], 'Waiting on island A', 'Load the crates aboard,', `fly ${ROUTE.rings.length} rings, moor at B`, cratesAboard(), best];
       }
       case 'flying': {
         const top = [`TIME ${clock(route.seconds)}  ${cratesLine()}`, `RINGS ${route.rings}/${ROUTE.rings.length}  PASSAGES ${route.passes}/${ROUTE.passages.length}`];
-        const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}${envelopeWarning()}`;
+        const fuel = `FUEL ${flightInfo.bricksBurned} brick${flightInfo.bricksBurned === 1 ? '' : 's'}${fuelWarning()}`;
         const air = this.scrapeLine() || windLine();
         if (docking.phase === 'fast') {
           const aboard = yard.aboard(cargo);
@@ -274,9 +275,9 @@ export class RouteSystem extends createSystem({}) {
     lines.forEach((line, i) => {
       const heading = i === 0;
       ctx.font = heading ? 'bold 38px monospace' : 'bold 30px monospace';
-      // The wind's line goes red for a gust, and the fuel's for a tear in the envelope.
+      // The wind's line goes red for a gust, and the fuel's for a tear in the envelope or water to pump.
       const gust = i === 5 && route.phase === 'flying' && (line.startsWith('GUST') || line.startsWith('SCRAP'));
-      const torn = i === 4 && route.phase === 'flying' && envelopeWarning() !== '';
+      const torn = i === 4 && route.phase === 'flying' && fuelWarning() !== '';
       ctx.fillStyle = heading ? (route.phase === 'lost' ? '#a3321f' : route.phase === 'finished' ? '#2c6e2f' : '#3a2a1a') : gust || torn ? '#a3321f' : '#3a2a1a';
       ctx.fillText(line, 20, 16 + i * 49);
     });
@@ -334,6 +335,14 @@ function heightHint(): string {
   const by = `${Math.abs(off).toFixed(1)} m`;
   const warn = Math.abs(off) > STRAIN_HEIGHT ? '!' : '';
   return off > 0 ? `HIGH ${by}${warn} VENT` : `LOW ${by}${warn} BURN`;
+}
+
+/** The board's title while waiting on island A, for the weather the run will fly in (docs/storms-and-night.md). */
+const WEATHER_TITLES: Record<Weather, string> = { clear: 'CALM SKIES', storm: 'STORMY SKIES', night: 'NIGHT SKIES', nightstorm: 'NIGHT STORM' };
+
+/** After the fuel: a tear in the envelope (it burns more) or, failing that, water in the bilge to pump out (it weighs). */
+function fuelWarning(): string {
+  return envelopeWarning() || (storm.water >= PUMP_WARNING ? '  PUMP!' : '');
 }
 
 /** A tear in the envelope, after the fuel (it burns more): open, or patched in a rush and peeling off. */

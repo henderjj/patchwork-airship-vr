@@ -5,8 +5,9 @@
  * flown through, a thump on touchdown, the haul call's mallet knock, the
  * mooring line creaking under strain, and the envelope's repairs: canvas
  * ripping, hot air hissing out of a tear, a patch slapped on and rivets
- * hammered home; the hull scraping a passage's rock, and the crewmate's
- * whistle as it calls the way through.
+ * hammered home; the hull scraping a passage's rock, the crewmate's
+ * whistle as it calls the way through; and in a storm, the rain's patter,
+ * thunder and the bilge pump's gushes.
  *
  * Sources sit at fixed places in ship space (the gondola doesn't move in
  * the player's tracking space), so only the listener moves each frame.
@@ -46,13 +47,16 @@ export class ShipSounds {
   private lineOut!: AudioNode;
   private loftOut!: AudioNode;
   private hissGain!: GainNode;
+  private rainGain!: GainNode;
+  private pumpOut!: AudioNode;
   /** Sounds played so far, by name (tests and the HUD). */
   readonly played: Record<string, number> = {
     ratchet: 0, creak: 0, bell: 0, chime: 0, thump: 0, heave: 0, lineCreak: 0, rip: 0, slap: 0, rivet: 0, dud: 0, scrape: 0, call: 0,
+    thunder: 0, gush: 0,
   };
 
   constructor(
-    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3; loft: Vec3 },
+    private readonly places: { burner: Vec3; crank: Vec3; bell: Vec3; haul: Vec3; fairlead: Vec3; loft: Vec3; pump: Vec3 },
     private on = true,
   ) {}
 
@@ -156,6 +160,24 @@ export class ShipSounds {
     this.hissGain = ctx.createGain();
     this.hissGain.gain.value = 0;
     this.loop(hiss).connect(this.hissGain).connect(this.loftOut);
+
+    // Rain: a bright patter everywhere at once, over a softer hush of it on the envelope.
+    this.rainGain = ctx.createGain();
+    this.rainGain.gain.value = 0;
+    this.rainGain.connect(this.master);
+    const patter = ctx.createBiquadFilter();
+    patter.type = 'highpass';
+    patter.frequency.value = 2600;
+    const hush = ctx.createBiquadFilter();
+    hush.type = 'bandpass';
+    hush.frequency.value = 900;
+    hush.Q.value = 0.6;
+    const hushGain = ctx.createGain();
+    hushGain.gain.value = 0.7;
+    this.loop(patter).connect(this.rainGain);
+    this.loop(hush).connect(hushGain).connect(this.rainGain);
+    // The bilge pump's spout.
+    this.pumpOut = this.panner(this.places.pump);
   }
 
   /** Looped noise into `filter`; returns the filter to connect onwards. */
@@ -218,6 +240,85 @@ export class ShipSounds {
       return;
     }
     this.hissGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.35, this.live.currentTime, FOLLOW * 2);
+  }
+
+  /** Rain falling, 0 (none) to 1 (a storm). */
+  setRain(level: number): void {
+    if (!this.live) {
+      return;
+    }
+    this.rainGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.22, this.live.currentTime, FOLLOW * 6);
+  }
+
+  /**
+   * Thunder from lightning `distance` m off, coming as long after now as
+   * sound takes to get here: a sharp crack first when it is near, then a
+   * long, uneven rumble, quieter and duller the further it is.
+   */
+  thunder(distance: number, delay: number): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime + Math.max(0, delay);
+    const near = Math.max(0, Math.min(1, (420 - distance) / 300));
+    const level = 0.35 + 0.55 * near;
+    const length = 2.4 + 1.6 * (1 - near);
+    if (near > 0.4) {
+      const crack = ctx.createBufferSource();
+      crack.buffer = this.noise;
+      const bright = ctx.createBiquadFilter();
+      bright.type = 'highpass';
+      bright.frequency.value = 700;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(level * near, t);
+      gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.25);
+      crack.connect(bright).connect(gain).connect(this.master);
+      crack.start(t, Math.random() * (NOISE_SECONDS - 0.4), 0.3);
+    }
+    const rumble = ctx.createBufferSource();
+    rumble.buffer = this.noise;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.setValueAtTime(160 + 260 * near, t);
+    low.frequency.exponentialRampToValueAtTime(70, t + length);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(level * 2.2, t + 0.08 + 0.3 * (1 - near));
+    // Rolling: it swells and falls back a few times as it dies away.
+    for (let i = 1; i < 6; i++) {
+      gain.gain.setTargetAtTime(level * 2.2 * (1 - i / 6) * (0.5 + 0.5 * Math.random()), t + (i * length) / 7, 0.12);
+    }
+    gain.gain.setTargetAtTime(0.0001, t + length * 0.85, 0.2);
+    rumble.connect(low).connect(gain).connect(this.master);
+    rumble.start(t, Math.random() * (NOISE_SECONDS - length - 0.1), length + 0.5);
+    this.played.thunder++;
+  }
+
+  /** The bilge pump sending water out of its spout and over the side, louder with `strength` (0 to 1). */
+  gush(strength: number): void {
+    const ctx = this.live;
+    if (!ctx) {
+      return;
+    }
+    const t = ctx.currentTime;
+    const k = Math.max(0, Math.min(1, strength));
+    const water = ctx.createBufferSource();
+    water.buffer = this.noise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.2;
+    band.frequency.setValueAtTime(500, t);
+    band.frequency.exponentialRampToValueAtTime(1300, t + 0.25);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.25 + 0.35 * k, t + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.4);
+    water.connect(band).connect(gain).connect(this.pumpOut);
+    water.start(t, Math.random() * (NOISE_SECONDS - 0.5), 0.45);
+    // The plunger's suck and clunk.
+    this.tone(140 + 40 * Math.random(), 'triangle', 0.08 + 0.08 * k, 0.004, 0.07, this.pumpOut, t);
+    this.played.gush++;
   }
 
   /** The envelope tearing: canvas ripping, a ragged burst of noise falling in pitch. */
@@ -547,8 +648,13 @@ export class ShipSounds {
   }
 
   /** The looped sounds' current gains (tests). */
-  loops(): { burner: number; wind: number; hiss: number } {
-    return { burner: this.burnerGain?.gain.value ?? 0, wind: this.windGain?.gain.value ?? 0, hiss: this.hissGain?.gain.value ?? 0 };
+  loops(): { burner: number; wind: number; hiss: number; rain: number } {
+    return {
+      burner: this.burnerGain?.gain.value ?? 0,
+      wind: this.windGain?.gain.value ?? 0,
+      hiss: this.hissGain?.gain.value ?? 0,
+      rain: this.rainGain?.gain.value ?? 0,
+    };
   }
 
   dispose(): void {

@@ -1,7 +1,7 @@
 import { BufferAttribute, BufferGeometry, CanvasTexture, createSystem, InputComponent, Mesh, MeshBasicMaterial, SRGBColorSpace, Vector3 } from '@iwsdk/core';
 import { CRANK_POSITION, FUEL_CRATE_POSITION, FUEL_CRATE_SIZE, RAIL_HEIGHT } from '../scene-assets/gondola.scene-asset.js';
 import { TILLER_PIVOT, VENT_TOGGLE } from '../sim/gondola-controls.js';
-import { BURNER_POSITION, BURNER_SIZE, DECK_WIDTH } from '../sim/gondola-layout.js';
+import { BURNER_POSITION, BURNER_SIZE, DECK_WIDTH, PUMP } from '../sim/gondola-layout.js';
 import { LEVER_PIVOT, TAG_RING, WINCH_AXLE } from '../sim/cargo.js';
 import { LOFT, LOFT_FLOOR, PATCH_BOX, PATCH_BOX_SIZE } from '../sim/loft.js';
 import { settings } from '../settings.js';
@@ -75,6 +75,8 @@ const SIGNS: readonly Sign[] = [
     twoSided: false,
   },
   { title: 'HAMMER', hint: 'Strike each rivet up into the patch', at: [LOFT.x1 - 0.03, LOFT_FLOOR + 0.72, 1.2], facing: [-1, 0, 0], twoSided: true },
+  // The bilge pump (docs/storms-and-night.md): on the starboard rail just aft of it.
+  { title: 'BILGE PUMP', hint: 'Work the handle up and down', at: [STARBOARD_RAIL, RAIL_TOP, PUMP[1] + 0.3], facing: [-1, 0, 0], twoSided: true },
 ];
 const ROWS = Math.ceil(new Set(SIGNS.map((s) => s.title + s.hint)).size / COLUMNS);
 const CANVAS = [CELL[0] * COLUMNS, CELL[1] * ROWS] as const;
