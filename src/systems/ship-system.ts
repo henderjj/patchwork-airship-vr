@@ -648,7 +648,6 @@ export class ShipSystem extends createSystem({
     wind.reset(Math.floor(Math.random() * 0x7fffffff));
     wind.scale = settings.wind;
     envelope.reset(Math.floor(Math.random() * 0x7fffffff));
-    envelope.rate = settings.tears;
     // And its own lightning, with a dry bilge.
     storm.reset(Math.floor(Math.random() * 0x7fffffff));
     passageContact.reset();
@@ -745,7 +744,8 @@ export class ShipSystem extends createSystem({
       changed = true;
       if (hit.speed >= BRUSH_SPEED && route.phase === 'flying') {
         route.scrapes++;
-        if (hit.part === 'envelope' && hit.speed >= TEAR_SPEED) {
+        if (hit.part === 'envelope' && hit.speed >= TEAR_SPEED && envelope.rate !== 'off') {
+          // With tears turned off (the game menu's Practice → Tears), not even a scrape tears it.
           envelope.tearNow();
         } else if (hit.part === 'gondola') {
           yard.jolt(cargo, CRATE_JOLT * (hit.speed - BRUSH_SPEED));

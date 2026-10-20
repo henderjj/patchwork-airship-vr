@@ -5,19 +5,19 @@ import { nearestOnRope, ROPE_RUN, ROPE_X, ROPE_Z0 } from '../scene-assets/rope.s
 import { settings } from '../settings.js';
 import {
   crankFollowAngle,
+  type HandUp,
+  handUpNeed,
   interceptPoint,
   HaulRhythm,
   stepTowards,
-  tearStand,
   throwFlightTime,
   throwVelocity,
-  viaLadder,
 } from '../sim/crew-bot.js';
-import { EDGE_DROP, type Point, slitPoint, TEAR_SPOTS } from '../sim/envelope.js';
 import { type LookoutCall, lookoutCall, toPassage } from '../sim/passages.js';
 import { ROUTE } from '../world/route-world.js';
-import { LADDER_X, LADDER_Z, LOFT_EYE, LOFT_FLOOR } from '../sim/loft.js';
+import { HAMMER_REST, PATCH_BOX, RATLINE_SPACING, RATLINES, RIG_X, RIG_Z } from '../sim/rigging.js';
 import { CrankSystem } from './crank-system.js';
+import { HoldKind } from './hand-lock.js';
 import { FLAG_LEFT_CRANK, FLAG_LEFT_ROPE, FLAG_RIGHT_CRANK, FLAG_RIGHT_ROPE, netLink } from './net-system.js';
 import { RopeSystem } from './rope-system.js';
 import { bell } from './route-system.js';
@@ -38,8 +38,16 @@ type Side = (typeof SIDES)[number];
 /** Eye height, m, and how fast the bot walks about the deck, m/s. */
 const EYE_HEIGHT = 1.6;
 const WALK_SPEED = 1.5;
-/** How fast it climbs the ladder to the patch loft, m/s. */
+/** How fast it climbs the rigging, m/s. */
 const CLIMB_SPEED = 0.8;
+/**
+ * Handing gear up to a player mending the envelope: where it stands, at the
+ * rigging's foot inboard of the shrouds (x, z), how far it climbs to hold
+ * the gear up, and where its hand holds it then, from its head, m.
+ */
+const RIG_STAND = [RIG_X + 0.39, (RIG_Z[0] + RIG_Z[1]) / 2] as const;
+const HAND_UP_CLIMB = 3 * RATLINE_SPACING;
+const HAND_UP_REACH: Vec3 = [-0.25, 0.55, 0];
 /** Where the bot waits for a throw: the starboard bow, or the port stern when the player stands there. */
 const WAIT_SPOTS: readonly Vec3[] = [
   [0.55, EYE_HEIGHT, -0.7],
@@ -57,8 +65,6 @@ const SWING_MS = 250;
 const FLYING_SPEED = 1.5;
 const HAND_SPEED = 4;
 const CATCH_TIMEOUT_MS = 1000;
-/** Where along a tear's slit the bot's hands hold it shut (0 to 1), wide enough apart to close the shortest. */
-const TEAR_HOLD_T = [0.15, 0.85] as const;
 /**
  * The bilge (docs/storms-and-night.md): the bot starts pumping at this many
  * litres and keeps on until it is down to the next; with this many it
@@ -70,7 +76,7 @@ const PUMP_UNTIL = 3;
 const PUMP_URGENT = 60;
 const PUMP_STROKES = 0.9;
 const PUMP_STAND = [PUMP[0] - PUMP_LEVER - 0.38, PUMP[1]] as const;
-/** A hand squeezing on a tear's edge that doesn't take hold in this long lets go to try again, ms. */
+/** A hand squeezing on the repair gear that doesn't take hold in this long lets go to try again, ms. */
 const REGRAB_MS = 300;
 /** Where the lookout stands: at the bow rail, in the middle. */
 const LOOKOUT_SPOT: Vec3 = [0, EYE_HEIGHT, -1.15];
@@ -101,9 +107,10 @@ const POINT: Record<LookoutCall, Vec3> = {
  *   strokes on the call heaves with it;
  * - takes the other handle of a crate the player holds by one, and moves
  *   its hand as the player's does, so the two of them carry it together;
- * - climbs to the patch loft when the player goes up while the envelope is
- *   torn, and holds the tear nearest them shut with both hands, so the
- *   player can patch and rivet it (docs/repairs.md);
+ * - while the player is up the rigging with the envelope torn, hands up
+ *   what they need from its foot: a patch, or the hammer once a patch is
+ *   on waiting for its rivets (docs/repairs.md). It takes it from the box
+ *   or the pegs, climbs a few ratlines and holds it up until they take it;
  * - approaching a narrow passage or a rock arch, lets go of the crank and
  *   looks out from the bow rail, calling (and pointing) up, down, port,
  *   starboard or steady as the ship lines up and goes through
@@ -185,11 +192,9 @@ export class CrewBotSystem extends createSystem({}) {
     return p;
   };
 
-  // Holding a tear shut on the patch loft.
+  // Handing a patch or the hammer up the rigging.
   private lastRepairMs = Number.NEGATIVE_INFINITY;
-  private repairSpot = -1;
-  private stand: [number, number] = [0, 0];
-  private edge: Point = { x: 0, y: 0, z: 0 };
+  private need: HandUp | null = null;
   private repairGoal: Vec3 = [0, 0, 0];
   private repairPos: Record<Side, Vec3> = { left: [0, 0, 0], right: [0, 0, 0] };
   private repairOut: Record<Side, RepairHandPose> = { left: { x: 0, y: 0, z: 0, squeeze: false }, right: { x: 0, y: 0, z: 0, squeeze: false } };
@@ -263,8 +268,8 @@ export class CrewBotSystem extends createSystem({}) {
       p.qw = Math.cos(this.yaw / 2);
       return p;
     };
-    // Its legs stand on the deck, the rungs or the loft's floor, from where its head is.
-    netLink.feetOverride = () => Math.min(LOFT_FLOOR, Math.max(0, this.head[1] - EYE_HEIGHT));
+    // Its legs stand on the deck or up the rigging, from where its head is.
+    netLink.feetOverride = () => Math.max(0, this.head[1] - EYE_HEIGHT);
     this.cleanupFuncs.push(() => {
       netLink.headOverride = null;
       netLink.feetOverride = null;
@@ -274,7 +279,7 @@ export class CrewBotSystem extends createSystem({}) {
       get mode() { return self.mode; },
       get head() { return [...self.head]; },
       get crank() { return { angle: self.crankAngle, age: performance.now() - self.crankAtMs, handle: self.botHandle }; },
-      get repair() { return { spot: self.repairSpot, held: { left: self.repairs?.heldKind('left') ?? null, right: self.repairs?.heldKind('right') ?? null } }; },
+      get repair() { return { need: self.need, held: { left: self.repairs?.heldKind('left') ?? null, right: self.repairs?.heldKind('right') ?? null } }; },
       haul: this.haul,
       stats: this.stats,
     };
@@ -330,7 +335,7 @@ export class CrewBotSystem extends createSystem({}) {
     if (mode === 'idle') {
       this.catchAndThrow(now, dt);
     } else if (mode === 'repair') {
-      this.holdTear(now, dt);
+      this.handUp(now, dt);
     } else if (mode === 'lookout') {
       this.lookOut(now, dt);
     } else if (mode === 'pump') {
@@ -447,27 +452,13 @@ export class CrewBotSystem extends createSystem({}) {
     this.readRepairs(now);
   }
 
-  /** The player gone up the ladder or on the patch loft while the envelope is torn: the bot holds the tear nearest them. */
+  /** The player up the rigging while the envelope is torn: what to hand up to them, if anything. */
   private readRepairs(now: number): void {
     const r = netLink.remote;
-    if (r.feet < 0.5 && r.head.py < 3) return;
-    let best = Number.POSITIVE_INFINITY;
-    let spot = -1;
-    for (let i = 0; i < TEAR_SPOTS.length; i++) {
-      if (!envelope.tears[i].unmended) continue;
-      const d = Math.hypot(r.head.px - TEAR_SPOTS[i].x, r.head.pz - TEAR_SPOTS[i].z);
-      if (d < best) {
-        best = d;
-        spot = i;
-      }
-    }
-    if (spot < 0) return;
-    if (spot !== this.repairSpot || this.mode !== 'repair') {
-      // Pick where to stand once, so the bot doesn't hop about as the player moves.
-      tearStand(TEAR_SPOTS[spot], r.head.px, r.head.pz, this.stand);
-    }
-    this.repairSpot = spot;
-    this.lastRepairMs = now;
+    const left = r.holds & 15;
+    const right = (r.holds >> 4) & 15;
+    this.need = r.feet < 0.5 ? null : handUpNeed(envelope.tears, left === HoldKind.Patch || right === HoldKind.Patch, left === HoldKind.Hammer || right === HoldKind.Hammer);
+    if (this.need !== null) this.lastRepairMs = now;
   }
 
   /** A crate the player (the host, crew 0) holds by one handle only, with the other free or the bot's: the bot takes that one. */
@@ -537,7 +528,7 @@ export class CrewBotSystem extends createSystem({}) {
       crank: 'cranking with you',
       rope: 'hauling the line with you',
       crate: 'carrying a crate with you',
-      repair: 'holding the tear shut for you',
+      repair: 'handing up the repair gear',
       lookout: 'looking out from the bow',
       pump: 'pumping out the bilge',
       idle: 'waiting for a throw',
@@ -656,43 +647,67 @@ export class CrewBotSystem extends createSystem({}) {
       // Inboard of the handle, facing outboard (+X) over the pump.
       this.setHeadTarget(PUMP_STAND[0], PUMP_STAND[1]);
       this.yaw = -Math.PI / 2;
-    } else if (this.mode === 'repair' && this.repairSpot >= 0) {
-      // Beside the tear on the loft, facing it.
-      const spot = TEAR_SPOTS[this.repairSpot];
-      this.setHeadTarget(this.stand[0], this.stand[1], LOFT_EYE);
-      if (Math.hypot(spot.x - this.head[0], spot.z - this.head[2]) > 0.05) {
-        this.yaw = Math.atan2(-(spot.x - this.head[0]), -(spot.z - this.head[2]));
-      }
+    } else if (this.mode === 'repair') {
+      // At the rigging's foot facing it (-X); up a few ratlines once it has what the player needs.
+      const up = this.need !== null && this.repairs?.heldKind('right') === this.need;
+      this.setHeadTarget(RIG_STAND[0], RIG_STAND[1], EYE_HEIGHT + (up ? HAND_UP_CLIMB : 0));
+      this.yaw = Math.PI / 2;
     }
-    // Up or down the ladder when the job is on the other level (facing it as it climbs).
-    viaLadder(this.head, this.headTarget, EYE_HEIGHT, LOFT_EYE, this.waypoint);
-    const climbing = this.waypoint[1] !== this.head[1];
+    // Down off the rigging before walking anywhere, and only up it from where it stands at its foot.
+    const w = this.waypoint;
+    const away = Math.hypot(this.head[0] - this.headTarget[0], this.head[2] - this.headTarget[2]) > 0.03;
+    w[0] = this.headTarget[0];
+    w[1] = this.headTarget[1];
+    w[2] = this.headTarget[2];
+    if (away && (this.head[1] > EYE_HEIGHT + 0.01 || this.headTarget[1] > EYE_HEIGHT + 0.01)) {
+      if (this.head[1] > EYE_HEIGHT + 0.01) {
+        w[0] = this.head[0];
+        w[2] = this.head[2];
+      }
+      w[1] = EYE_HEIGHT;
+    }
+    const climbing = w[1] !== this.head[1];
     if (climbing) this.yaw = Math.PI / 2;
-    stepTowards(this.head, this.waypoint, (climbing ? CLIMB_SPEED : WALK_SPEED) * dt);
+    stepTowards(this.head, w, (climbing ? CLIMB_SPEED : WALK_SPEED) * dt);
   }
 
-  /** On the loft beside the tear, a hand on each end of its slit, squeezing; on the ladder, hands on its stiles. */
-  private holdTear(now: number, dt: number): void {
-    const tear = this.repairSpot >= 0 ? envelope.tears[this.repairSpot] : null;
-    const spot = TEAR_SPOTS[Math.max(0, this.repairSpot)];
-    const there = this.head[1] >= LOFT_EYE - 0.01 && Math.hypot(this.head[0] - this.stand[0], this.head[2] - this.stand[1]) < 0.05;
-    const climbing = this.head[1] > EYE_HEIGHT + 0.01 && this.head[1] < LOFT_EYE - 0.01;
-    // Which end of the slit is on its right: right of facing is (−fz, fx).
-    const rightEnd = spot.ax * Math.cos(this.yaw) - spot.az * Math.sin(this.yaw) > 0 ? 1 : 0;
+  /**
+   * Handing up a patch or the hammer: at the rigging's foot its right hand
+   * takes what the player needs from the box or the pegs; up the ratlines
+   * its left hand holds the rigging and its right holds the gear up for
+   * the player to take. Gear they no longer need it lets go of.
+   */
+  private handUp(now: number, dt: number): void {
+    const held = this.repairs?.heldKind('right') ?? null;
+    const atFoot = this.head[1] <= EYE_HEIGHT + 0.01 && Math.hypot(this.head[0] - RIG_STAND[0], this.head[2] - RIG_STAND[1]) < 0.05;
+    const up = this.head[1] >= EYE_HEIGHT + HAND_UP_CLIMB - 0.01;
+    const climbing = this.head[1] > EYE_HEIGHT + 0.01;
     for (const side of SIDES) {
       const goal = this.repairGoal;
-      const holding = there && tear !== null && tear.unmended;
-      if (holding) {
-        const t = TEAR_HOLD_T[side === 'right' ? rightEnd : 1 - rightEnd];
-        slitPoint(envelope.canvas, spot, tear.length, t, EDGE_DROP, this.edge);
-        goal[0] = this.edge.x;
-        goal[1] = this.edge.y;
-        goal[2] = this.edge.z;
-      } else if (climbing) {
-        // Facing the ladder (-X), its right hand is on the fore stile.
-        goal[0] = LADDER_X + 0.04;
-        goal[1] = this.head[1] - (side === 'right' ? 0.25 : 0.4);
-        goal[2] = LADDER_Z[side === 'right' ? 0 : 1];
+      const out = this.repairOut[side];
+      let squeeze = false;
+      let reaching = false;
+      if (side === 'right' && held !== null && held === this.need) {
+        // Hold on to it; up the rigging, hold it up and out towards the player.
+        squeeze = true;
+        const from = up ? null : this.rest;
+        goal[0] = from ? from[0] : this.head[0] + HAND_UP_REACH[0];
+        goal[1] = from ? from[1] : this.head[1] + HAND_UP_REACH[1];
+        goal[2] = from ? from[2] : this.head[2] + HAND_UP_REACH[2];
+      } else if (side === 'right' && held === null && atFoot && this.need !== null) {
+        // Reach into the box or onto the pegs for it.
+        const at = this.need === 'patch' ? PATCH_BOX : HAMMER_REST;
+        goal[0] = at[0];
+        goal[1] = at[1];
+        goal[2] = at[2];
+        reaching = true;
+      } else if (side === 'left' && climbing) {
+        // On the ratline at about shoulder height.
+        let y = RATLINES[0];
+        for (const r of RATLINES) if (r <= this.head[1] - 0.15) y = r;
+        goal[0] = RIG_X + 0.03;
+        goal[1] = y;
+        goal[2] = RIG_Z[0] + 0.12;
       } else {
         const from = side === 'left' ? this.leftRest : this.rest;
         goal[0] = from[0];
@@ -701,20 +716,23 @@ export class CrewBotSystem extends createSystem({}) {
       }
       const pos = this.repairPos[side];
       const left = stepTowards(pos, goal, HAND_SPEED * dt);
-      const out = this.repairOut[side];
       out.x = pos[0];
       out.y = pos[1];
       out.z = pos[2];
-      if (!holding || left > 0.02) {
-        out.squeeze = false;
-      } else if (!out.squeeze) {
-        out.squeeze = true;
-        this.squeezeSince[side] = now;
-      } else if (this.repairs?.heldKind(side) !== 'edge' && now - this.squeezeSince[side] > REGRAB_MS) {
-        // Slipped, or squeezed before the edge was there: let go, and take hold again next frame.
-        out.squeeze = false;
+      if (reaching) {
+        if (left > 0.02) {
+          out.squeeze = false;
+        } else if (!out.squeeze) {
+          out.squeeze = true;
+          this.squeezeSince[side] = now;
+        } else if (now - this.squeezeSince[side] > REGRAB_MS) {
+          // Squeezed before it was in reach: let go, and take hold again next frame.
+          out.squeeze = false;
+        }
+      } else {
+        out.squeeze = squeeze;
       }
-      netLink.scriptedSqueeze[side] = out.squeeze || climbing;
+      netLink.scriptedSqueeze[side] = out.squeeze || (side === 'left' && climbing);
     }
   }
 

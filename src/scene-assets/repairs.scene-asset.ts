@@ -11,6 +11,7 @@ import {
   MeshLambertMaterial,
   Raycaster,
   SphereGeometry,
+  TorusGeometry,
   Vector3,
 } from '@iwsdk/core';
 import {
@@ -21,15 +22,16 @@ import {
   type TearSpot,
   TEAR_SPOTS,
 } from '../sim/envelope.js';
-import { HAMMER_HEAD } from '../sim/loft.js';
+import { HAMMER_HEAD } from '../sim/rigging.js';
 import { createEnvelopeGeometry } from './gondola.scene-asset.js';
 import { mergeParts, type Part, shade } from './lowpoly.js';
 
 /**
  * The repair gear that moves (docs/repairs.md): the tears in the envelope's
  * belly, the patches over them and their rivets, a patch carried in a hand,
- * and the riveting hammer. The loft, its ladder, the box of patches and the
- * hammer's rack are part of the gondola (src/scene-assets/gondola.scene-asset.ts).
+ * the marks where rivets still go, and the riveting hammer. The rigging, the
+ * box of patches and the hammer's pegs are part of the gondola
+ * (src/scene-assets/gondola.scene-asset.ts).
  *
  * The tears and patches lie on the envelope's lumpy underside as modelled,
  * measured once by `envelopeUnderside`; faces of a different colour stay at
@@ -45,7 +47,7 @@ export const PATCH_COLOR = 0xd6a24a;
 const RIVET_SET = 0xc9a03a;
 const RIVET_HOLE = 0x2b2622;
 
-/** Where the underside is measured: a grid this far apart over the loft, m. */
+/** Where the underside is measured: a grid this far apart round the top of the rigging, m. */
 const GRID = 0.05;
 const GRID_X = [-1.2, 0.2] as const;
 const GRID_Z = [-0.5, 1.7] as const;
@@ -53,7 +55,7 @@ const GRID_Z = [-0.5, 1.7] as const;
 let underside: CanvasAt | null = null;
 
 /**
- * The envelope's underside height over the loft, as modelled (its lumps
+ * The envelope's underside height round the rigging, as modelled (its lumps
  * included): measured once on a 5 cm grid and read between the grid's
  * points. Outside the grid it is the nearest edge's.
  */
@@ -270,6 +272,30 @@ export function createRivets(): InstancedMesh {
 
 export const RIVET_COLORS = { set: RIVET_SET, hole: RIVET_HOLE } as const;
 
+/** A rivet mark's ring: its radius and the thickness of its rope of paint, m. */
+export const MARK_RADIUS = 0.03;
+const MARK_TUBE = 0.004;
+/** A mark's middle is this far under its rivet's place (the ring stays clear of the patch's face), m. */
+export const MARK_DROP = 0.006;
+
+/**
+ * A bright ring round each place a rivet still has to go, on a patch put
+ * on a tear held shut (John's playtest: there was nothing to show where to
+ * strike). Unlit, so it reads in the envelope's shadow; each ring's axis
+ * is turned to the canvas under it by RepairSystem.
+ */
+export function createRivetMarks(): InstancedMesh {
+  const mesh = new InstancedMesh(
+    new TorusGeometry(MARK_RADIUS, MARK_TUBE, 3, 12),
+    new MeshBasicMaterial({ color: 0xff6a2a, toneMapped: false }),
+    RIVETS * TEAR_SPOTS.length,
+  );
+  mesh.name = 'Rivet Marks';
+  mesh.frustumCulled = false;
+  mesh.count = 0;
+  return mesh;
+}
+
 /** A folded patch in a hand: lies flat on top of the fist, as it is pressed up onto the canvas. Origin at its middle, flat in X and Z. */
 export function createPatchInHand(): Mesh {
   const mesh = new Mesh(
@@ -286,7 +312,8 @@ export function createPatchInHand(): Mesh {
 /**
  * The riveting hammer: a wooden handle with an iron head across its end.
  * Origin where the fist holds it; the handle runs along -Z to the head,
- * `HAMMER_HEAD` along.
+ * `HAMMER_HEAD` along, and the head's striking faces are at its ends
+ * along X (in a fist, X is turned to point out of the knuckles).
  */
 export function createHammer(): Mesh {
   const handle = new CylinderGeometry(0.014, 0.016, HAMMER_HEAD + 0.06, 6);

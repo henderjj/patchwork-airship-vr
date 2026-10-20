@@ -1,4 +1,4 @@
-import { type BufferGeometry, Mesh, MeshLambertMaterial, type Object3D, type Vector3 } from '@iwsdk/core';
+import { type BufferGeometry, Mesh, MeshLambertMaterial, type Object3D, Vector3 } from '@iwsdk/core';
 import { describe, expect, it } from 'vitest';
 import * as avatar from '../src/scene-assets/avatar.scene-asset.js';
 import * as cargo from '../src/scene-assets/cargo.scene-asset.js';
@@ -10,7 +10,7 @@ import * as gondola from '../src/scene-assets/gondola.scene-asset.js';
 import * as rope from '../src/scene-assets/rope.scene-asset.js';
 import { HATCH, HATCH_CENTER, LEVER_PIVOT, TRUNK_DEPTH, WINCH_AXLE } from '../src/sim/cargo.js';
 import { PATCH_MAX, PATCH_MIN, RIVETS, rivetPoint, TEAR_MAX, TEAR_SPOTS, TEAR_START } from '../src/sim/envelope.js';
-import { HAMMER_REST } from '../src/sim/loft.js';
+import { HAMMER_REST } from '../src/sim/rigging.js';
 import { PUMP_PIVOT, PUMP_SWING } from '../src/sim/gondola-layout.js';
 import { WATER_DEPTHS } from '../src/sim/weather.js';
 import { CALM_SKIES } from '../src/sim/route.js';
@@ -115,12 +115,11 @@ describe('no faces that flicker through each other (z-fighting)', () => {
     }
   });
 
-  it('on the envelope: tears, patches and rivets on its belly, and the hammer on its rack', () => {
+  it('on the envelope: tears, patches, rivets and their marks on its belly, and the hammer on its pegs', () => {
     const canvas = repairs.envelopeUnderside();
     const rigging = gondola.createGondolaRigging();
     const hammer = repairs.createHammer();
     hammer.position.set(...HAMMER_REST);
-    hammer.rotation.x = Math.PI / 2;
     hammer.updateMatrixWorld();
     expectNone([rigging, hammer], DECK_GAP, onDeck);
     for (let i = 0; i < TEAR_SPOTS.length; i++) {
@@ -132,17 +131,27 @@ describe('no faces that flicker through each other (z-fighting)', () => {
       for (const patchLength of [PATCH_MIN, PATCH_MAX]) {
         const patch = repairs.createPatch();
         repairs.layPatch(patch, canvas, TEAR_SPOTS[i], patchLength, 0);
-        // Its rivets, set, as RepairSystem draws them.
+        // Its rivets, set, as RepairSystem draws them, and the rings round them before they are set.
         const rivets: Mesh[] = [];
+        const marks: Mesh[] = [];
         const at = { x: 0, y: 0, z: 0 };
+        const down = new Vector3();
         for (let r = 0; r < RIVETS; r++) {
           const rivet = new Mesh(repairs.createRivets().geometry, material);
           rivetPoint(canvas, TEAR_SPOTS[i], patchLength, r, at);
           rivet.position.set(at.x, at.y, at.z);
           rivet.updateMatrixWorld();
           rivets.push(rivet);
+          const e = 0.02;
+          down.set((canvas(at.x + e, at.z) - canvas(at.x - e, at.z)) / (2 * e), -1, (canvas(at.x, at.z + e) - canvas(at.x, at.z - e)) / (2 * e)).normalize();
+          const mark = new Mesh(repairs.createRivetMarks().geometry, material);
+          mark.position.set(at.x, at.y, at.z).addScaledVector(down, repairs.MARK_DROP);
+          mark.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), down);
+          mark.updateMatrixWorld();
+          marks.push(mark);
         }
         expectNone([rigging, patch, ...rivets], DECK_GAP, onDeck);
+        expectNone([rigging, patch, ...marks], DECK_GAP, onDeck);
       }
     }
   });

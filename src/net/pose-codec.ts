@@ -55,7 +55,7 @@ export interface AvatarPose {
   rightFingers: FingerCurls;
   /** What each hand holds (grip locking): the left's kind in the low four bits, the right's in the high (see HoldKind). */
   holds: number;
-  /** Where the feet are, m above the deck: 0 on it, higher up the ladder or on the patch loft (Phase 3 repairs). */
+  /** Where the feet are, m above the deck: 0 on it, higher up the rigging to the envelope (Phase 3 repairs). */
   feet: number;
 }
 

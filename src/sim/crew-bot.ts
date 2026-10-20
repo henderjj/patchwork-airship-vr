@@ -4,8 +4,6 @@
  * Engine-free, so it can be unit tested.
  */
 
-import { LOFT_HATCH, LOFT_WALK } from './loft.js';
-
 /** Gravity in ship space, m/s² (the ship's own accelerations are small next to it). */
 export const BOT_GRAVITY = 9.81;
 /** How far the bot reaches from its resting hand to meet a brick, m. */
@@ -95,60 +93,26 @@ export function stepTowards(from: Vec3, to: Vec3, maxStep: number): number {
   return d - maxStep;
 }
 
-/** Where the bot's head goes up and down the ladder to the patch loft: inboard of the ladder, over the hatch, m (x, z). */
-export const BOT_LADDER: readonly [number, number] = [-0.6, 0.55];
-/** How far beside a tear's slit the bot stands to hold it shut, m. */
-const TEAR_STAND = 0.28;
-/** And how far clear of the hatch it keeps its head, m. */
-const HATCH_CLEAR = 0.1;
+/** What a crewmate on deck can hand up to a player mending the envelope. */
+export type HandUp = 'patch' | 'hammer';
 
 /**
- * The next point on the bot's way from its head at `head` to `goal` (each
- * with its eyes at `deckEye` on the deck or `loftEye` on the patch loft),
- * into `out`: straight there on the same level, else along that level to
- * the ladder, then up or down it.
+ * What a player up the rigging needs handed up to them (docs/repairs.md):
+ * the hammer for a patch waiting for its rivets, else a patch for a tear
+ * that is open or only rushed-patched; nothing once their hands hold it,
+ * or with nothing to mend.
  */
-export function viaLadder(head: Vec3, goal: Vec3, deckEye: number, loftEye: number, out: Vec3): Vec3 {
-  const wantLoft = goal[1] > (deckEye + loftEye) / 2;
-  const onDeck = head[1] <= deckEye + 0.01;
-  const onLoft = head[1] >= loftEye - 0.01;
-  if (wantLoft ? onLoft : onDeck) {
-    out[0] = goal[0];
-    out[1] = goal[1];
-    out[2] = goal[2];
-  } else if ((onDeck || onLoft) && Math.hypot(head[0] - BOT_LADDER[0], head[2] - BOT_LADDER[1]) > 0.03) {
-    out[0] = BOT_LADDER[0];
-    out[1] = head[1];
-    out[2] = BOT_LADDER[1];
-  } else {
-    out[0] = BOT_LADDER[0];
-    out[1] = wantLoft ? loftEye : deckEye;
-    out[2] = BOT_LADDER[1];
+export function handUpNeed(
+  tears: readonly { phase: string; rushed: boolean }[],
+  holdsPatch: boolean,
+  holdsHammer: boolean,
+): HandUp | null {
+  let patch = false;
+  for (const tear of tears) {
+    if (tear.phase === 'patched' && !tear.rushed) return holdsHammer ? null : 'hammer';
+    patch ||= tear.phase === 'open' || tear.phase === 'patched';
   }
-  return out;
-}
-
-/**
- * Where on the loft the bot stands to hold shut the tear at `spot` (x, z,
- * along ax, az): beside its slit, on the side further from the player at
- * (px, pz), inside the rail and clear of the hatch. Into `out` (x, z).
- */
-export function tearStand(spot: { x: number; z: number; ax: number; az: number }, px: number, pz: number, out: [number, number]): [number, number] {
-  let best = Number.NEGATIVE_INFINITY;
-  for (let side = 1; side >= -1; side -= 2) {
-    let x = Math.min(LOFT_WALK.x1, Math.max(LOFT_WALK.x0, spot.x - spot.az * TEAR_STAND * side));
-    const z = Math.min(LOFT_WALK.z1, Math.max(LOFT_WALK.z0, spot.z + spot.ax * TEAR_STAND * side));
-    if (x < LOFT_HATCH.x1 + HATCH_CLEAR && z > LOFT_HATCH.z0 - HATCH_CLEAR && z < LOFT_HATCH.z1 + HATCH_CLEAR) {
-      x = Math.min(LOFT_WALK.x1, LOFT_HATCH.x1 + HATCH_CLEAR);
-    }
-    const d = Math.hypot(x - px, z - pz);
-    if (d > best) {
-      best = d;
-      out[0] = x;
-      out[1] = z;
-    }
-  }
-  return out;
+  return patch && !holdsPatch ? 'patch' : null;
 }
 
 type Side = 'left' | 'right';

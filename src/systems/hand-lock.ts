@@ -5,7 +5,7 @@ import type { FingerCurls } from '../sim/hand-pose.js';
 /**
  * Grip locking (Phase 3 step 0, see docs/hands.md): while a hand holds the
  * crank, the mooring line, the tiller, the vent cord, the bell lanyard, the
- * cargo winch, the hatch lever, a crate's handle, the loft's ladder, a
+ * cargo winch, the hatch lever, a crate's handle, the rigging's ratlines, a
  * torn edge of the envelope or the bilge pump's handle, its glove is drawn closed on the handle rather than at the controller,
  * with the handle through the middle of the fist, turned only as far as
  * that takes, so it keeps the twist of the player's real hand. It eases
@@ -35,7 +35,7 @@ export const HoldKind = {
   Lever: 9,
   /** A crate's rope handle (cargo loading). */
   Crate: 10,
-  /** A rung or stile of the ladder to the patch loft (repairs). */
+  /** A ratline or shroud of the rigging to the envelope (repairs). */
   Ladder: 11,
   /** A torn edge of the envelope, held closed overhead (repairs). */
   Edge: 12,

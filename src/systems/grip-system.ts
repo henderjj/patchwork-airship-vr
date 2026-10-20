@@ -41,8 +41,8 @@ export const grip: Record<Side, GripState> = {
  * What each hand is holding at one of the gondola's controls (tiller, vent
  * cord, a sandbag, the bell lanyard), the grapple ('grapple', held by
  * GrappleSystem), the cargo gear ('winch', 'tag' or 'lever', held by
- * CargoSystem), a crate's handle ('crate', StowageSystem), the loft's
- * ladder ('ladder', ClimbSystem) or the repair gear ('edge' of a tear,
+ * CargoSystem), a crate's handle ('crate', StowageSystem), the rigging
+ * to the envelope ('ladder', ClimbSystem) or the repair gear ('edge' of a tear,
  * 'patch' or 'hammer', RepairSystem), the bilge pump ('pump', PumpSystem), or null. Loose objects aren't picked up by a hand that
  * holds a control.
  */

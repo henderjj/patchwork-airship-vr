@@ -35,8 +35,8 @@ export function chooseBody(choice: BodyChoice): void {
 /**
  * Puts the player's eyes at their character's height (src/sim/body-height.ts)
  * by raising or lowering the player rig, which carries the view and both
- * hands, and raises it further by however far they have climbed the ladder
- * to the patch loft (ClimbSystem). Only in VR; the flat page's camera is
+ * hands, and raises it further by however far they have climbed the rigging
+ * to the envelope (ClimbSystem). Only in VR; the flat page's camera is
  * left alone. Runs before anything reads the head or hands this frame.
  */
 export class BodyHeightSystem extends createSystem({}) {
@@ -94,7 +94,7 @@ export class BodyHeightSystem extends createSystem({}) {
       }
       return;
     }
-    // Measured from their feet, which are higher up the ladder or on the patch loft.
+    // Measured from their feet, which are higher up the rigging.
     this.crew.push(netLink.remote.head.py - netLink.remote.feet, delta);
     body.crewEye = this.crew.upright;
   }

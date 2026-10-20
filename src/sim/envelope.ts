@@ -1,28 +1,28 @@
 /**
  * Envelope repairs (Phase 3, docs/repairs.md): tears in the envelope's
- * belly over the patch loft (src/sim/loft.ts) that leak hot air, and the
+ * belly over the rigging (src/sim/rigging.ts) that leak hot air, and the
  * patches that mend them. Engine-free, like the flight model: the host
  * steps an `EnvelopeSim` and passes its leak to `FlightSim` through its
  * controls; the guest takes the host's state (`toWire`, `adopt`) to draw
  * and hear it.
  *
- * From the concept: "Tears leak lift. One holds the torn edges closed
- * overhead while the other patches and rivets, leaving the ship unflown.
- * A rushed one-person patch is possible but doesn't last."
+ * One crew member climbs up and mends a tear while the other keeps flying
+ * (John's playtest, 2026-10-20); the one on deck can hand up the patch or
+ * the hammer.
  *
  * - A tear opens at one of `TEAR_SPOTS` while the run is under way, the
  *   first a while after lift-off and then one every couple of minutes (or
  *   at once from Practice). It leaks hot air in proportion to its length,
  *   and grows while no hand is on it.
- * - A hand on its edge pinches it partly shut; two hands (anyone's) holding
- *   it at least `HOLD_SPAN` apart along it hold it closed, which nearly
- *   stops the leak.
+ * - A hand on its edge holds it closed, which nearly stops the leak and
+ *   leaves the other hand free for a patch.
  * - A patch pressed onto it sticks. Pressed on while the tear is held
- *   closed, it can be riveted: four rivets hammered home while it is still
- *   held make it sound, for good. Pressed on an open tear, or let go of
- *   before the rivets are in, it is a rushed patch: it stops the leak, but
- *   after `RUSHED_LIFE` s it has peeled off and the tear is open again.
- *   A fresh patch can go over a rushed one.
+ *   closed, it lies flat and can be riveted: it lasts `HELD_LIFE` s
+ *   without anyone holding it, and four rivets hammered home in that time
+ *   make it sound, for good. Pressed on an open tear, it is a rushed
+ *   patch: it stops the leak, takes no rivets, and after `RUSHED_LIFE` s
+ *   it has peeled off and the tear is open again. Either peels for its
+ *   last `PEEL_SECONDS`. A fresh patch can go over a rushed one.
  *
  * Gondola space: deck surface at y = 0, bow towards -Z, starboard +X.
  */
@@ -39,15 +39,15 @@ export interface TearSpot {
 }
 
 /**
- * The tear spots, all in the envelope's belly over the loft and within
- * reach from its floor: across the loft forward of its hatch, fore and aft
- * inboard of the hatch, and across the loft aft of it. The worn, much
- * patched canvas over the loft is where seams give.
+ * The tear spots, all in the envelope's belly round the top of the
+ * rigging and within reach from it: across forward of the shrouds, fore
+ * and aft inboard of them, and across aft of them. The worn, much patched
+ * canvas where the rigging rubs is where seams give.
  */
 export const TEAR_SPOTS: readonly TearSpot[] = [
-  { x: -0.55, z: 0.02, ax: 1, az: 0 },
-  { x: -0.27, z: 0.55, ax: 0, az: 1 },
-  { x: -0.5, z: 1.12, ax: 1, az: 0 },
+  { x: -0.6, z: -0.03, ax: 1, az: 0 },
+  { x: -0.38, z: 0.4, ax: 0, az: 1 },
+  { x: -0.6, z: 0.8, ax: 1, az: 0 },
 ];
 
 /** The envelope's underside height above the deck at (x, z), m (src/scene-assets/repairs.scene-asset.ts measures the real one). */
@@ -72,12 +72,9 @@ export const TEAR_MAX = 0.7;
  * the ship sinks.
  */
 export const LEAK_PER_METRE = 0.03;
-/** Share of a tear's leak that gets out with one hand pinching it, with it held closed, and through a peeling patch. */
-export const ONE_HAND_LEAK = 0.6;
+/** Share of a tear's leak that gets out with it held closed, and through a peeling patch. */
 export const HELD_LEAK = 0.15;
 export const PEEL_LEAK = 0.3;
-/** Two hands holding a tear at least this far apart along it hold it closed, m. */
-export const HOLD_SPAN = 0.18;
 /** A hand this close to a tear's edge (its slit, a little below the canvas) can take hold of it, m. */
 export const EDGE_REACH = 0.16;
 /** The edge a hand holds is this far below the canvas: the torn lips sag, m. */
@@ -97,11 +94,14 @@ export const RIVET_INSET = 0.045;
 /** The hammer's head this close to a rivet, moving up into it at least this fast, sets it, m and m/s. */
 export const RIVET_REACH = 0.07;
 export const STRIKE_SPEED = 0.6;
-/** A rushed patch lasts this long, the last `PEEL_SECONDS` of it peeling, s. */
+/**
+ * A patch put on a tear held closed waits this long for its rivets (time
+ * to climb down for the hammer, or have it handed up), and a rushed one
+ * lasts this long; either peels for the last `PEEL_SECONDS` of it, s.
+ */
+export const HELD_LIFE = 120;
 export const RUSHED_LIFE = 60;
 export const PEEL_SECONDS = 10;
-/** A patch waiting for its rivets turns rushed once its tear has been let go of for this long, s. */
-export const HOLD_GRACE = 0.5;
 /** Most tears open (or only rushed-patched) at once. */
 export const MAX_UNMENDED = 2;
 /** Points lost at the end of a run for each tear not soundly mended (src/sim/route.ts). */
@@ -110,6 +110,11 @@ export const UNMENDED_POINTS = 50;
 /** How often tears come (the game menu's Practice → Tears): off, normal and often. */
 export const TEAR_RATES = ['off', 'normal', 'often'] as const;
 export type TearRate = (typeof TEAR_RATES)[number];
+
+/** The gentler of two players' choices: in a crew, either can turn tears down or off. */
+export function gentlerRate(a: TearRate, b: TearRate): TearRate {
+  return TEAR_RATES.indexOf(a) <= TEAR_RATES.indexOf(b) ? a : b;
+}
 /** The first tear of a run comes this long after lift-off, and each next one this long after the last (from, to), s. */
 const SCHEDULE: Record<Exclude<TearRate, 'off'>, { first: readonly [number, number]; gap: readonly [number, number] }> = {
   normal: { first: [50, 80], gap: [90, 140] },
@@ -128,20 +133,16 @@ export class Tear {
   rushed = false;
   /** Which rivets are in, one bit each. */
   rivets = 0;
-  /** A rushed patch's life left, s. */
+  /** A patch's life left before it peels off, s. */
   life = 0;
   /** The patch's length, m (it is cut to the tear when put on). */
   patchLength = 0;
-  /** How long a patch waiting for its rivets has been without its tear held closed, s. */
-  unheld = 0;
   /** Patches put on it (wraps at 256): a new one tells the guest to hear it slapped on. */
   patches = 0;
   /** Where along it (0 at one end, 1 at the other) each page's hands hold its edge: this page's first, then the crewmate's. */
   readonly holds: number[][] = [[], []];
   /** The host says it is held closed (on the guest, for hands it can't see holding). */
   heldOnHost = false;
-  /** Playing alone: one hand on its edge holds it closed, leaving the other free for the patch and the hammer. */
-  solo = false;
 
   reset(): void {
     this.phase = 'whole';
@@ -150,7 +151,6 @@ export class Tear {
     this.rivets = 0;
     this.life = 0;
     this.patchLength = 0;
-    this.unheld = 0;
     this.patches = 0;
     this.holds[0].length = 0;
     this.holds[1].length = 0;
@@ -162,24 +162,19 @@ export class Tear {
     return this.holds[0].length + this.holds[1].length;
   }
 
-  /** Two hands hold it at least `HOLD_SPAN` apart along it (or the host says so; or one, playing alone). */
+  /** A hand holds it closed (or the host says one does). */
   get closed(): boolean {
-    if (this.heldOnHost) return true;
-    if (this.solo && this.hands > 0) return true;
-    let lo = Number.POSITIVE_INFINITY;
-    let hi = Number.NEGATIVE_INFINITY;
-    for (const page of this.holds) {
-      for (const t of page) {
-        lo = Math.min(lo, t);
-        hi = Math.max(hi, t);
-      }
-    }
-    return (hi - lo) * this.length >= HOLD_SPAN;
+    return this.heldOnHost || this.hands > 0;
   }
 
-  /** A rushed patch in its last seconds. */
+  /** A patch in its last seconds. */
   get peeling(): boolean {
-    return this.phase === 'patched' && this.rushed && this.life < PEEL_SECONDS;
+    return this.phase === 'patched' && this.life < PEEL_SECONDS;
+  }
+
+  /** A patch put on it held closed, waiting for its rivets. */
+  get riveting(): boolean {
+    return this.phase === 'patched' && !this.rushed;
   }
 
   /** Open, or patched but not yet sound: what still needs mending. */
@@ -191,7 +186,7 @@ export class Tear {
   get leak(): number {
     const full = LEAK_PER_METRE * this.length;
     if (this.phase === 'open') {
-      return full * (this.closed ? HELD_LEAK : this.hands > 0 ? ONE_HAND_LEAK : 1);
+      return full * (this.closed ? HELD_LEAK : 1);
     }
     return this.peeling ? full * PEEL_LEAK : 0;
   }
@@ -277,15 +272,6 @@ export class EnvelopeSim {
     this.random = rng(seed);
   }
 
-  /** Playing alone (no crewmate): one hand holds a tear closed. */
-  set solo(alone: boolean) {
-    for (const tear of this.tears) tear.solo = alone;
-  }
-
-  get solo(): boolean {
-    return this.tears[0].solo;
-  }
-
   /** All the hot air lost through the tears: a share of the envelope's heat per second (FlightControls.leak). */
   get leak(): number {
     let sum = 0;
@@ -303,8 +289,8 @@ export class EnvelopeSim {
   /**
    * Host: move on by `dt` to ship time `t`. `underWay` is whether the run
    * is in flight and not made fast (tears wait for lift-off). Returns true
-   * when anything the guest should hear about changed: a tear opened, a
-   * patch turned rushed, peeled off or went sound.
+   * when anything the guest should hear about changed: a tear opened or a
+   * patch peeled off.
    */
   step(t: number, underWay: boolean, dt: number): boolean {
     let changed = false;
@@ -314,24 +300,14 @@ export class EnvelopeSim {
           tear.length = Math.min(TEAR_MAX, tear.length + TEAR_GROWTH * dt);
         }
       } else if (tear.phase === 'patched') {
-        if (!tear.rushed) {
-          tear.unheld = tear.closed ? 0 : tear.unheld + dt;
-          if (tear.unheld > HOLD_GRACE) {
-            // Let go before its rivets were in: it won't hold for long.
-            tear.rushed = true;
-            tear.life = RUSHED_LIFE;
-            changed = true;
-          }
-        } else {
-          tear.life -= dt;
-          if (tear.life <= 0) {
-            // Peeled off: the tear is open again, as long as it was.
-            tear.phase = 'open';
-            tear.rushed = false;
-            tear.rivets = 0;
-            tear.life = 0;
-            changed = true;
-          }
+        tear.life -= dt;
+        if (tear.life <= 0) {
+          // Peeled off: the tear is open again, as long as it was.
+          tear.phase = 'open';
+          tear.rushed = false;
+          tear.rivets = 0;
+          tear.life = 0;
+          changed = true;
         }
       }
     }
@@ -395,6 +371,8 @@ export class EnvelopeSim {
    * A patch pressed onto tear `i`: 'held' if it was held closed (now
    * waiting for its rivets), 'rushed' if not, or null if it didn't stick
    * (nothing to mend there, or a patch already waiting for its rivets).
+   * A rushed patch pressed on again while the tear is held is put on
+   * afresh.
    */
   press(i: number): PatchResult {
     const tear = this.tears[i];
@@ -405,10 +383,9 @@ export class EnvelopeSim {
     tear.patches = (tear.patches + 1) & 255;
     tear.patchLength = patchLengthFor(tear.length);
     tear.rivets = 0;
-    tear.unheld = 0;
     if (tear.closed) {
       tear.rushed = false;
-      tear.life = 0;
+      tear.life = HELD_LIFE;
       return 'held';
     }
     tear.rushed = true;
@@ -416,15 +393,16 @@ export class EnvelopeSim {
     return 'rushed';
   }
 
-  /** Rivet `r` of tear `i`'s patch hammered home: true if it went in (a held patch's, still held). The fourth makes it sound. */
+  /** Rivet `r` of tear `i`'s patch hammered home: true if it went in (a patch put on held closed, not yet peeled). The fourth makes it sound. */
   rivet(i: number, r: number): boolean {
     const tear = this.tears[i];
-    if (!tear || tear.phase !== 'patched' || tear.rushed || !tear.closed || r < 0 || r >= RIVETS || tear.rivets & (1 << r)) {
+    if (!tear || !tear.riveting || r < 0 || r >= RIVETS || tear.rivets & (1 << r)) {
       return false;
     }
     tear.rivets |= 1 << r;
     if (tear.rivets === (1 << RIVETS) - 1) {
       tear.phase = 'sound';
+      tear.life = 0;
       tear.holds[0].length = 0;
       tear.holds[1].length = 0;
     }

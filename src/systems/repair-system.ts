@@ -23,10 +23,12 @@ import {
   createLeakPuffs,
   createPatch,
   createPatchInHand,
+  createRivetMarks,
   createRivets,
   createTear,
   layPatch,
   layTear,
+  MARK_DROP,
   RIVET_COLORS,
   type TearShape,
 } from '../scene-assets/repairs.scene-asset.js';
@@ -34,6 +36,7 @@ import { settings } from '../settings.js';
 import {
   EDGE_DROP,
   EDGE_REACH,
+  gentlerRate,
   LEAK_PER_METRE,
   PATCH_DROP,
   PEEL_SECONDS,
@@ -48,7 +51,7 @@ import {
   TEAR_SPOTS,
   type TearRate,
 } from '../sim/envelope.js';
-import { HAMMER_HEAD, HAMMER_REACH, HAMMER_REST, LOFT, PATCH_BOX, PATCH_BOX_REACH } from '../sim/loft.js';
+import { HAMMER_HEAD, HAMMER_REACH, HAMMER_REST, PATCH_BOX, PATCH_BOX_REACH, RIG_X, RIG_Z } from '../sim/rigging.js';
 import { sounds } from './audio-system.js';
 import { grip, handUse } from './grip-system.js';
 import { HoldKind, lockResolvers } from './hand-lock.js';
@@ -72,10 +75,14 @@ export type RepairHand = (nowMs: number) => RepairHandPose | null;
 
 /** While a guest is connected, the host repeats the tears this often, ms (a late joiner catches up). */
 const RESEND_MS = 1000;
+/** The guest repeats its choice of how often tears come this often, ms. */
+const RATE_RESEND_MS = 3000;
 /** A hand holding a tear's edge lets go once it is this far from it, m. */
 const HOLD_SLIP = EDGE_REACH * 1.6;
 /** A carried patch's middle is this far along the fist from its middle (on top of the fist), m. */
 const PAD_ALONG = 0.05;
+/** A free hand this close to the crewmate's hand holding a patch or the hammer takes it from them, m. */
+export const PASS_REACH = 0.18;
 /** A hammer stroke sets at most one rivet in this long, ms. */
 const STRIKE_COOLDOWN_MS = 200;
 /** How far the escaping air carries from a tear, m, and how many puffs show it. */
@@ -106,7 +113,11 @@ interface RepairsDebug {
     unmended: number;
     rate: TearRate;
     held: Record<Side, string | null>;
+    /** Rings drawn round rivets still to go. */
+    marks: number;
   };
+  /** The hammer's head (its X), its handle (its -Z) and, for the hand holding it, the way out of the back of that hand (grip X), all in ship space. */
+  hammerAxes(): { head: number[]; handle: number[]; back: number[] };
   /** What Practice → Tear it now does. */
   tearNow(): void;
   /** Host or solo: tear spot `i` open now (tests pick the spot). */
@@ -130,27 +141,32 @@ interface RepairsDebug {
 
 /**
  * Envelope repairs (Phase 3, docs/repairs.md): tears in the envelope's belly
- * over the patch loft, and mending them from the loft (ClimbSystem takes the
- * crew up its ladder). Squeeze near a tear's torn edge to hold it; two hands
- * (anyone's) far enough apart along it hold it shut. Squeeze at the box of
- * patches to take one and press it up onto the tear: on a tear held shut it
- * waits for its rivets, and four rivets hammered up into its corners (take
- * the hammer from its rack) make it sound; otherwise it is a rushed patch
- * that peels off a minute later.
+ * round the top of the rigging, mended from up there (ClimbSystem takes the
+ * player up it) while the crewmate keeps flying. Squeeze near a tear's torn
+ * edge to hold it shut. Squeeze at the box of patches at the rigging's foot
+ * to take one, carry it up and press it onto the tear: on a tear held shut
+ * it lies flat with a ring at each corner, and four rivets hammered up into
+ * the rings in the next two minutes (take the hammer from its pegs by the
+ * box) make it sound; otherwise it is a rushed patch that peels off a minute
+ * later. Squeeze by the crewmate's hand holding a patch or the hammer to
+ * take it from them, so the one on deck can hand it up.
  *
  * The host (or a solo page) runs the tears (src/sim/envelope.ts, stepped
  * here and leaking in ShipSystem's flight) and sends them on every change
  * and once a second; the guest sends where its hands hold the edges, and
  * each patch and rivet it puts on (shown at once on its own page). Sounds
  * follow the tears as both pages have them: a rip, a hiss while one leaks,
- * a slap for a patch and a clink for each rivet. A sign under the loft and
- * one on it say what to do next.
+ * a slap for a patch and a clink for each rivet. A sign at the rigging's
+ * foot and one at its top say what to do next. Whoever takes a patch or the
+ * hammer from the crewmate's hand sends 'repair-pass', and the crewmate's
+ * page lets go of it.
  */
 export class RepairSystem extends createSystem({}) {
   private canvas = envelope.canvas;
   private tears: Mesh[] = [];
   private patches: Mesh[] = [];
   private rivets!: InstancedMesh;
+  private marks!: InstancedMesh;
   private hammer!: Mesh;
   private pads: Record<Side, Mesh> = {} as Record<Side, Mesh>;
   private crewPads: Record<Side, Mesh> = {} as Record<Side, Mesh>;
@@ -170,6 +186,9 @@ export class RepairSystem extends createSystem({}) {
   private sentHolds = '';
   private holdsSentAt = 0;
   private sentAt = Number.NEGATIVE_INFINITY;
+  private rateSentAt = Number.NEGATIVE_INFINITY;
+  /** The guest's choice of how often tears come ('often' sets no limit: none connected, or not heard yet). */
+  private guestRate: TearRate = 'often';
   private changed = false;
   private seenResets = -1;
   private heard = TEAR_SPOTS.map(() => ({ phase: 'whole', rivets: 0, patches: 0 }));
@@ -200,10 +219,21 @@ export class RepairSystem extends createSystem({}) {
   private padInFist: Record<Side, Quaternion> = { left: new Quaternion(), right: new Quaternion() };
   private hammerUp = new Quaternion().setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(0, 1, 0));
   private crewQuat = new Quaternion();
+  private normal = new Vector3();
+  private ringAxis = new Vector3(0, 0, 1);
 
   init(): void {
+    const basis = new Matrix4();
+    const knuckles = new Vector3();
+    const up = new Vector3();
+    const handle = new Vector3();
     for (const side of SIDES) {
-      this.hammerInFist[side].setFromUnitVectors(new Vector3(0, 0, -1), this.fistAxis[side]);
+      // The handle runs out of the fist's hole towards the thumb, and the head's faces point out of the knuckles, as a hammer is held to strike.
+      handle.copy(this.fistAxis[side]).negate();
+      knuckles.crossVectors(this.fistAxis[side], new Vector3(1, 0, 0)).normalize();
+      up.crossVectors(handle, knuckles);
+      basis.makeBasis(knuckles, up, handle);
+      this.hammerInFist[side].setFromRotationMatrix(basis);
       this.padInFist[side].setFromUnitVectors(new Vector3(0, 1, 0), this.fistAxis[side]);
     }
     for (let i = 0; i < TEAR_SPOTS.length; i++) {
@@ -212,6 +242,8 @@ export class RepairSystem extends createSystem({}) {
     }
     this.rivets = createRivets();
     this.world.createTransformEntity(this.rivets);
+    this.marks = createRivetMarks();
+    this.world.createTransformEntity(this.marks);
     this.hammer = this.place(createHammer(), true);
     for (const side of SIDES) {
       this.pads[side] = this.place(createPatchInHand(), false);
@@ -233,11 +265,12 @@ export class RepairSystem extends createSystem({}) {
         this.changed = true;
       }
     };
-    envelope.rate = settings.tears;
+    this.applyRate();
     this.cleanupFuncs.push(
       onSettingChange((key) => {
         if (key === 'tears') {
-          envelope.rate = settings.tears;
+          this.applyRate();
+          this.rateSentAt = Number.NEGATIVE_INFINITY;
         }
       }),
     );
@@ -265,11 +298,26 @@ export class RepairSystem extends createSystem({}) {
         this.changed = true;
       }
     });
+    netLink.events.set('repair-pass', (event) => {
+      // The crewmate took what this player's hand held out to them.
+      for (const side of SIDES) {
+        if (this.held[side]?.kind === event.kind) {
+          this.release(side);
+          this.pulse(side, 0.3, 25);
+        }
+      }
+    });
+    netLink.events.set('repair-rate', (event) => {
+      if ((TEAR_RATES as readonly unknown[]).includes(event.rate)) {
+        this.guestRate = event.rate as TearRate;
+        this.applyRate();
+      }
+    });
     netLink.events.set('route-tear', () => {
       if (netLink.isHost) repairControl.tearNow();
     });
     this.cleanupFuncs.push(() => {
-      for (const name of ['envelope', 'repair-holds', 'repair-patch', 'repair-rivet', 'route-tear']) netLink.events.delete(name);
+      for (const name of ['envelope', 'repair-holds', 'repair-patch', 'repair-rivet', 'repair-pass', 'repair-rate', 'route-tear']) netLink.events.delete(name);
     });
 
     // Grip locking: a hand on a torn edge is drawn round its nearest point, along the slit.
@@ -314,7 +362,19 @@ export class RepairSystem extends createSystem({}) {
         unmended: envelope.unmended,
         rate: envelope.rate,
         held: { left: this.held.left?.kind ?? null, right: this.held.right?.kind ?? null },
+        marks: this.marks.count,
       }),
+      hammerAxes: () => {
+        const q = this.hammer.quaternion;
+        const side = this.held.right?.kind === 'hammer' ? 'right' : 'left';
+        const back = new Vector3(1, 0, 0);
+        if (this.readPose(side)) back.applyQuaternion(this.handQuat);
+        return {
+          head: new Vector3(1, 0, 0).applyQuaternion(q).toArray(),
+          handle: new Vector3(0, 0, -1).applyQuaternion(q).toArray(),
+          back: back.toArray(),
+        };
+      },
       tearNow: () => tearNow(),
       open: (i) => {
         envelope.open(i);
@@ -322,7 +382,10 @@ export class RepairSystem extends createSystem({}) {
       },
       setRate: (rate) => {
         // For this page's runs from now on, like the menu's setting (not saved).
-        if ((TEAR_RATES as readonly string[]).includes(rate)) envelope.rate = settings.tears = rate;
+        if (!(TEAR_RATES as readonly string[]).includes(rate)) return;
+        settings.tears = rate;
+        this.applyRate();
+        this.rateSentAt = Number.NEGATIVE_INFINITY;
       },
       setHand: (side, hand) => {
         if (hand === null || typeof hand === 'function') {
@@ -369,12 +432,12 @@ export class RepairSystem extends createSystem({}) {
     }
     this.updateHands(now, dt, host);
     envelope.setHolds(0, this.myHolds);
-    // Playing alone, one hand holds a tear shut (as the crank is quicker alone).
-    envelope.solo = !netLink.connected;
     if (host) {
       if (!netLink.connected) {
         envelope.setHolds(1, []);
+        this.guestRate = 'often';
       }
+      this.applyRate();
       if (flightInfo.flying && !shipInfo.paused) {
         const underWay = route.phase === 'flying' && docking.phase !== 'fast';
         if (envelope.step(ship.time, underWay, dt)) {
@@ -388,9 +451,10 @@ export class RepairSystem extends createSystem({}) {
       this.changed = false;
     } else {
       this.sendHolds(now);
-      // Between the host's reports, a rushed patch's last minute runs down here too, so it peels smoothly.
+      this.sendRate(now);
+      // Between the host's reports, a patch's life runs down here too, so it peels smoothly.
       for (const tear of envelope.tears) {
-        if (tear.phase === 'patched' && tear.rushed) tear.life = Math.max(0, tear.life - dt);
+        if (tear.phase === 'patched') tear.life = Math.max(0, tear.life - dt);
       }
     }
     this.hear();
@@ -492,7 +556,7 @@ export class RepairSystem extends createSystem({}) {
     return Math.min(1, Math.max(0, along / Math.max(envelope.tears[i].length, 1e-3) + 0.5));
   }
 
-  /** A free hand squeezed: a torn edge in reach, else a patch from the box, else the hammer from its rack. */
+  /** A free hand squeezed: a torn edge in reach, else what the crewmate holds out, else a patch from the box, else the hammer from its pegs. */
   private take(side: Side): void {
     const h = this.hand;
     let best = EDGE_REACH;
@@ -514,6 +578,24 @@ export class RepairSystem extends createSystem({}) {
       this.held[side] = { kind: 'edge', spot: bestSpot, t: bestT };
       handUse[side] = 'edge';
       this.pulse(side, 0.5, 40);
+      return;
+    }
+    for (const kind of [HoldKind.Patch, HoldKind.Hammer]) {
+      const crew = this.crewHand(kind);
+      if (!crew) continue;
+      // Where their fist holds it: a patch on top of it, the hammer's handle in it.
+      this.crewQuat.set(crew.pose.qx, crew.pose.qy, crew.pose.qz, crew.pose.qw);
+      this.point.copy(this.fistCentre[crew.side]).applyQuaternion(this.crewQuat);
+      this.point.x += crew.pose.px;
+      this.point.y += crew.pose.py;
+      this.point.z += crew.pose.pz;
+      if (this.point.distanceTo(h) > PASS_REACH) continue;
+      const held = kind === HoldKind.Patch ? 'patch' : 'hammer';
+      this.held[side] = { kind: held };
+      handUse[side] = held;
+      this.headValid[side] = false;
+      this.pulse(side, 0.4, 30);
+      netLink.sendEvent({ t: 'repair-pass', kind: held } as { t: string });
       return;
     }
     if (Math.hypot(h.x - PATCH_BOX[0], h.y - PATCH_BOX[1], h.z - PATCH_BOX[2]) <= PATCH_BOX_REACH) {
@@ -601,7 +683,7 @@ export class RepairSystem extends createSystem({}) {
             netLink.sendEvent({ t: 'repair-rivet', r: envelope.resets, s: i, i: r } as { t: string });
           }
         } else {
-          // A rushed patch, or one nobody is holding shut: it won't take a rivet.
+          // A rushed patch: it won't take a rivet.
           sounds.rivet(false);
           this.pulse(side, 0.4, 30);
         }
@@ -620,6 +702,18 @@ export class RepairSystem extends createSystem({}) {
 
   private letGoAll(): void {
     for (const side of SIDES) this.release(side);
+  }
+
+  /** How often tears come: this page's choice, or in a crew the gentler of the two (the host runs them). */
+  private applyRate(): void {
+    envelope.rate = netLink.connected && netLink.isHost ? gentlerRate(settings.tears, this.guestRate) : settings.tears;
+  }
+
+  /** Guest: this player's choice of how often tears come, when it changes and every few seconds (the host takes the gentler). */
+  private sendRate(now: number): void {
+    if (!netLink.connected || now - this.rateSentAt < RATE_RESEND_MS) return;
+    this.rateSentAt = now;
+    netLink.sendEvent({ t: 'repair-rate', rate: settings.tears } as { t: string });
   }
 
   /** Guest: where this player's hands hold the edges, when that changes (and again each second while they do). */
@@ -656,6 +750,9 @@ export class RepairSystem extends createSystem({}) {
 
   private draw(now: number, dt: number): void {
     let rivets = 0;
+    let marks = 0;
+    // The rings round the rivets still to go swell and shrink a little, to catch the eye.
+    const throb = 1 + 0.12 * Math.sin((now / 1000) * 6);
     let puffing = false;
     for (let i = 0; i < TEAR_SPOTS.length; i++) {
       const tear = envelope.tears[i];
@@ -693,6 +790,15 @@ export class RepairSystem extends createSystem({}) {
             this.rivets.setMatrixAt(rivets, this.matrix);
             this.rivets.setColorAt(rivets, this.color.setHex(set ? RIVET_COLORS.set : RIVET_COLORS.hole));
             rivets++;
+            if (!set && tear.phase === 'patched') {
+              // A ring round it, turned to the canvas there, just under the patch.
+              this.canvasNormal(this.tmp.x, this.tmp.z, this.normal);
+              this.pos.addScaledVector(this.normal, MARK_DROP);
+              this.handQuat.setFromUnitVectors(this.ringAxis, this.normal);
+              this.scale.set(throb, throb, 1);
+              this.matrix.compose(this.pos, this.handQuat, this.scale);
+              this.marks.setMatrixAt(marks++, this.matrix);
+            }
           }
         }
       }
@@ -700,10 +806,20 @@ export class RepairSystem extends createSystem({}) {
     }
     this.rivets.count = rivets;
     this.rivets.instanceMatrix.needsUpdate = true;
+    this.marks.count = marks;
+    this.marks.instanceMatrix.needsUpdate = true;
     if (this.rivets.instanceColor) this.rivets.instanceColor.needsUpdate = true;
     this.puffs.visible = puffing;
     if (puffing) (this.puffs.geometry.getAttribute('position') as BufferAttribute).needsUpdate = true;
     this.drawHeldGear();
+  }
+
+  /** The way down out of the canvas at (x, z) (the underside faces down), into `out`. */
+  private canvasNormal(x: number, z: number, out: Vector3): Vector3 {
+    const e = 0.02;
+    const dx = (this.canvas(x + e, z) - this.canvas(x - e, z)) / (2 * e);
+    const dz = (this.canvas(x, z + e) - this.canvas(x, z - e)) / (2 * e);
+    return out.set(dx, -1, dz).normalize();
   }
 
   /** Puffs of air streaming down and out of tear `i` while it leaks; returns whether it shows any. */
@@ -730,7 +846,7 @@ export class RepairSystem extends createSystem({}) {
     return leaking;
   }
 
-  /** The hammer (in this player's hand, the crewmate's, or on its rack) and any patches carried. */
+  /** The hammer (in this player's hand, the crewmate's, or on its pegs) and any patches carried. */
   private drawHeldGear(): void {
     let hammerDrawn = false;
     for (const side of SIDES) {
@@ -764,8 +880,9 @@ export class RepairSystem extends createSystem({}) {
       if (crew) {
         this.onCrewFist(crew.pose, crew.side, 0, this.hammerInFist[crew.side], this.hammer);
       } else {
+        // Lying on its pegs, its head forward.
         this.hammer.position.set(HAMMER_REST[0], HAMMER_REST[1], HAMMER_REST[2]);
-        this.hammer.quaternion.copy(this.hammerUp);
+        this.hammer.quaternion.copy(this.noTurn);
       }
     }
   }
@@ -822,7 +939,7 @@ export class RepairSystem extends createSystem({}) {
     void actuator?.pulse?.(intensity, ms)?.catch(() => undefined);
   }
 
-  /** Two signs on one canvas: under the loft's inboard edge, seen from the deck, and on the loft's inboard rail, seen from on it. */
+  /** Two signs on one canvas, both lashed between the shrouds facing inboard: under the gear batten, seen from the deck, and up by the canvas, seen from the top of the rigging. */
   private createSigns(): void {
     const canvas = document.createElement('canvas');
     canvas.width = SIGN_PX[0];
@@ -834,13 +951,14 @@ export class RepairSystem extends createSystem({}) {
     const geometry = new PlaneGeometry(SIGN_SIZE[0], SIGN_SIZE[1]);
     const deck = new Mesh(geometry, material);
     deck.name = 'Envelope Sign';
-    deck.position.set(LOFT.x1 + 0.005, 2.3, 0.55);
+    const mid = (RIG_Z[0] + RIG_Z[1]) / 2;
+    deck.position.set(RIG_X + 0.012, 1.3, mid);
     deck.rotation.y = Math.PI / 2;
-    const loft = new Mesh(geometry, material);
-    loft.name = 'Envelope Sign (Loft)';
-    loft.position.set(LOFT.x1 - 0.068, 3.18, 0.62);
-    loft.rotation.y = -Math.PI / 2;
-    for (const mesh of [deck, loft]) this.world.createTransformEntity(mesh);
+    const top = new Mesh(geometry, material);
+    top.name = 'Envelope Sign (Rigging)';
+    top.position.set(RIG_X + 0.012, 3.88, mid);
+    top.rotation.y = Math.PI / 2;
+    for (const mesh of [deck, top]) this.world.createTransformEntity(mesh);
     this.sign = { ctx, texture, lines: [] };
     this.drawSign();
   }
@@ -849,14 +967,15 @@ export class RepairSystem extends createSystem({}) {
     let open = 0;
     let closed = false;
     let waiting = -1;
+    let waitLife = Number.POSITIVE_INFINITY;
     let rushedLife = Number.POSITIVE_INFINITY;
     for (const tear of envelope.tears) {
       if (tear.phase === 'open') {
         open++;
         closed ||= tear.closed;
-      } else if (tear.phase === 'patched' && !tear.rushed) {
+      } else if (tear.riveting) {
         waiting = Math.max(waiting, countBits(tear.rivets));
-        closed ||= tear.closed;
+        waitLife = Math.min(waitLife, tear.life);
       } else if (tear.phase === 'patched') {
         rushedLife = Math.min(rushedLife, tear.life);
       }
@@ -865,7 +984,10 @@ export class RepairSystem extends createSystem({}) {
       return { lines: [open > 1 ? `${open} TEARS!` : 'TEAR!', 'leaking hot air', closed ? 'held: patch it' : 'hold it shut'], tone: 'bad' };
     }
     if (waiting >= 0) {
-      return { lines: ['PATCH ON', `rivets ${waiting} of ${RIVETS}`, closed ? 'hammer them up' : 'keep it held!'], tone: 'warn' };
+      return {
+        lines: ['PATCH ON', `rivets ${waiting} of ${RIVETS}`, waitLife < PEEL_SECONDS ? 'PEELING OFF' : `rivet in ${Math.ceil(waitLife)} s`],
+        tone: 'warn',
+      };
     }
     if (Number.isFinite(rushedLife)) {
       return { lines: ['RUSHED PATCH', rushedLife < PEEL_SECONDS ? 'PEELING OFF' : `holds ${Math.ceil(rushedLife)} s`, 'hold it, patch again'], tone: 'warn' };

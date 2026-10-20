@@ -1279,12 +1279,14 @@ async function main() {
   evalInApp('clearInterval(window.__holdHeat)');
   iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([0, 1.6, 0]) });
 
-  // 6g. Phase 3 repairs (docs/repairs.md): climb the ladder to the patch
-  //     loft hand over hand (a real emulated hand), then mend a tear in the
-  //     envelope overhead: held shut by one hand (playing alone), a patch
-  //     pressed on and four rivets hammered up into it (scripted hands, as
-  //     the emulator can't swing a hammer at CI frame rates). A patch put on
-  //     a tear nobody holds is rushed, and peels off.
+  // 6g. Phase 3 repairs (docs/repairs.md): take the hammer from its pegs
+  //     at the rigging's foot (held as a hammer is, its head out of the
+  //     knuckles), climb the rigging hand over hand (a real emulated hand),
+  //     then mend a tear in the envelope overhead: held shut by one hand, a
+  //     patch pressed on, the hand let go, and four rivets hammered up into
+  //     the rings on it (scripted hands, as the emulator can't swing a
+  //     hammer at CI frame rates). A patch put on a tear nobody holds is
+  //     rushed, and peels off.
   evalInApp('window.__ship.fly()');
   evalInApp('window.__ship.place(0, 130, -40, 0)');
   evalInApp(`(() => {
@@ -1294,30 +1296,41 @@ async function main() {
   })()`);
   await waitFor('flying', () => evalInApp("window.__route.run.phase === 'flying'"), 5000).catch(() => null);
   const headY = () => evalInApp('window.__debug.world.player.head.getWorldPosition(window.__debug.world.player.position.clone()).y');
-  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.5, 1.6, 0.55]) });
-  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.86, y: 1.6, z: 0.55 } });
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.5, 1.6, 0.375]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.99, y: 1.7, z: 0.375 } });
   const deckEye = headY();
-  await move([-0.84, 1.5, 0.55]);
+  await move(evalInApp('window.__repairs.hammerPoint()'));
+  await squeeze(1);
+  await sleep(200);
+  const inHand = evalInApp('({ held: window.__repairs.state().held.right, ...window.__repairs.hammerAxes() })');
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  await squeeze(0);
+  await sleep(200);
+  check("The hammer's head points out of the knuckles in the hand that takes it, not out of the back of the hand",
+    inHand.held === 'hammer' && Math.abs(dot(inHand.head, inHand.back)) < 0.25 && Math.abs(dot(inHand.handle, inHand.back)) < 0.25,
+    `held ${inHand.held}, head·back ${dot(inHand.head, inHand.back).toFixed(2)}, handle·back ${dot(inHand.handle, inHand.back).toFixed(2)}`);
+  const ratline = [-0.94, 1.8, 0.375];
+  await move(ratline);
   await squeeze(1);
   const onRung = evalInApp('({ ...window.__climb.state(), lock: window.__ownHands.locked("right") })');
-  // Pull the hand down 0.6 m: it stays on the rung and the player rises.
-  const rungAt = toOrigin([-0.84, 1.5, 0.55]);
+  // Pull the hand down 0.6 m: it stays on the ratline and the player rises.
+  const rungAt = toOrigin(ratline);
   iwsdk(['xr', 'animate-to'], { device: 'controller-right', position: { ...rungAt, y: rungAt.y - 0.6 }, duration: 0.8 });
   await sleep(1200);
   const climbed = evalInApp('({ ...window.__climb.state(), hand: window.__ownHands.position("right") })');
   await squeeze(0);
   await sleep(300);
   const hanging = evalInApp('window.__climb.state()');
-  check('Squeezing a rung and pulling down climbs the ladder hand over hand, and letting go stays put partway up',
-    onRung.holding.right && Math.abs(climbed.height - 0.6) < 0.1 && climbed.between && Math.abs(climbed.hand[1] - 1.5) < 0.1 && Math.abs(hanging.height - climbed.height) < 0.02 && !hanging.holding.right,
+  check('Squeezing a ratline and pulling down climbs the rigging hand over hand, and letting go stays put partway up',
+    onRung.holding.right && Math.abs(climbed.height - 0.6) < 0.1 && climbed.aloft && Math.abs(climbed.hand[1] - ratline[1]) < 0.1 && Math.abs(hanging.height - climbed.height) < 0.02 && !hanging.holding.right,
     `held ${onRung.holding.right}, lock ${Number(onRung.lock).toFixed(2)}, raised ${climbed.height.toFixed(2)} m with the hand at ${climbed.hand[1].toFixed(2)} m, then ${hanging.height.toFixed(2)} m let go`);
   evalInApp('window.__climb.place(true)');
   await sleep(300);
-  const loftEye = headY();
-  const onLoft = evalInApp('window.__climb.state()');
-  check('At the top the player stands on the patch loft, eyes about 4.1 m above the deck',
-    onLoft.onLoft && onLoft.feet === 2.45 && Math.abs(loftEye - 4.1) < 0.15, `eyes ${deckEye.toFixed(2)} m on deck, ${loftEye.toFixed(2)} m on the loft, feet ${onLoft.feet} m`);
-  // Practice → Tear it now opens a tear; here the one inboard of the hatch, over the player.
+  const topEye = headY();
+  const atTop = evalInApp('window.__climb.state()');
+  check('At the top of the rigging the player is up under the envelope, eyes about 4.1 m above the deck',
+    atTop.atTop && atTop.feet > 2 && Math.abs(topEye - 4.1) < 0.15, `eyes ${deckEye.toFixed(2)} m on deck, ${topEye.toFixed(2)} m at the top, feet ${atTop.feet.toFixed(2)} m`);
+  // Practice → Tear it now opens a tear; here the one inboard of the shrouds, over the player.
   const ripsBefore = evalInApp('window.__audio.played.rip');
   evalInApp("window.__gameMenu.click('menu-tear')");
   await sleep(300);
@@ -1331,18 +1344,18 @@ async function main() {
   check("The menu's Tear it now tears the envelope: the tear leaks, hisses and the signs and board say so",
     menuTear.unmended === 1 && torn.tears[1].phase === 'open' && torn.leak > 0.005 && torn.sign[0] === 'TEAR!' && torn.board[4].includes('TEAR!') && torn.rips >= ripsBefore + 2 && torn.hiss > 0.05,
     `menu: ${menuTear.unmended} unmended; ${torn.tears[1].phase} ${torn.tears[1].length.toFixed(2)} m, leaking ${torn.leak.toFixed(3)}/s, sign ${torn.sign.join(' / ')}, board ${torn.board[4]}, ${torn.rips - ripsBefore} rips, hiss ${torn.hiss.toFixed(2)}`);
-  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.22, 4.1, 0.95]) });
-  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.3, y: 4.5, z: 0.5 } });
+  iwsdk(['xr', 'set-transform'], { device: 'headset', position: toOrigin([-0.6, 4.1, 0.75]) });
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.38, y: 4.45, z: 0.4 } });
   await sleep(600);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-repairs-tear.png'], {});
-  // The real right hand takes the torn edge: alone, one hand holds it shut.
+  // The real right hand takes the torn edge: one hand holds it shut.
   await move(evalInApp('window.__repairs.edgePoint(1, 0.5)'));
   await squeeze(1);
   const holding = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText() })');
-  check('A hand squeezed on the torn edge holds it, and playing alone one hand holds it shut',
+  check('A hand squeezed on the torn edge holds it shut',
     holding.held.right === 'edge' && holding.tears[1].hands === 1 && holding.tears[1].closed && holding.leak < torn.leak / 3 && holding.sign[2] === 'held: patch it',
     `right hand holds ${holding.held.right}, ${holding.tears[1].hands} hand(s), ${holding.tears[1].closed ? 'shut' : 'open'}, leaking ${holding.leak.toFixed(3)}/s, sign ${holding.sign.join(' / ')}`);
-  // The other hand takes a patch from the box and presses it on, then the hammer from its rack and strikes up four rivets.
+  // The other hand takes a patch from the box and presses it on; the edge is let go; then the hammer from its pegs strikes up four rivets.
   const slapsBefore = evalInApp('window.__audio.played.slap');
   const rivetsBefore = evalInApp('window.__audio.played.rivet');
   evalInApp('window.__repairs.setHand("left", [...window.__repairs.boxPoint(), false])');
@@ -1353,6 +1366,10 @@ async function main() {
   evalInApp('window.__repairs.setHand("left", [...window.__repairs.patchHand(1), true])');
   await sleep(300);
   const patched = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText() })');
+  await squeeze(0);
+  await sleep(300);
+  const letGo = evalInApp('window.__repairs.state()');
+  iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-repairs-rings.png'], {});
   evalInApp('window.__repairs.setHand("left", [...window.__repairs.hammerPoint(), false])');
   await sleep(200);
   evalInApp('window.__repairs.setHand("left", [...window.__repairs.hammerPoint(), true])');
@@ -1369,15 +1386,15 @@ async function main() {
   })()`);
   await sleep(1600);
   const mended = evalInApp('({ ...window.__repairs.state(), sign: window.__repairs.signText(), slaps: window.__audio.played.slap, clinks: window.__audio.played.rivet })');
-  check('A patch from the box pressed on the held tear sticks, and four hammer strokes rivet it sound',
-    tookPatch === 'patch' && patched.tears[1].phase === 'patched' && !patched.tears[1].rushed && patched.sign[0] === 'PATCH ON' && tookHammer === 'hammer' &&
-      mended.tears[1].phase === 'sound' && mended.tears[1].rivets === 15 && mended.leak === 0 && mended.held.right === null && mended.slaps === slapsBefore + 1 && mended.clinks === rivetsBefore + 4 && mended.sign[1] === 'sound',
-    `took ${tookPatch}, then ${patched.tears[1].phase}${patched.tears[1].rushed ? ' (rushed)' : ''}, took ${tookHammer}, then ${mended.tears[1].phase} with rivets ${mended.tears[1].rivets.toString(2)}, ` +
-      `${mended.slaps - slapsBefore} slap(s) and ${mended.clinks - rivetsBefore} clinks, right hand ${mended.held.right}, sign ${mended.sign.join(' / ')}`);
-  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.3, y: 4.5, z: 0.5 } });
+  check('A patch from the box pressed on the held tear sticks with a ring at each rivet, waits with the edge let go, and four hammer strokes rivet it sound',
+    tookPatch === 'patch' && patched.tears[1].phase === 'patched' && !patched.tears[1].rushed && patched.sign[0] === 'PATCH ON' && patched.marks === 4 &&
+      letGo.tears[1].phase === 'patched' && !letGo.tears[1].rushed && letGo.tears[1].hands === 0 && tookHammer === 'hammer' &&
+      mended.tears[1].phase === 'sound' && mended.tears[1].rivets === 15 && mended.marks === 0 && mended.leak === 0 && mended.held.right === null && mended.slaps === slapsBefore + 1 && mended.clinks === rivetsBefore + 4 && mended.sign[1] === 'sound',
+    `took ${tookPatch}, then ${patched.tears[1].phase}${patched.tears[1].rushed ? ' (rushed)' : ''} with ${patched.marks} rings, let go: ${letGo.tears[1].phase}${letGo.tears[1].rushed ? ' (rushed)' : ''}, took ${tookHammer}, ` +
+      `then ${mended.tears[1].phase} with rivets ${mended.tears[1].rivets.toString(2)} and ${mended.marks} rings, ${mended.slaps - slapsBefore} slap(s) and ${mended.clinks - rivetsBefore} clinks, right hand ${mended.held.right}, sign ${mended.sign.join(' / ')}`);
+  iwsdk(['xr', 'look-at'], { device: 'headset', target: { x: -0.38, y: 4.45, z: 0.4 } });
   await sleep(400);
   iwsdk(['browser', 'screenshot', '--output-file', 'artifacts/xr-repairs-riveted.png'], {});
-  await squeeze(0);
   // A patch on a tear nobody holds is rushed: it peels in its last seconds and then the tear is open again.
   evalInApp('window.__repairs.setHand("left", [...window.__repairs.hammerPoint(), false])');
   await sleep(300);

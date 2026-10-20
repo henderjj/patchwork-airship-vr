@@ -1239,11 +1239,28 @@ async function botChecks(browser) {
     `${carried ? `held by ${JSON.stringify(carried.c.holders)}, bot ${carried.mode}` : `bot never took it: ${JSON.stringify((await me.page.evaluate(() => window.__crates.state())).crates[0])}, bot ${await bot.page.evaluate(() => window.__bot.mode)}`}, ` +
       `${onDeck ? `on deck at ${onDeck.pos.map((v) => v.toFixed(2)).join(', ')}, ${onDeck.condition}%` : 'never set on deck'}`);
 
-  // Repairs: with the envelope torn and the player up on the patch loft, the
-  // bot climbs the ladder and holds the tear shut with both hands (the
-  // guest's holds, sent to the host); the player patches it and hammers in
-  // the rivets; once it is sound the bot climbs back down.
-  const LOFT_HEAD = [-0.25, 4.1, 0.95];
+  // Either player's Tears setting counts (the menu's Practice → Tears): the
+  // host runs the tears at the gentler of its own and the guest's.
+  await me.page.evaluate(() => window.__repairs.setRate('often'));
+  await me.page.waitForTimeout(300);
+  const withGuestOff = await me.page.evaluate(() => window.__repairs.state().rate);
+  await bot.page.evaluate(() => window.__repairs.setRate('normal'));
+  const withGuestNormal = await waitFor("the host to take the guest's Normal", async () => {
+    const rate = await me.page.evaluate(() => window.__repairs.state().rate);
+    return rate === 'normal' ? rate : null;
+  }, 6000).catch(() => null);
+  await bot.page.evaluate(() => window.__repairs.setRate('off'));
+  await me.page.evaluate(() => window.__repairs.setRate('off'));
+  check("Either player's Tears setting counts: with the crewmate's Off the host's Often makes no tears, and with its Normal they come at Normal",
+    withGuestOff === 'off' && withGuestNormal === 'normal', `host Often with the guest Off: ${withGuestOff}; with the guest Normal: ${withGuestNormal ?? 'not taken'}`);
+
+  // Repairs: with the envelope torn and the player up the rigging holding
+  // it shut, the bot takes a patch from the box at the rigging's foot,
+  // climbs a few ratlines and holds it up; the player takes it from the
+  // bot's hand (passed hand to hand) and presses it on, and lets go of the
+  // edge; then the bot fetches the hammer the same way and the player
+  // rivets the patch sound; once the player is back on deck the bot is too.
+  const TOP_HEAD = [-0.6, 4.1, 0.6];
   await me.page.evaluate((head) => {
     window.__ship.fly();
     window.__net.setTestPose({
@@ -1251,35 +1268,60 @@ async function botChecks(browser) {
       left: { px: head[0] - 0.2, py: head[1] - 0.4, pz: head[2] - 0.2, qx: 0, qy: 0, qz: 0, qw: 1 },
       right: { px: head[0] + 0.2, py: head[1] - 0.4, pz: head[2] - 0.2, qx: 0, qy: 0, qz: 0, qw: 1 },
       flags: 0,
-      feet: 2.45,
+      feet: 2.5,
     });
-  }, LOFT_HEAD);
+  }, TOP_HEAD);
   await me.page.waitForTimeout(500);
-  await me.page.evaluate(() => window.__repairs.open(1));
-  const heldShut = await waitFor('the bot to hold the tear shut', async () => {
-    const t = (await me.page.evaluate(() => window.__repairs.state())).tears[1];
-    return t.closed && t.hands === 2 ? t : null;
+  await me.page.evaluate(() => {
+    window.__repairs.open(1);
+    window.__repairs.setHand('right', [...window.__repairs.edgePoint(1, 0.5), true]);
+  });
+  /** The bot holding `kind` up the rigging, as the player's page sees it: where its hand is, or null. */
+  const heldUp = (kind) => waitFor(`the bot to hand up the ${kind}`, async () => {
+    const b = await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, repair: window.__bot.repair }));
+    const crew = await me.page.evaluate(() => window.__net.remotePose());
+    return b.repair.held.right === kind && b.head[1] > 2.55 && crew && crew.feet > 0.93 && ((crew.holds >> 4) & 15) === (kind === 'patch' ? 13 : 14) ? { ...b, feet: crew.feet } : null;
   }, 25000).catch(() => null);
-  const botUp = await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, repair: window.__bot.repair }));
-  const crewFeet = await me.page.evaluate(() => window.__net.remotePose()?.feet ?? null);
-  check('Practice crewmate: climbs to the patch loft when the player is up there with the envelope torn, and holds the tear shut with both hands',
-    heldShut !== null && botUp.mode === 'repair' && Math.abs(botUp.head[1] - 4.1) < 0.05 && Math.abs(crewFeet - 2.45) < 0.02 && botUp.repair.held.left === 'edge' && botUp.repair.held.right === 'edge',
-    `${heldShut ? `held shut by ${heldShut.hands} hands` : `not held: ${JSON.stringify((await me.page.evaluate(() => window.__repairs.state())).tears[1])}`}; bot ${botUp.mode} at ${botUp.head.map((v) => v.toFixed(2)).join(', ')}, ` +
-      `its feet at ${crewFeet} m, hands ${JSON.stringify(botUp.repair.held)}`);
-  // The player patches the held tear and rivets it: four strokes up into it.
-  await me.page.evaluate(async () => {
+  /** The player's free left hand goes to the bot's right hand as drawn, and squeezes there: what it holds then. */
+  const takeFromBot = () => me.page.evaluate(async () => {
     const r = window.__repairs;
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    r.setHand('left', [...r.boxPoint(), false]);
-    await wait(150);
-    r.setHand('left', [...r.boxPoint(), true]);
-    await wait(150);
+    let squeeze = false;
+    r.setHand('left', () => {
+      const crew = window.__net.remotePose();
+      return crew ? { x: crew.right.px, y: crew.right.py, z: crew.right.pz, squeeze } : null;
+    });
+    await wait(200);
+    squeeze = true;
+    await wait(250);
+    return r.state().held.left;
+  });
+  const patchUp = await heldUp('patch');
+  const tookPatch = patchUp ? await takeFromBot() : null;
+  const patchGone = await waitFor('the bot to let go of the patch', async () => ((await bot.page.evaluate(() => window.__bot.repair.held.right)) === null ? true : null), 3000).catch(() => null);
+  check('Practice crewmate: fetches a patch from the box, climbs the rigging, holds it up to the player holding the tear shut, and lets go as they take it',
+    patchUp !== null && patchUp.mode === 'repair' && Math.abs(patchUp.feet - 0.96) < 0.05 && tookPatch === 'patch' && patchGone !== null,
+    patchUp ? `bot ${patchUp.mode} at ${patchUp.head.map((v) => v.toFixed(2)).join(', ')}, feet ${patchUp.feet} m; player took ${tookPatch}, bot ${patchGone ? 'let go' : 'still holds it'}`
+      : `never held one up: ${JSON.stringify(await bot.page.evaluate(() => ({ mode: window.__bot.mode, head: window.__bot.head, repair: window.__bot.repair })))}`);
+  // Pressed on the held tear, then the edge let go: it waits for its rivets, and the bot fetches the hammer.
+  const patchedTear = await me.page.evaluate(async () => {
+    const r = window.__repairs;
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     r.setHand('left', [...r.patchHand(1), true]);
     await wait(250);
-    r.setHand('left', [...r.hammerPoint(), false]);
-    await wait(150);
-    r.setHand('left', [...r.hammerPoint(), true]);
-    await wait(150);
+    r.setHand('right', null);
+    r.setHand('left', [...r.patchHand(1), false]);
+    await wait(250);
+    return r.state().tears[1];
+  });
+  const hammerUp = await heldUp('hammer');
+  const tookHammer = hammerUp ? await takeFromBot() : null;
+  check('Practice crewmate: with the patch on waiting for its rivets, hands up the hammer the same way',
+    patchedTear.phase === 'patched' && !patchedTear.rushed && hammerUp !== null && tookHammer === 'hammer',
+    `patch ${patchedTear.phase}${patchedTear.rushed ? ' (rushed)' : ''}; ${hammerUp ? `bot held the hammer up at ${hammerUp.head.map((v) => v.toFixed(2)).join(', ')}` : 'bot never held the hammer up'}, player took ${tookHammer}`);
+  // The player strikes the four rivets: four strokes up into the patch.
+  await me.page.evaluate(() => {
+    const r = window.__repairs;
     const t0 = performance.now();
     r.setHand('left', (now) => {
       const k = Math.max(0, now - t0) / 300;
@@ -1297,7 +1339,7 @@ async function botChecks(browser) {
     const t = (await bot.page.evaluate(() => window.__repairs.state())).tears[1];
     return t.phase === 'sound' ? t : null;
   }, 5000).catch(() => null);
-  check('Practice crewmate: holding it shut lets the player patch the tear and rivet it sound, and the crewmate sees it mended',
+  check('Practice crewmate: with the gear it handed up, the player rivets the tear sound, and the crewmate sees it mended',
     mendedTear !== null && mendedTear.rivets === 15 && !mendedTear.rushed && guestSees !== null,
     mendedTear ? `sound, rivets ${mendedTear.rivets.toString(2)}; the bot sees it ${guestSees ? 'sound' : 'still torn'}` : `not mended: ${JSON.stringify((await me.page.evaluate(() => window.__repairs.state())).tears[1])}`);
   // Back on the deck, the bot climbs down too.
