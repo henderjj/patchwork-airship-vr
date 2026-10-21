@@ -1,5 +1,6 @@
-import { BoxGeometry, type BufferGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, TorusGeometry } from '@iwsdk/core';
+import { BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, Matrix4, Quaternion, SphereGeometry, TorusGeometry, Vector3 } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, rng, shade } from '../scene-assets/lowpoly.js';
+import { BAND_RAIL, fromPassage, windowMiddle } from '../sim/passages.js';
 import { jettyRoot, jettyTurn, type LandingIsland, type LoadingStage, type Route, TARGET_RINGS } from '../sim/route.js';
 
 /**
@@ -100,6 +101,165 @@ export function createBeaconLampGeometry(): BufferGeometry {
 
 const IRON = 0x3a3f47;
 const POST_RED = 0xc8402c;
+
+/**
+ * A lamp on the route (storms and night, docs/storms-and-night.md): an iron
+ * stem standing out `stem` m along `out` (a unit vector) from `at`, on the
+ * surface it is fixed to, then a collar, a glass globe and a little iron cap.
+ * World space.
+ */
+export interface RouteLamp {
+  at: readonly [number, number, number];
+  out: readonly [number, number, number];
+  stem: number;
+}
+
+/** The lamps' glass globes' radius, m, and how far past the stem's end their middles are. */
+export const LAMP_GLOBE = 0.3;
+const GLOBE_PAST_STEM = 0.35;
+/** How far the stem's foot sits inside what the lamp is fixed to, so roughened rock or a ring's flat faces don't leave it floating, m. */
+const LAMP_SUNK = 0.3;
+
+/** The middle of a lamp's glass globe, world. */
+export function lampGlobeMiddle(lamp: RouteLamp): [number, number, number] {
+  const d = lamp.stem + GLOBE_PAST_STEM;
+  return [lamp.at[0] + lamp.out[0] * d, lamp.at[1] + lamp.out[1] * d, lamp.at[2] + lamp.out[2] * d];
+}
+
+/**
+ * Where `route`'s lamps stand: on the outside of each ring at its top,
+ * bottom and sides, on posts at the lips of each gorge's walls, on brackets
+ * on the faces of each arch's legs at the painted band, on posts round
+ * island A's pad, and on top of B's mooring post.
+ */
+export function routeLamps(route: Route): RouteLamp[] {
+  const lamps: RouteLamp[] = [];
+  const add = (x: number, y: number, z: number, ox: number, oy: number, oz: number, stem: number) => {
+    const length = Math.hypot(ox, oy, oz);
+    lamps.push({ at: [x, y, z], out: [ox / length, oy / length, oz / length], stem });
+  };
+  for (const ring of route.rings) {
+    // The ring's tube, 0.6 m round, runs at radius + 0.6 (createRingGeometry).
+    const r = ring.radius + 1.2;
+    const ax = Math.cos(ring.yaw);
+    const az = -Math.sin(ring.yaw);
+    add(ring.x, ring.y + r, ring.z, 0, 1, 0, 1);
+    add(ring.x, ring.y - r, ring.z, 0, -1, 0, 1);
+    add(ring.x + ax * r, ring.y, ring.z + az * r, ax, 0, az, 1);
+    add(ring.x - ax * r, ring.y, ring.z - az * r, -ax, 0, -az, 1);
+  }
+  const xz = { x: 0, z: 0 };
+  const dir = { x: 0, z: 0 };
+  for (const p of route.passages) {
+    for (const side of [-1, 1]) {
+      for (const end of [-1, 1]) {
+        if (p.kind === 'cleft') {
+          // On posts on the grass at the lips of the walls, at each end of the gorge.
+          fromPassage(p, side * (p.half + 0.6), end * 14, xz);
+          add(p.x + xz.x, p.floor + p.walls, p.z + xz.z, 0, 1, 0, 1.2);
+        } else {
+          // On each leg's face towards the way in and the way out, half way round
+          // from its inner side, at the painted band (the legs are ellipses `thickness`
+          // across and `thickness * deep` along the way through, createArchGeometry).
+          const t = p.thickness;
+          const angle = (50 * Math.PI) / 180;
+          const u = side * (p.half + t - t * Math.cos(angle));
+          const w = end * t * p.deep * Math.sin(angle);
+          fromPassage(p, -side * Math.cos(angle), (end * Math.sin(angle)) / p.deep, dir);
+          fromPassage(p, u, w, xz);
+          add(p.x + xz.x, windowMiddle(p) + BAND_RAIL, p.z + xz.z, dir.x, 0, dir.z, 1);
+        }
+      }
+    }
+  }
+  // On posts on the grass round A's pad, at its four diagonals.
+  const a = route.start;
+  for (let i = 0; i < 4; i++) {
+    const angle = Math.PI / 4 + (i * Math.PI) / 2;
+    add(a.x + Math.cos(angle) * (a.padRadius + 0.6), a.y, a.z + Math.sin(angle) * (a.padRadius + 0.6), 0, 1, 0, 1.2);
+  }
+  // On top of B's mooring post, above the iron cap the grapple bites under.
+  add(route.dock.x, route.dock.y + route.dock.height + 0.12, route.dock.z, 0, 1, 0, 0.2);
+  return lamps;
+}
+
+const lampUp = new Vector3(0, 1, 0);
+const lampOut = new Vector3();
+const lampTurn = new Quaternion();
+const lampMatrix = new Matrix4();
+const lampAt = new Vector3();
+const lampScale = new Vector3(1, 1, 1);
+
+/** `geometry` (a lamp standing up from the origin) turned to stand out along `lamp.out` from `lamp.at`. */
+function placeLamp(geometry: BufferGeometry, lamp: RouteLamp): BufferGeometry {
+  lampTurn.setFromUnitVectors(lampUp, lampOut.set(...lamp.out));
+  lampMatrix.compose(lampAt.set(...lamp.at), lampTurn, lampScale);
+  return geometry.applyMatrix4(lampMatrix);
+}
+
+/** The lamps' ironwork: stems, collars and caps, one geometry for them all (world space). */
+export function createRouteLampIronGeometry(lamps: readonly RouteLamp[]): BufferGeometry {
+  return mergeParts(
+    lamps.map((lamp) => {
+      const stem = lamp.stem + LAMP_SUNK;
+      const globe = stem + GLOBE_PAST_STEM;
+      const parts: Part[] = [
+        { geometry: new CylinderGeometry(0.05, 0.06, stem, 6), position: [0, stem / 2, 0], color: IRON },
+        { geometry: new CylinderGeometry(0.17, 0.12, 0.1, 8), position: [0, stem + 0.05, 0], color: IRON },
+        { geometry: new ConeGeometry(0.13, 0.12, 8), position: [0, globe + LAMP_GLOBE + 0.03, 0], color: IRON },
+      ];
+      return { geometry: placeLamp(mergeParts(parts), { ...lamp, at: sunk(lamp) }), color: 'own' };
+    }),
+  );
+}
+
+/** The lamps' glass globes, one geometry for them all (world space): drawn unlit, in a colour that brightens at night. */
+export function createRouteLampGlassGeometry(lamps: readonly RouteLamp[]): BufferGeometry {
+  return mergeParts(
+    lamps.map((lamp) => {
+      const middle = lampGlobeMiddle(lamp);
+      return { geometry: new IcosahedronGeometry(LAMP_GLOBE, 1), position: middle, color: 0xffffff };
+    }),
+  );
+}
+
+/**
+ * A smooth ball of `radius` round each lamp's globe, for its glow: real
+ * geometry (not a sprite turned to face the camera) so it stays put in the
+ * headset, its normals pointing out from each ball's middle.
+ */
+export function createRouteLampHaloGeometry(lamps: readonly RouteLamp[], radius: number): BufferGeometry {
+  const ball = new SphereGeometry(radius, 12, 8);
+  const ballPos = ball.getAttribute('position');
+  const ballNormal = ball.getAttribute('normal');
+  const ballIndex = ball.index!;
+  const positions = new Float32Array(lamps.length * ballPos.count * 3);
+  const normals = new Float32Array(lamps.length * ballPos.count * 3);
+  const index: number[] = [];
+  lamps.forEach((lamp, i) => {
+    const [x, y, z] = lampGlobeMiddle(lamp);
+    const o = i * ballPos.count;
+    for (let v = 0; v < ballPos.count; v++) {
+      positions.set([ballPos.getX(v) + x, ballPos.getY(v) + y, ballPos.getZ(v) + z], (o + v) * 3);
+      normals.set([ballNormal.getX(v), ballNormal.getY(v), ballNormal.getZ(v)], (o + v) * 3);
+    }
+    for (let k = 0; k < ballIndex.count; k++) {
+      index.push(ballIndex.getX(k) + o);
+    }
+  });
+  ball.dispose();
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+  geometry.setIndex(index);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** Where a lamp's stem's foot is: `LAMP_SUNK` back inside what it is fixed to. */
+function sunk(lamp: RouteLamp): [number, number, number] {
+  return [lamp.at[0] - lamp.out[0] * LAMP_SUNK, lamp.at[1] - lamp.out[1] * LAMP_SUNK, lamp.at[2] - lamp.out[2] * LAMP_SUNK];
+}
 
 /** The cargo stage under the jetty's end, in the jetty's own space (the post's foot at the origin, the jetty along +Z). */
 export interface CargoStagePlace {

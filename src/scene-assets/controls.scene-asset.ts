@@ -105,20 +105,27 @@ export function createFireGlow(width: number, height: number): Mesh {
   return mesh;
 }
 
-/** A lantern on a short cord, origin at the hook; it hangs along -Y and is swung by rotating it. */
+/**
+ * A lantern on a short cord, origin at the hook; it hangs along -Y and is
+ * swung by rotating it. Its glass is a child mesh named 'Lantern Glass',
+ * unlit, so its colour can be turned up to show it burning at night.
+ */
 export function createLantern(): Mesh {
   const drop = 0.32;
-  const glow = 0xffd27a;
-  return partsMesh(
+  const lantern = partsMesh(
     [
       beam([0, 0, 0], [0, -drop + 0.12, 0], 0.006, ROPE, 4),
       { geometry: new TorusGeometry(0.025, 0.005, 4, 6), color: IRON, position: [0, -drop + 0.13, 0], rotation: [Math.PI / 2, 0, 0] },
       { geometry: new ConeGeometry(0.06, 0.05, 6), color: IRON, position: [0, -drop + 0.09, 0] },
-      { geometry: new CylinderGeometry(0.045, 0.045, 0.1, 6), color: glow, position: [0, -drop + 0.015, 0] },
       { geometry: new CylinderGeometry(0.055, 0.055, 0.02, 6), color: IRON, position: [0, -drop - 0.045, 0] },
     ],
     'Lantern',
   );
+  const glass = new Mesh(new CylinderGeometry(0.045, 0.045, 0.1, 6), new MeshBasicMaterial({ color: 0xc9a466, toneMapped: false }));
+  glass.position.y = -drop + 0.015;
+  glass.name = 'Lantern Glass';
+  lantern.add(glass);
+  return lantern;
 }
 
 /** Instrument board frame, origin at its centre, facing +Z; the dial face is drawn on a canvas in front of it. */

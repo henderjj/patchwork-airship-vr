@@ -1,4 +1,4 @@
-import { CanvasTexture, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3 } from '@iwsdk/core';
+import { CanvasTexture, Color, createSystem, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3 } from '@iwsdk/core';
 import {
   CONTROLS_FLAG_TILLER,
   CONTROLS_FLAG_VENT,
@@ -56,6 +56,7 @@ import { bell } from './route-system.js';
 import { cargo, dropBallast, flightControls, flightInfo, ship, stations, yard } from './ship-system.js';
 import { CARGO_TRIM_WEIGHT, HATCH_CENTER } from '../sim/cargo.js';
 import { buzz } from './haptics.js';
+import { weatherView } from './weather-system.js';
 
 const SIDES = ['left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -71,6 +72,9 @@ const BOARD_REFRESH_MS = 250;
 /** Lantern pendulum: natural frequency squared (g / length) and damping, per second. */
 const LANTERN_OMEGA2 = 9.81 / 0.32;
 const LANTERN_DAMPING = 0.8;
+/** The lantern's glass by day, and burning at night. */
+const LANTERN_DAY = new Color(0xc9a466);
+const LANTERN_LIT = new Color(0xffd890);
 /** A dropped bag falls this long before it is gone, s. */
 const BAG_FALL_SECONDS = 1.6;
 /** How quickly the bell's lanyard swings back to hang below the clapper when let go, per second. */
@@ -126,6 +130,7 @@ export class ControlsSystem extends createSystem({}) {
   private flames: Mesh[] = [];
   private fireGlow!: Mesh<PlaneGeometry, MeshBasicMaterial>;
   private lantern!: Mesh;
+  private lanternGlass!: MeshBasicMaterial;
   private bags: Bag[] = [];
   private board!: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; lines: string[] };
   private lastBoardDraw = 0;
@@ -188,6 +193,7 @@ export class ControlsSystem extends createSystem({}) {
     this.world.createTransformEntity(this.fireGlow);
     this.lantern = createLantern();
     this.lantern.position.set(LANTERN_HOOK[0], LANTERN_HOOK[1], LANTERN_HOOK[2]);
+    this.lanternGlass = (this.lantern.getObjectByName('Lantern Glass') as Mesh).material as MeshBasicMaterial;
     // The ship's bell's clapper and lanyard (the bell itself belongs to the route, RouteSystem).
     this.clapperMesh = createBellClapper();
     this.clapperMesh.position.set(BELL_PIVOT[0], BELL_PIVOT[1], BELL_PIVOT[2]);
@@ -542,6 +548,9 @@ export class ControlsSystem extends createSystem({}) {
     s.z += s.vz * dt;
     s.x += s.vx * dt;
     this.lantern.rotation.set(s.x, 0, s.z);
+    // Its glass burns brighter as night falls, flickering a little.
+    const flicker = 1 + 0.08 * Math.sin(now * 0.009) * Math.sin(now * 0.0037);
+    this.lanternGlass.color.lerpColors(LANTERN_DAY, LANTERN_LIT, weatherView.night).multiplyScalar(weatherView.night > 0 ? flicker : 1);
 
     if (now - this.lastBoardDraw > BOARD_REFRESH_MS) {
       this.lastBoardDraw = now;

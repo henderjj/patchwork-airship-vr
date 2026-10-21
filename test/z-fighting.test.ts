@@ -173,6 +173,27 @@ describe('no faces that flicker through each other (z-fighting)', () => {
     expectNone([mesh(route.createBeaconMastGeometry(6), 'Mast'), mesh(route.createBeaconLampGeometry(), 'Lamp')], WORLD_GAP);
   });
 
+  it("on the route's lamps (storms and night), where they stand on the rings, passages, islands and mooring post", () => {
+    const lamps = route.routeLamps(CALM_SKIES);
+    const placed = (m: Mesh, x: number, y: number, z: number, yaw = 0) => {
+      m.position.set(x, y, z);
+      m.rotation.y = yaw;
+      return m;
+    };
+    const jetty = route.jettyPlacement(CALM_SKIES);
+    const dock = CALM_SKIES.dock;
+    const a = CALM_SKIES.start;
+    const objects: Object3D[] = [
+      mesh(route.createRouteLampIronGeometry(lamps), 'Lamp Iron'),
+      mesh(route.createRouteLampGlassGeometry(lamps), 'Lamp Glass'),
+      ...CALM_SKIES.rings.map((ring, i) => placed(mesh(route.createRingGeometry(ring.radius), `Ring ${i + 1}`), ring.x, ring.y, ring.z, ring.yaw)),
+      ...CALM_SKIES.passages.map((p) => placed(mesh(passages.createPassageGeometry(p), p.name), p.x, passages.passageBase(p), p.z, p.yaw)),
+      placed(mesh(route.createLandingIslandGeometry(a, 0xc8402c, 1, CALM_SKIES.loading), 'Island A'), a.x, a.y, a.z),
+      placed(mesh(route.createJettyGeometry(jetty.length, dock.height, jetty.stage), 'Jetty'), dock.x, dock.y, dock.z, jetty.turn),
+    ];
+    expectNone(objects, WORLD_GAP);
+  });
+
   it('on the passages: the Cleft and the Arch, with its painted band', () => {
     for (const passage of CALM_SKIES.passages) {
       expectNone([mesh(passages.createPassageGeometry(passage), passage.name)], WORLD_GAP);
