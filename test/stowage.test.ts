@@ -4,10 +4,11 @@ import { CargoSim, createCargoInput, type GroundAt, HATCH_CENTER, LINE_ABOARD, T
 import { alongsidePost } from '../src/sim/docking.js';
 import { RAIL_HEIGHT } from '../src/sim/gondola-layout.js';
 import { restingDeck } from '../src/sim/islands.js';
-import { CALM_SKIES, JETTY_TOP, onJetty, onLoadingStage } from '../src/sim/route.js';
+import { CALM_SKIES, clearedSpot, JETTY_TOP, onJetty, onLoadingStage, targetPoints } from '../src/sim/route.js';
 import { createShipState, type ShipState, updateQuaternion } from '../src/sim/ship-motion.js';
 import {
   CARRY_ALONE,
+  CLEAR_DELAY,
   type CrateHand,
   CrateYard,
   DROP_COST,
@@ -60,6 +61,7 @@ function flying(): ShipState {
 
 function setup(ship = atA()): { yard: CrateYard; cargo: CargoSim; ship: ShipState } {
   const yard = new CrateYard(obstaclesFrom(GONDOLA_COLLIDERS));
+  yard.clearTo = (x, y, z, k, out) => clearedSpot(ROUTE, x, y, z, k, out);
   const cargo = new CargoSim();
   yard.reset(ROUTE.loading, cargo);
   return { yard, cargo, ship };
@@ -410,7 +412,7 @@ describe('loading and stowing crates', () => {
     expect(c.x + 0.2).toBeLessThanOrEqual(0.34 + 1e-6);
   });
 
-  it('delivers the crate in the hatch at B, then takes the second once the hook is back up', () => {
+  it('delivers the crate in the hatch at B, slides it off the target to the stack, then takes the second once the hook is back up', () => {
     const at = alongsidePost(ROUTE.dock, ROUTE.finish.x, ROUTE.finish.z, 1.2);
     const ship = createShipState();
     Object.assign(ship, { x: at.x, y: at.y, z: at.z, yaw: at.yaw });
@@ -429,9 +431,17 @@ describe('loading and stowing crates', () => {
       s.yard.step(ship, s.cargo, [], DT, ground);
       if (s.yard.crates[0].state === 'delivered') break;
     }
-    expect(s.yard.crates[0].state).toBe('delivered');
+    const first = s.yard.crates[0];
+    expect(first.state).toBe('delivered');
     expect(s.yard.delivered().count).toBe(1);
     expect(s.yard.aboard(s.cargo)).toBe(1);
+    // Set down on the target, it stays there a moment, then is slid off it to the stack beside it.
+    const [setX, setZ] = [first.x, first.z];
+    expect(targetPoints(ROUTE, setX, setZ)).toBeGreaterThan(0);
+    const spot = { x: 0, z: 0, yaw: 0 };
+    expect(clearedSpot(ROUTE, first.x, first.y, first.z, 0, spot)).toBe(true);
+    for (let t = 0; t < CLEAR_DELAY - 0.1; t += DT) s.yard.step(ship, s.cargo, [], DT, ground);
+    expect(Math.hypot(first.x - setX, first.z - setZ)).toBe(0);
     expect(s.yard.hatchReady(s.cargo)).toBe(false);
     // Hoist the empty hook back up and shut the door.
     input.doorOpen = false;
@@ -447,8 +457,14 @@ describe('loading and stowing crates', () => {
     s.cargo.step(ship, input, DT);
     expect(s.cargo.line).toBe(LINE_ABOARD);
     expect(s.yard.hatchReady(s.cargo)).toBe(true);
-    // The delivered crate stays where it was set down.
-    expect(s.yard.crates[0].state).toBe('delivered');
+    // By now the delivered crate is on the stack, off the target, and still scores where it was set down.
+    for (let t = 0; t < 5; t += DT) s.yard.step(ship, s.cargo, [], DT, ground);
+    expect(first.state).toBe('delivered');
+    expect(Math.hypot(first.x - spot.x, first.z - spot.z)).toBeLessThan(1e-6);
+    expect(targetPoints(ROUTE, first.x, first.z)).toBe(0);
+    // Square with the stack.
+    expect(Math.abs(Math.sin(2 * (first.yaw - spot.yaw)))).toBeLessThan(1e-9);
+    expect([first.setX, first.setZ]).toEqual([setX, setZ]);
     const m = middle(s, 1);
     carry(s, 1, bothHands(s, 1, [m, [m[0], 0.6, m[2]], [HATCH_CENTER[0], 0.6, HATCH_CENTER[1]], [HATCH_CENTER[0], -TRUNK_DEPTH + 0.2, HATCH_CENTER[1]]], 0.4), 12);
     expect(s.yard.crates[1].state).toBe('hatch');

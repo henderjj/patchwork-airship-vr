@@ -63,6 +63,14 @@ export const DRUM_RADIUS = 0.06;
 /** Fastest the handle turns lowering and hoisting, rad/s (the pawl and the load). */
 export const WINCH_LOWER_SPEED = 10;
 export const WINCH_HOIST_SPEED = 6;
+/**
+ * With the hook empty (the crate delivered, or none on it) the pawl is off
+ * and the drum runs free: the handle winds in this fast, rad/s, and let go
+ * while winding in, the drum keeps spinning, slowing by this much, rad/s²,
+ * until the hook is home.
+ */
+export const WINCH_EMPTY_SPEED = 18;
+export const WINCH_COAST_DRAG = 1.5;
 /** A hand this far round from the handle lets go of it, rad. */
 export const WINCH_SLIP = 0.9;
 /** The winch angles at the line's shortest and longest. */
@@ -189,13 +197,26 @@ function wrap(a: number): number {
  * winch turns and no further than the line goes. Returns the new angle, or
  * NaN if the hand has got too far from the handle and lets go.
  */
-export function turnWinch(angle: number, handAngle: number, dt: number): number {
+export function turnWinch(angle: number, handAngle: number, dt: number, empty = false): number {
   const lead = wrap(handAngle - angle);
   if (Math.abs(lead) > WINCH_SLIP) {
     return Number.NaN;
   }
-  const step = Math.max(-WINCH_HOIST_SPEED * dt, Math.min(WINCH_LOWER_SPEED * dt, lead));
+  const step = Math.max(-(empty ? WINCH_EMPTY_SPEED : WINCH_HOIST_SPEED) * dt, Math.min(WINCH_LOWER_SPEED * dt, lead));
   return Math.max(WINCH_MIN, Math.min(WINCH_MAX, angle + step));
+}
+
+/**
+ * The empty hook's drum spinning on its own (nobody on the handle): the
+ * winch angle and spin (rad/s, negative winding in) after `dt`. It only
+ * winds in, slows by `WINCH_COAST_DRAG`, and stops when the hook is home
+ * (angle 0).
+ */
+export function coastWinch(angle: number, spin: number, dt: number, out: { angle: number; spin: number }): void {
+  const s = Math.min(0, spin + WINCH_COAST_DRAG * dt);
+  const a = angle + s * dt;
+  out.angle = Math.max(0, a);
+  out.spin = a > 0 ? s : 0;
 }
 
 /** The lever's knob for a lever angle (0 upright, `LEVER_OPEN` pulled back to the stern). */
@@ -258,6 +279,11 @@ export class CargoSim {
     this.vel.x = this.vel.y = this.vel.z = 0;
   }
 
+  /** Whether nothing hangs on the hook (the crate delivered, or none on it): the winch runs free. */
+  get hookEmpty(): boolean {
+    return this.phase === 'empty' || this.phase === 'delivered';
+  }
+
   /** Whether the crate (or, once delivered, nothing) is through the door, so it can't shut. */
   get canClose(): boolean {
     if (this.phase === 'delivered' || this.phase === 'empty') return true;
@@ -307,7 +333,7 @@ export class CargoSim {
   step(ship: ShipState, input: CargoInput, dt: number): boolean {
     const before = this.line;
     // An empty hook winds up only until it is home in the trunk (a crate set in then hangs on it as on a full one).
-    this.line = Math.max(this.phase === 'empty' || this.phase === 'delivered' ? LINE_ABOARD : LINE_MIN, Math.min(LINE_MAX, input.line));
+    this.line = Math.max(this.hookEmpty ? LINE_ABOARD : LINE_MIN, Math.min(LINE_MAX, input.line));
     this.lineRate = dt > 0 ? Math.max(0, (this.line - before) / dt) : 0;
     const tag = this.tagWas;
     if (input.tagHeld && tag.held && dt > 0) {

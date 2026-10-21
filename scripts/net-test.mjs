@@ -718,6 +718,15 @@ async function shipSyncChecks(host, guest) {
     window.__cargo.setWinchHand(null);
     window.__cargo.setLeverHand(null);
   });
+  // The first crate is slid off the target to the stack beside it, so the second can be set on it.
+  const cleared = firstDown && await waitFor('both to see the first crate slid off the target', async () => {
+    const [h, g] = await Promise.all([crates(host.page), crates(guest.page)]);
+    const moved = (s) => Math.hypot(s.crates[0].pos[0] - firstDown.h.crates[0].pos[0], s.crates[0].pos[2] - firstDown.h.crates[0].pos[2]);
+    return h.crates[0].state === 'delivered' && moved(h) > 1 && Math.abs(moved(h) - moved(g)) < 0.1 ? { h: moved(h), g: moved(g) } : null;
+  }, 10000).catch(() => null);
+  check('The first crate delivered is slid off the target to the stack beside it, alike on both pages',
+    cleared !== null,
+    cleared ? `moved ${cleared.h.toFixed(2)} m / ${cleared.g.toFixed(2)} m` : `not moved: host ${JSON.stringify((await crates(host.page)).crates[0])}, guest ${JSON.stringify((await crates(guest.page)).crates[0])}`);
   // Each page leads its own handle of crate 2 towards the hatch, a little ahead of where it sees the crate.
   const steer = (handle) => {
     const p0 = window.__crates.state().crates[1].pos;
