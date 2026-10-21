@@ -2,25 +2,23 @@ import {
   AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
-  CanvasTexture,
+  Color,
   createSystem,
   DoubleSide,
   Group,
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  Points,
-  PointsMaterial,
+  MeshLambertMaterial,
   Quaternion,
   ShaderMaterial,
   Vector3,
 } from '@iwsdk/core';
 import { settings } from '../settings.js';
 import { breezeSpeed, DEFAULT_FLIGHT } from '../sim/flight.js';
-import { LANTERN_HOOK } from '../sim/gondola-layout.js';
-import { BAND_RAIL, fromPassage, windowMiddle } from '../sim/passages.js';
 import { rng } from '../sim/random.js';
 import { isNight, isStorm, SOUND_SPEED } from '../sim/weather.js';
+import { createRouteLampGlassGeometry, createRouteLampHaloGeometry, createRouteLampIronGeometry, routeLamps } from '../world/route-assets.js';
 import { ROUTE } from '../world/route-world.js';
 import { sounds } from './audio-system.js';
 import { flightInfo, ship, storm, wind } from './ship-system.js';
@@ -42,8 +40,11 @@ const BRANCH_SEGMENTS = 6;
 const BOLT_WIDTH = 2.6;
 const BOLT_TOP = 140;
 const BOLT_BOTTOM = 90;
-/** The lamps on the route: how big their glow is, m. */
-const LAMP_SIZE = 3.2;
+/** The route lamps' glow: a ball this big round each globe, m, at most this bright; and their glass by day and lit. */
+const HALO_RADIUS = 1;
+const HALO_STRENGTH = 0.55;
+const GLASS_DAY = new Color(0x8f7650);
+const GLASS_LIT = new Color(0xffe2a6);
 
 type Vec3 = [number, number, number];
 
@@ -73,10 +74,10 @@ export class WeatherSystem extends createSystem({}) {
   private boltMaterial!: MeshBasicMaterial;
   private boltPositions = new Float32Array((BOLT_SEGMENTS + 2 * BRANCH_SEGMENTS) * 6 * 3);
   private boltVertices = 0;
-  private lamps!: Points;
-  private lampMaterial!: PointsMaterial;
-  private glow!: Points;
-  private glowMaterial!: PointsMaterial;
+  private lamps!: Group;
+  private glassMaterial!: MeshBasicMaterial;
+  private halo!: Mesh;
+  private haloMaterial!: ShaderMaterial;
   private seenStrike = -1;
   private strikeAt = Number.NEGATIVE_INFINITY;
   private strikeNear = 0;
@@ -125,13 +126,12 @@ export class WeatherSystem extends createSystem({}) {
     this.updateLightning(now);
     this.updateRain();
     sounds.setRain(weatherView.rain);
-    // Lamps on the route while it is dark or murky (they are part of the route, shown in flight).
+    // The route's lamps (part of the route, shown in flight) are lit while it is dark or murky.
     weatherView.lamps = flightInfo.flying ? Math.min(1, Math.max(weatherView.night, weatherView.storm) * 1.5) : 0;
-    this.lamps.visible = weatherView.lamps > 0.02;
-    this.lampMaterial.opacity = weatherView.lamps;
-    // The lantern's and the burner's glow at night.
-    this.glow.visible = weatherView.night > 0.02;
-    this.glowMaterial.opacity = weatherView.night * (0.6 + 0.08 * Math.sin(this.time * 9) * Math.sin(this.time * 3.7));
+    this.lamps.visible = flightInfo.flying;
+    this.glassMaterial.color.lerpColors(GLASS_DAY, GLASS_LIT, weatherView.lamps);
+    this.halo.visible = weatherView.lamps > 0.02;
+    this.haloMaterial.uniforms.opacity.value = weatherView.lamps * HALO_STRENGTH;
   }
 
   /** A new strike from the host (or this page's own): a bolt, a flash, and thunder after the sound's delay. */
@@ -314,68 +314,52 @@ export class WeatherSystem extends createSystem({}) {
     this.boltVertices += 6;
   }
 
-  /** The lamps on the route (world), and the lantern's and burner's glow on deck (ship space). */
+  /**
+   * The lamps on the route (world): iron and glass that are always there,
+   * and a soft glow round each globe when they are lit. The glow is a ball
+   * of real geometry, brightest where it faces the eye and fading to its
+   * edge, so it stays put round the lamp in the headset (a sprite turned to
+   * face the camera seems to swim as the head turns).
+   */
   private createLamps(): void {
-    const places: Vec3[] = [];
-    for (const ring of ROUTE.rings) {
-      const r = ring.radius + 1.6;
-      const ax = Math.cos(ring.yaw);
-      const az = -Math.sin(ring.yaw);
-      places.push([ring.x, ring.y + r, ring.z], [ring.x, ring.y - r, ring.z], [ring.x + ax * r, ring.y, ring.z + az * r], [ring.x - ax * r, ring.y, ring.z - az * r]);
-    }
-    for (const p of ROUTE.passages) {
-      const corners: [number, number, number][] =
-        p.kind === 'cleft'
-          ? // On the walls' lips at each end of the gorge.
-            [-1, 1].flatMap((u) => [-1, 1].map((w) => [u * (p.half + 0.6), w * 14, p.floor + p.walls + 0.8] as [number, number, number]))
-          : // On each leg's inner face, front and back, at the painted band.
-            [-1, 1].flatMap((u) => [-1, 1].map((w) => [u * (p.half - 0.3), w * (p.thickness * p.deep + 0.2), windowMiddle(p) + BAND_RAIL] as [number, number, number]));
-      for (const [u, w, y] of corners) {
-        fromPassage(p, u, w, this.xz);
-        places.push([p.x + this.xz.x, y, p.z + this.xz.z]);
-      }
-    }
-    const a = ROUTE.start;
-    for (let i = 0; i < 4; i++) {
-      const angle = Math.PI / 4 + (i * Math.PI) / 2;
-      places.push([a.x + Math.cos(angle) * (a.padRadius + 0.6), a.y + 0.5, a.z + Math.sin(angle) * (a.padRadius + 0.6)]);
-    }
-    places.push([ROUTE.dock.x, ROUTE.dock.y + ROUTE.dock.height + 0.6, ROUTE.dock.z]);
-    const sprite = glowSprite();
-    this.lampMaterial = new PointsMaterial({
-      color: 0xffc46b,
-      size: LAMP_SIZE,
-      map: sprite,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      blending: AdditiveBlending,
-      fog: false,
-      toneMapped: false,
-    });
-    this.lamps = new Points(pointsGeometry(places), this.lampMaterial);
+    const lamps = routeLamps(ROUTE);
+    this.lamps = new Group();
     this.lamps.name = 'Route Lamps';
-    this.lamps.frustumCulled = false;
     this.lamps.visible = false;
-    this.root.add(this.lamps);
-
-    this.glowMaterial = new PointsMaterial({
-      color: 0xffb35c,
-      size: 0.35,
-      map: sprite,
+    const iron = new Mesh(createRouteLampIronGeometry(lamps), new MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    iron.name = 'Route Lamp Iron';
+    this.glassMaterial = new MeshBasicMaterial({ color: GLASS_DAY, fog: false, toneMapped: false });
+    const glass = new Mesh(createRouteLampGlassGeometry(lamps), this.glassMaterial);
+    glass.name = 'Route Lamp Glass';
+    this.haloMaterial = new ShaderMaterial({
+      uniforms: { color: { value: new Color(0xffc46b) }, opacity: { value: 0 } },
+      vertexShader: /* glsl */ `
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          vView = -mv.xyz;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform vec3 color;
+        uniform float opacity;
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+          float facing = max(dot(normalize(vNormal), normalize(vView)), 0.0);
+          gl_FragColor = vec4(color, opacity * facing * facing * facing);
+        }`,
       transparent: true,
-      opacity: 0,
       depthWrite: false,
       blending: AdditiveBlending,
-      fog: false,
-      toneMapped: false,
     });
-    // The lantern's glass hangs about 0.3 m under its hook.
-    this.glow = new Points(pointsGeometry([[LANTERN_HOOK[0], LANTERN_HOOK[1] - 0.3, LANTERN_HOOK[2]]]), this.glowMaterial);
-    this.glow.name = 'Lantern Glow';
-    this.glow.frustumCulled = false;
-    this.glow.visible = false;
-    this.world.createTransformEntity(this.glow);
+    this.halo = new Mesh(createRouteLampHaloGeometry(lamps, HALO_RADIUS), this.haloMaterial);
+    this.halo.name = 'Route Lamp Glow';
+    this.halo.visible = false;
+    this.lamps.add(iron, glass, this.halo);
+    this.root.add(this.lamps);
   }
 }
 
@@ -386,25 +370,4 @@ function wrap(value: number, size: number): number {
 
 function approach(value: number, target: number, step: number): number {
   return value < target ? Math.min(target, value + step) : Math.max(target, value - step);
-}
-
-function pointsGeometry(places: readonly Vec3[]): BufferGeometry {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new BufferAttribute(new Float32Array(places.flat()), 3));
-  return geometry;
-}
-
-/** A soft round glow, white in the middle, for the lamps' points. */
-function glowSprite(): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 64;
-  const ctx = canvas.getContext('2d')!;
-  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.18, 'rgba(255,255,255,0.9)');
-  g.addColorStop(0.45, 'rgba(255,255,255,0.25)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 64, 64);
-  return new CanvasTexture(canvas);
 }
