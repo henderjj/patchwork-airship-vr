@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BLOCK,
   CargoSim,
+  coastWinch,
   createCargoInput,
   CRATE_HEIGHT,
   type GroundAt,
@@ -9,6 +10,8 @@ import {
   LINE_ABOARD,
   lineFromWinch,
   turnWinch,
+  WINCH_EMPTY_SPEED,
+  WINCH_HOIST_SPEED,
   WINCH_LOWER_SPEED,
   WINCH_MAX,
 } from '../src/sim/cargo.js';
@@ -81,6 +84,27 @@ describe('cargo', () => {
     expect(Number.isNaN(turnWinch(0, 1.5, DT))).toBe(true);
     expect(turnWinch(WINCH_MAX, WINCH_MAX + 0.3, DT)).toBe(WINCH_MAX);
     expect(lineFromWinch(10)).toBeCloseTo(LINE_ABOARD + 0.6);
+  });
+
+  it('winds the empty hook in three times as fast, and a drum let go winding in spins on until the hook is home', () => {
+    expect(turnWinch(50, 49.5, DT)).toBeCloseTo(50 - WINCH_HOIST_SPEED * DT);
+    expect(turnWinch(50, 49.5, DT, true)).toBeCloseTo(50 - WINCH_EMPTY_SPEED * DT);
+    // Let go at 12 rad/s (two turns a second) with 5 m of line out: most of it comes in on its own.
+    const out = { angle: 5 / 0.06, spin: -12 };
+    let t = 0;
+    while (out.spin < 0 && t < 30) {
+      coastWinch(out.angle, out.spin, DT, out);
+      t += DT;
+    }
+    expect(lineFromWinch(out.angle) - LINE_ABOARD).toBeLessThan(2.5);
+    // It stops at home and never pays out.
+    Object.assign(out, { angle: 0.1, spin: -12 });
+    coastWinch(out.angle, out.spin, DT, out);
+    coastWinch(out.angle, out.spin, DT, out);
+    expect(out).toEqual({ angle: 0, spin: 0 });
+    Object.assign(out, { angle: 10, spin: 3 });
+    coastWinch(out.angle, out.spin, DT, out);
+    expect(out).toEqual({ angle: 10, spin: 0 });
   });
 
   it("can't be lowered through a shut door, and opening it on slack line drops the crate with a knock", () => {

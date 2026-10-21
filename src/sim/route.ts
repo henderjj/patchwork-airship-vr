@@ -187,6 +187,35 @@ export function jettyRoot(route: Route): { x: number; z: number } {
   return { x: route.finish.x + (dx / d) * r, z: route.finish.z + (dz / d) * r };
 }
 
+/** The jetty's turn about Y: in its own space it runs along +Z from the post's foot to the island. */
+export function jettyTurn(route: Route): number {
+  const root = jettyRoot(route);
+  return Math.atan2(root.x - route.dock.x, root.z - route.dock.z);
+}
+
+/**
+ * Where B's dock hands slide the crates set down on the cargo stage, to clear
+ * its target for the next: beside the stack of crates already there
+ * (src/world/route-assets.ts), as offsets from the stage's middle in the
+ * jetty's own space, in the order they come.
+ */
+export const CLEARED_SPOTS = [
+  [-0.5, 1.5],
+  [-0.5, 0.95],
+] as const;
+
+/** Where the `k`th crate set down at world (x, y, z) is slid to (world x, z) and its yaw there (square with the jetty), into `out`; false if it isn't on `route`'s cargo stage or there's no spot left. */
+export function clearedSpot(route: Route, x: number, y: number, z: number, k: number, out: { x: number; z: number; yaw: number }): boolean {
+  const stage = route.cargo;
+  if (k >= CLEARED_SPOTS.length || Math.abs(y - stage.y) > 0.05 || Math.hypot(x - stage.x, z - stage.z) > stage.radius) return false;
+  const turn = jettyTurn(route);
+  const [ox, oz] = CLEARED_SPOTS[k];
+  out.x = stage.x + ox * Math.cos(turn) + oz * Math.sin(turn);
+  out.z = stage.z - ox * Math.sin(turn) + oz * Math.cos(turn);
+  out.yaw = turn;
+  return true;
+}
+
 /** Whether world (x, z) is on the jetty's planks, between the post and where it leaves the island. */
 export function onJetty(route: Route, x: number, z: number): boolean {
   const root = jettyRoot(route);

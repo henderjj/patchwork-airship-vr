@@ -62,6 +62,9 @@ export const DROP_FREE = 0.25;
 export const DROP_COST = 60;
 /** A crate lowered over the hatch with its middle this close to the hatch's middle goes into the trunk, m. */
 export const HATCH_ENTRY = 0.12;
+/** A crate set down on the cargo stage is slid off the target to the stack this long after the hook comes free of it, s, at this speed, m/s. */
+export const CLEAR_DELAY = 1.5;
+export const CLEAR_SPEED = 0.5;
 /** A falling crate this far below the deck is gone, m. */
 const LOST_BELOW = 30;
 
@@ -115,7 +118,21 @@ export interface Crate {
   condition: number;
   /** Who holds each handle: -1 nobody, else the crew index (0 the host or a solo player, 1 the guest). */
   holders: [number, number];
+  /** Delivered: where it was set down (world x, z; the target scores this), where it is being slid to and turned to, and how long until it starts (Infinity: it stays). */
+  setX: number;
+  setZ: number;
+  toX: number;
+  toZ: number;
+  toYaw: number;
+  clearIn: number;
 }
+
+/**
+ * Where a crate set down at world (x, y, z) is slid to once the hook is
+ * free of it (the `k`th so far), and turned square to, into `out`; false to
+ * leave it where it is.
+ */
+export type ClearTo = (x: number, y: number, z: number, k: number, out: { x: number; z: number; yaw: number }) => boolean;
 
 /** A hand on a crate's handle this step: which crate and handle, whose hand (crew index), and where it is (ship space). */
 export interface CrateHand {
@@ -157,10 +174,15 @@ export class CrateYard {
   lastKnock = 0;
   /** Counts restarts. */
   resets = 0;
+  /** Where delivered crates are slid to (B's dock hands clearing the cargo stage's target), or null to leave them where they were set down. */
+  clearTo: ClearTo | null = null;
+  /** Crates slid away so far this run. */
+  private cleared = 0;
   /** Each crate's ship-space position this step (world ones turned to ship space), for collisions. */
   private readonly at: { x: number; y: number; z: number; yaw: number; solid: boolean }[] = [];
   private tmp = { x: 0, y: 0, z: 0 };
   private tmp2 = { x: 0, y: 0, z: 0 };
+  private clearOut = { x: 0, z: 0, yaw: 0 };
   private pose = { x: 0, y: 0, z: 0, yaw: 0 };
   private groundOut: CargoGround = { y: Number.NEGATIVE_INFINITY, delivery: false };
   /** Hands on each crate's handles this step (indices into the hands passed in), -1 for none. */
@@ -168,7 +190,7 @@ export class CrateYard {
 
   constructor(readonly obstacles: readonly DeckObstacle[]) {
     for (let i = 0; i < CRATE_COUNT; i++) {
-      this.crates.push({ state: 'ground', x: 0, y: 0, z: 0, yaw: 0, vx: 0, vy: 0, vz: 0, fromY: 0, condition: 100, holders: [-1, -1] });
+      this.crates.push({ state: 'ground', x: 0, y: 0, z: 0, yaw: 0, vx: 0, vy: 0, vz: 0, fromY: 0, condition: 100, holders: [-1, -1], setX: 0, setZ: 0, toX: 0, toZ: 0, toYaw: 0, clearIn: Infinity });
       this.at.push({ x: 0, y: 0, z: 0, yaw: 0, solid: false });
       this.grips.push([-1, -1]);
     }
@@ -180,18 +202,20 @@ export class CrateYard {
     this.knocks = 0;
     this.lastKnock = 0;
     this.hatchCrate = -1;
+    this.cleared = 0;
     cargo.clear();
     this.crates.forEach((c, i) => {
       const [x, z] = stage.crates[i % stage.crates.length];
-      Object.assign(c, { state: 'ground', x, y: stage.top, z, yaw: stage.yaw, vx: 0, vy: 0, vz: 0, fromY: 0, condition: 100 });
+      Object.assign(c, { state: 'ground', x, y: stage.top, z, yaw: stage.yaw, vx: 0, vy: 0, vz: 0, fromY: 0, condition: 100, clearIn: Infinity });
       c.holders[0] = c.holders[1] = -1;
     });
   }
 
   /** Practice starts: the first crate in the hatch, the others stowed on deck at `deck` (ship-space x, z each). */
   stowAboard(cargo: CargoSim, deck: readonly (readonly [number, number])[]): void {
+    this.cleared = 0;
     this.crates.forEach((c, i) => {
-      Object.assign(c, { vx: 0, vy: 0, vz: 0, fromY: 0, condition: 100 });
+      Object.assign(c, { vx: 0, vy: 0, vz: 0, fromY: 0, condition: 100, clearIn: Infinity });
       c.holders[0] = c.holders[1] = -1;
       if (i === 0) {
         Object.assign(c, { state: 'hatch', x: HATCH_CENTER[0], y: -TRUNK_DEPTH, z: HATCH_CENTER[1], yaw: 0 });
@@ -318,6 +342,27 @@ export class CrateYard {
     }
   }
 
+  /** A delivered crate slid towards where it is cleared to, once its wait is over. */
+  private slide(c: Crate, dt: number): void {
+    c.clearIn -= dt;
+    if (c.clearIn > 0) return;
+    const dx = c.toX - c.x;
+    const dz = c.toZ - c.z;
+    const d = Math.hypot(dx, dz);
+    const step = CLEAR_SPEED * dt;
+    if (d <= step) {
+      c.x = c.toX;
+      c.z = c.toZ;
+      c.yaw = c.toYaw;
+      c.clearIn = Infinity;
+    } else {
+      c.x += (dx / d) * step;
+      c.z += (dz / d) * step;
+      // Turned square as it goes, all the way round by the time it gets there.
+      c.yaw += (c.toYaw - c.yaw) * (step / d);
+    }
+  }
+
   /** Crates delivered so far, and the sum of their conditions, %. */
   delivered(): { count: number; condition: number } {
     let count = 0;
@@ -375,11 +420,30 @@ export class CrateYard {
         c.y = cargo.rest.y;
         c.z = cargo.rest.z;
         c.yaw = c.yaw + ship.yaw;
+        c.setX = c.x;
+        c.setZ = c.z;
+        c.clearIn = Infinity;
+        const to = this.clearOut;
+        if (this.clearTo?.(c.x, c.y, c.z, this.cleared, to)) {
+          c.toX = to.x;
+          c.toZ = to.z;
+          // Square with the stack: the nearest quarter turn to its yaw (a crate is square).
+          c.toYaw = c.yaw + wrap(quarter(c.yaw - to.yaw) + to.yaw - c.yaw);
+          c.clearIn = CLEAR_DELAY;
+          this.cleared++;
+        }
         this.hatchCrate = -1;
       } else if (cargo.phase === 'empty') {
         // Taken off the hook some other way: back on the deck over the hatch.
         this.hatchCrate = -1;
         Object.assign(c, { state: 'deck', x: HATCH_CENTER[0], y: 0, z: HATCH_CENTER[1] });
+      }
+    }
+
+    // Delivered crates being slid off the target.
+    if (only < 0) {
+      for (const c of this.crates) {
+        if (c.state === 'delivered' && c.clearIn !== Infinity) this.slide(c, dt);
       }
     }
 

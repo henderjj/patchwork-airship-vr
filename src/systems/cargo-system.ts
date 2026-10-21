@@ -35,6 +35,7 @@ import {
   angleRoundWinch,
   BLOCK,
   CARGO_PHASES,
+  coastWinch,
   type CargoGround,
   type CargoPhase,
   createCargoInput,
@@ -96,6 +97,8 @@ const SEND_HZ = 30;
 const GUEST_HANDS_MS = 400;
 /** The guest's winch eases to the host's by this share of the gap per frame. */
 const BLEND_RATE = 0.2;
+/** The winch's turning speed is smoothed over this long, s. */
+const SPIN_SMOOTHING = 0.1;
 /** The door swings open or shut at this rate, rad/s, and the lever eases back to where the door is at this one. */
 const DOOR_RATE = 5;
 const LEVER_RETURN_RATE = 4;
@@ -155,6 +158,10 @@ export class CargoSystem extends createSystem({}) {
 
   /** The winch's angle (the line out follows it) and the lever's, as this page has them. */
   private winch = 0;
+  /** Host or solo: how fast the winch is turning (rad/s, smoothed), so the empty hook's drum spins on when let go. */
+  private winchSpin = 0;
+  private lastWinch = 0;
+  private coast = { angle: 0, spin: 0 };
   private leverAngle = 0;
   private doorAngle = 0;
   /** What each of this player's hands holds. */
@@ -287,6 +294,8 @@ export class CargoSystem extends createSystem({}) {
       this.seenResets = cargo.resets;
       this.letGoAll();
       this.winch = 0;
+      this.lastWinch = 0;
+      this.winchSpin = 0;
       this.leverAngle = 0;
       this.doorAngle = 0;
     }
@@ -294,13 +303,14 @@ export class CargoSystem extends createSystem({}) {
       this.followHost(dt);
     }
     this.updateHands(dt);
-    if (cargo.phase === 'empty' || cargo.phase === 'delivered') {
+    if (cargo.hookEmpty) {
       // The empty hook stops when it is home in the trunk (the sim's line does too): a hand winding on slips off.
       this.winch = Math.max(0, this.winch);
     }
 
     if (host) {
       this.combine(now);
+      this.spinWinch(now, dt);
       if (cargo.step(ship, this.cargoInput, dt)) {
         this.knocked();
       }
@@ -358,6 +368,31 @@ export class CargoSystem extends createSystem({}) {
     i.time = ship.time;
   }
 
+  /**
+   * Host or solo: the empty hook's drum runs free. Turned by any hand, it
+   * keeps how fast it is going; let go while winding in, it spins on and
+   * reels the hook home (`coastWinch`). With a crate on the hook the pawl
+   * holds it.
+   */
+  private spinWinch(now: number, dt: number): void {
+    const turned = this.holding('winch') || this.winchScript !== null || this.guestOnWinch(now);
+    if (!cargo.hookEmpty) {
+      this.winchSpin = 0;
+    } else if (turned) {
+      if (dt > 0) this.winchSpin += ((this.winch - this.lastWinch) / dt - this.winchSpin) * Math.min(1, dt / SPIN_SMOOTHING);
+    } else if (this.winchSpin < 0) {
+      coastWinch(this.winch, this.winchSpin, dt, this.coast);
+      this.winch = this.coast.angle;
+      this.winchSpin = this.coast.spin;
+      this.cargoInput.line = lineFromWinch(this.winch);
+    }
+    this.lastWinch = this.winch;
+  }
+
+  private guestOnWinch(now: number): boolean {
+    return netLink.connected && now - this.guestHandsAt < GUEST_HANDS_MS && this.guestHands.resets === (cargo.resets & 255) && (this.guestHands.flags & CARGO_FLAG_WINCH) !== 0;
+  }
+
   /** The guest: take the host's crate, door, and winch and lever where this player's hands aren't on them. */
   private followHost(dt: number): void {
     if (!this.hostFresh) {
@@ -402,7 +437,7 @@ export class CargoSystem extends createSystem({}) {
       if (angle === null) {
         this.winchScript = null;
       } else {
-        const turned = turnWinch(this.winch, angle, dt);
+        const turned = turnWinch(this.winch, angle, dt, cargo.hookEmpty);
         if (!Number.isNaN(turned)) this.winch = turned;
       }
     }
@@ -417,7 +452,7 @@ export class CargoSystem extends createSystem({}) {
         this.player.gripSpaces[side].getWorldPosition(this.handPos);
         const p = this.handPos;
         if (gear === 'winch') {
-          const turned = turnWinch(this.winch, angleRoundWinch(p.y, p.z), dt);
+          const turned = turnWinch(this.winch, angleRoundWinch(p.y, p.z), dt, cargo.hookEmpty);
           if (Number.isNaN(turned)) {
             // The handle got away from the hand.
             this.release(side);

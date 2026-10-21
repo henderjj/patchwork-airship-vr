@@ -1,6 +1,6 @@
 import { BoxGeometry, type BufferGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, TorusGeometry } from '@iwsdk/core';
 import { beam, jitter, mergeParts, type Part, rng, shade } from '../scene-assets/lowpoly.js';
-import { jettyRoot, type LandingIsland, type LoadingStage, type Route, TARGET_RINGS } from '../sim/route.js';
+import { jettyRoot, jettyTurn, type LandingIsland, type LoadingStage, type Route, TARGET_RINGS } from '../sim/route.js';
 
 /**
  * The route's pieces in the sky (Phase 2): the two landing islands, the
@@ -115,7 +115,7 @@ export interface CargoStagePlace {
 export function jettyPlacement(route: Route): { length: number; turn: number; stage: CargoStagePlace } {
   const dock = route.dock;
   const root = jettyRoot(route);
-  const turn = Math.atan2(root.x - dock.x, root.z - dock.z);
+  const turn = jettyTurn(route);
   const sx = route.cargo.x - dock.x;
   const sz = route.cargo.z - dock.z;
   return {
@@ -228,7 +228,7 @@ function cargoStageParts(stage: CargoStagePlace): Part[] {
   for (const ring of rings) {
     parts.push({ geometry: new TorusGeometry(ring.radius - 0.05, 0.05, 3, 32), position: [x, y + 0.005, z], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.1], color: PAINT });
   }
-  // A few crates already delivered, stacked at the platform's island side.
+  // A few crates already delivered, stacked at the platform's island side (the run's crates are slid beside them: CLEARED_SPOTS).
   const stack: [number, number, number][] = [[-1.6, 0, 1.4], [-1.05, 0, 1.6], [-1.35, 0.4, 1.5]];
   for (const [cx, cy, cz] of stack) {
     parts.push({ geometry: new BoxGeometry(0.4, 0.36, 0.4), position: [x + cx, y + cy + 0.18, z + cz], color: (tri) => (tri % 4 < 2 ? CRATE : shade(CRATE, 0.85)) });

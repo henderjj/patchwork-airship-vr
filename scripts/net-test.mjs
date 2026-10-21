@@ -718,23 +718,28 @@ async function shipSyncChecks(host, guest) {
     window.__cargo.setWinchHand(null);
     window.__cargo.setLeverHand(null);
   });
-  // Each page leads its own handle of crate 2 towards the hatch, a little ahead of where it sees the crate.
+  // The first crate is slid off the target to the stack beside it, so the second can be set on it.
+  const cleared = firstDown && await waitFor('both to see the first crate slid off the target', async () => {
+    const [h, g] = await Promise.all([crates(host.page), crates(guest.page)]);
+    const moved = (s) => Math.hypot(s.crates[0].pos[0] - firstDown.h.crates[0].pos[0], s.crates[0].pos[2] - firstDown.h.crates[0].pos[2]);
+    return h.crates[0].state === 'delivered' && moved(h) > 1 && Math.abs(moved(h) - moved(g)) < 0.1 ? { h: moved(h), g: moved(g) } : null;
+  }, 10000).catch(() => null);
+  check('The first crate delivered is slid off the target to the stack beside it, alike on both pages',
+    cleared !== null,
+    cleared ? `moved ${cleared.h.toFixed(2)} m / ${cleared.g.toFixed(2)} m` : `not moved: host ${JSON.stringify((await crates(host.page)).crates[0])}, guest ${JSON.stringify((await crates(guest.page)).crates[0])}`);
+  // Each page leads its own handle of crate 2 towards the hatch, a little
+  // ahead of where it sees the crate: up off the deck, across to over the
+  // hatch, then down into it. Where to go is worked out afresh from where the
+  // crate is, not from waypoints each page ticks off, so the two pages never
+  // pull towards different ones (each sees the crate a little differently).
   const steer = (handle) => {
-    const p0 = window.__crates.state().crates[1].pos;
-    const points = [[p0[0], 0.35, p0[2]], [0.25, 0.35, 0.75], [0.25, -0.1, 0.75]];
-    let k = 0;
     window.__crates.setHands(() => {
       const c = window.__crates.state().crates[1];
       if (c.state === 'hatch') return null;
-      let d;
-      let n;
-      for (;;) {
-        const w = points[k];
-        d = [w[0] - c.pos[0], w[1] - c.pos[1], w[2] - c.pos[2]];
-        n = Math.hypot(d[0], d[1], d[2]);
-        if (n >= 0.03 || k === points.length - 1) break;
-        k++;
-      }
+      const off = Math.hypot(0.25 - c.pos[0], 0.75 - c.pos[2]);
+      const w = off > 0.03 ? (c.pos[1] < 0.3 ? [c.pos[0], 0.35, c.pos[2]] : [0.25, 0.35, 0.75]) : [0.25, -0.1, 0.75];
+      const d = [w[0] - c.pos[0], w[1] - c.pos[1], w[2] - c.pos[2]];
+      const n = Math.hypot(d[0], d[1], d[2]);
       if (n < 0.03 || c.pos[1] < -0.05) return null;
       const f = Math.min(1, 0.15 / n);
       const g = window.__crates.grabPoint(1, handle);

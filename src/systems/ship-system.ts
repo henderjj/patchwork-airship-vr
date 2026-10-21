@@ -26,7 +26,7 @@ import { alongsidePost, DockingSim } from '../sim/docking.js';
 import { createFlightControls, DEFAULT_FLIGHT, FlightSim } from '../sim/flight.js';
 import { ballastDropped } from '../sim/gondola-controls.js';
 import { fendOff, groundBelow, islandHit, restingDeck } from '../sim/islands.js';
-import { type RoutePhase, type RouteResult, routeGates, RouteRun, targetPoints } from '../sim/route.js';
+import { clearedSpot, type RoutePhase, type RouteResult, routeGates, RouteRun, targetPoints } from '../sim/route.js';
 import { BRUSH_SPEED, CRATE_JOLT, fromPassage, type HullPart, PassageContact, PRACTICE_RUN_IN, TEAR_SPEED, windowMiddle } from '../sim/passages.js';
 import { wrapNear } from '../sim/world-tile.js';
 import { draftAt, WindSim } from '../sim/wind.js';
@@ -131,6 +131,8 @@ export const cargo = new CargoSim();
  * delivered. StowageSystem works the handles and runs it on the host.
  */
 export const yard = new CrateYard(obstaclesFrom(GONDOLA_COLLIDERS));
+// Crates set down on the cargo stage are slid off its target to the stack beside it, so the next can be set on it.
+yard.clearTo = (x, y, z, k, out) => clearedSpot(ROUTE, x, y, z, k, out);
 
 /**
  * The wind's gusts (Phase 3, docs/wind.md): the host sends them on their
@@ -211,7 +213,7 @@ function countCrates(): void {
     if (c.state === 'delivered') {
       routeCargo.delivered++;
       routeCargo.condition += c.condition;
-      routeCargo.target += targetPoints(ROUTE, c.x, c.z);
+      routeCargo.target += targetPoints(ROUTE, c.setX, c.setZ);
     }
   }
 }
