@@ -36,8 +36,11 @@ export function vrStartMessage(state: VrStartState, nowMs: number, kind: Platfor
     case 'failed':
       return `VR didn't start: ${state.error}.${kind === 'pc' ? ` ${LINK_CHECK}` : ''}`;
     case 'ended-early':
-      return state.contextLost
-        ? 'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again.'
+      if (state.contextLost) {
+        return 'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again.';
+      }
+      return kind === 'pc'
+        ? 'VR started but closed straight away. Press Enter VR again. If it keeps closing, open chrome://webxr-internals (edge://webxr-internals in Edge) in a new tab, try once more and send a picture of that page and of the browser console (F12).'
         : 'VR started but closed straight away. Try again; the browser console (F12) has the reason.';
     case 'starting': {
       const elapsed = nowMs - state.sinceMs;
@@ -109,3 +112,19 @@ export function softwareRendererNote(kind: PlatformKind, gpu: string): string {
   return "The browser is drawing without your graphics card (software renderer). Turn on \"Use graphics acceleration when available\" in the browser's settings, set the browser to High performance in Windows Settings > System > Display > Graphics, then restart the browser.";
 }
 
+
+/**
+ * The session request's options for this platform. A PC browser is not asked
+ * for WebXR Layers: Chrome turned Layers on for Windows OpenXR in 2026, so
+ * three.js now draws through a projection layer there instead of the
+ * XRWebGLLayer the PC path was tested with (spike S8), and a Rift on Chrome
+ * 156 then had its session end before the first frame (2026-10-30). Layers
+ * buy nothing on a PC (no fixed foveation through Link), and the Quest Browser
+ * keeps them.
+ */
+export function sessionInitFor(kind: PlatformKind, init: XRSessionInit | undefined): XRSessionInit | undefined {
+  if (kind !== 'pc' || init?.optionalFeatures == null) {
+    return init;
+  }
+  return { ...init, optionalFeatures: init.optionalFeatures.filter((feature) => feature !== 'layers') };
+}

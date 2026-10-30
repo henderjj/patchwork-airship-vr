@@ -860,8 +860,9 @@ async function lobbyChecks(browser, host, guest) {
     const xr = navigator.xr ?? {};
     window.__vrRequests = 0;
     xr.isSessionSupported = async (mode) => mode === 'immersive-vr';
-    xr.requestSession = async () => {
+    xr.requestSession = async (mode, options) => {
       window.__vrRequests++;
+      window.__vrOptions = options;
       throw new DOMException('No headset in this test', 'NotSupportedError');
     };
     if (!navigator.xr) {
@@ -907,6 +908,10 @@ async function lobbyChecks(browser, host, guest) {
   const requests = await waitFor('a VR session request', () => solo.page.evaluate(() => window.__vrRequests), 3000).catch(() => 0);
   check('The page has its own Enter VR button, kept after joining a crew', shownSolo && shownInCrew && requests > 0,
     `shown ${shownSolo ? 'solo' : 'not solo'}, ${shownInCrew ? 'and' : 'but not'} in a crew; ${requests} session request(s) on click`);
+  // A PC browser (this one) isn't asked for WebXR Layers (sessionInitFor in src/vr-messages.ts).
+  const vrOptions = await solo.page.evaluate(() => window.__vrOptions ?? null);
+  check('A PC VR request leaves out WebXR Layers and keeps the floor', vrOptions !== null &&
+    !vrOptions.optionalFeatures.includes('layers') && vrOptions.optionalFeatures.includes('local-floor'), JSON.stringify(vrOptions));
   // A refused request says why under the button, and the button can be pressed again.
   const vrNote = await waitFor('the reason VR didn\'t start', () => solo.page.evaluate(() => {
     const note = document.getElementById('crew-vr-status');
