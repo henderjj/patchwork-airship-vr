@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeVrError, HUNG_START_MS, SLOW_START_MS, softwareRendererNote, vrStartMessage, vrSupportNote } from '../src/vr-messages.js';
+import { describeVrError, HUNG_START_MS, sessionInitFor, SLOW_START_MS, softwareRendererNote, vrStartMessage, vrSupportNote } from '../src/vr-messages.js';
 
 describe('vrStartMessage', () => {
   const starting = (grantedMs: number | null = null) => ({ phase: 'starting' as const, sinceMs: 1000, grantedMs });
@@ -41,7 +41,13 @@ describe('vrStartMessage', () => {
     expect(vrStartMessage({ phase: 'ended-early', contextLost: true }, 0, 'pc')).toBe(
       'VR stopped while the browser moved its graphics to the graphics card the headset uses. Press Enter VR again.',
     );
-    expect(vrStartMessage({ phase: 'ended-early', contextLost: false }, 0, 'pc')).toMatch(/^VR started but closed straight away/);
+    expect(vrStartMessage({ phase: 'ended-early', contextLost: false }, 0, 'quest')).toMatch(/^VR started but closed straight away/);
+  });
+
+  it('asks a PC player for webxr-internals when VR keeps closing straight away', () => {
+    const message = vrStartMessage({ phase: 'ended-early', contextLost: false }, 0, 'pc');
+    expect(message).toMatch(/^VR started but closed straight away\. Press Enter VR again\./);
+    expect(message).toContain('chrome://webxr-internals (edge://webxr-internals in Edge)');
   });
 
   it('gives the reason for a failure, with the Link checks on a PC', () => {
@@ -94,3 +100,17 @@ describe('softwareRendererNote', () => {
   });
 });
 
+
+describe('sessionInitFor', () => {
+  const init = { requiredFeatures: [], optionalFeatures: ['local-floor', 'bounded-floor', 'layers', 'hand-tracking'] };
+
+  it('leaves WebXR Layers out of a PC request and keeps the rest', () => {
+    expect(sessionInitFor('pc', init)).toEqual({ requiredFeatures: [], optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+    expect(init.optionalFeatures).toContain('layers');
+  });
+
+  it('keeps WebXR Layers on a Quest', () => {
+    expect(sessionInitFor('quest', init)).toBe(init);
+    expect(sessionInitFor('pc', undefined)).toBeUndefined();
+  });
+});
