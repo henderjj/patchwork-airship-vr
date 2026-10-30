@@ -123,6 +123,10 @@ With `layers` left out of the request, the same Rift player still couldn't enter
 
 The game now hides `createProjectionLayer` for the length of any session that wasn't granted Layers (`hideProjectionLayers` in `src/xr-layers.ts`), so three.js takes the XRWebGLLayer path, the one every WebXR sample and older Chrome used. The Quest Browser, which grants Layers, is unchanged. The early-end console line now also names the layer type (`XRWebGLLayer` or `XRProjectionLayer`) and counts how many XR frames the browser handed the page, so a third log would say whether Chrome sends frames at all. If frames never come with an XRWebGLLayer either, the cause is below the game (Chrome, Meta Horizon Link or the graphics driver), and the immersive-web samples on the same PC would show the same.
 
+### Result: fixed (2026-10-30 23:22)
+
+With PR #89 live, the Rift player entered VR in Chrome 156. Before that, the immersive-web Barebones sample, which draws through an XRWebGLLayer, had worked on the same PC while the game didn't, which pointed at the projection layer and not at the PC.
+
 ### What to try
 
 1. Make sure the browser uses the graphics card: Chrome's or Edge's Settings → System → **Use graphics acceleration when available** must be on (`chrome://gpu` should not say "Software only"). Start Link or Air Link first, so the Link home shows in the headset, then open the game in Chrome or Edge on the PC (not Firefox, which has no WebXR on Windows).
