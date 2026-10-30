@@ -1,6 +1,7 @@
 import { VisibilityState, type World } from '@iwsdk/core';
 import { describeBrowser } from './perf/platform-report.js';
 import { describeVrError, sessionInitFor, type VrStartState } from './vr-messages.js';
+import { describeDrawing, hideProjectionLayers } from './xr-layers.js';
 
 let state: VrStartState = { phase: 'idle' };
 const listeners = new Set<(state: VrStartState) => void>();
@@ -54,6 +55,15 @@ export function startVr(world: World): void {
     request = original.call(this, mode, options);
     // IWSDK gets the session only once the graphics are ready for it.
     return request.then(async (session) => {
+      // Before three.js picks its layer in IWSDK's setSession.
+      const restore = hideProjectionLayers(
+        (globalThis as { XRWebGLBinding?: { prototype: object } }).XRWebGLBinding?.prototype,
+        (session as XRSession & { enabledFeatures?: readonly string[] }).enabledFeatures,
+      );
+      if (restore !== null) {
+        console.info('[VR] The session has no WebXR Layers; drawing through an XRWebGLLayer');
+        session.addEventListener('end', restore, { once: true });
+      }
       await makeGraphicsReady(world, session);
       handedOver = true;
       return session;
@@ -96,6 +106,15 @@ export function startVr(world: World): void {
       const seen: string[] = [`visibility ${session.visibilityState}`];
       const onVisibility = () => seen.push(`visibility ${session.visibilityState} at ${secondsSince(grantedMs)}`);
       session.addEventListener('visibilitychange', onVisibility);
+      // Whether the browser hands the page XR frames at all, whatever three.js does with them.
+      let xrFrames = 0;
+      const countFrame = () => {
+        xrFrames++;
+        if (!shown) {
+          session.requestAnimationFrame(countFrame);
+        }
+      };
+      session.requestAnimationFrame(countFrame);
       const stopWatching = world.visibilityState.subscribe((visibility) => {
         if (visibility !== VisibilityState.NonImmersive && !shown) {
           shown = true;
@@ -110,7 +129,7 @@ export function startVr(world: World): void {
         canvas.removeEventListener('webglcontextlost', onContextLost);
         if (!shown) {
           console.warn(`[VR] The session ended before its first frame${contextLost ? ' (the WebGL context was lost)' : ''}`);
-          console.warn(`[VR] Ended ${secondsSince(grantedMs)} after it was granted; ${describeEarlyEnd(world, session, handedOver, seen)}`);
+          console.warn(`[VR] Ended ${secondsSince(grantedMs)} after it was granted; ${describeEarlyEnd(world, session, handedOver, seen)}; the browser gave the page ${xrFrames} XR frame(s)`);
         }
         set(shown ? { phase: 'idle' } : { phase: 'ended-early', contextLost });
       }, { once: true });
@@ -132,8 +151,7 @@ function describeEarlyEnd(world: World, session: XRSession, handedOver: boolean,
   const stage = world.session === session ? 'IWSDK had taken it' : handedOver ? 'IWSDK was setting it up' : 'the graphics were being made ready';
   let drawing = 'unknown';
   try {
-    const { layers, baseLayer } = session.renderState as XRRenderState & { layers?: readonly unknown[] };
-    drawing = layers != null && layers.length > 0 ? `${layers.length} WebXR layer(s)` : baseLayer != null ? 'an XRWebGLLayer' : 'nothing yet';
+    drawing = describeDrawing(session.renderState as XRRenderState & { layers?: readonly unknown[] });
   } catch {
     // The render state can be unreadable once the session has ended.
   }

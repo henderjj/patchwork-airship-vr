@@ -120,7 +120,8 @@ export function softwareRendererNote(kind: PlatformKind, gpu: string): string {
  * XRWebGLLayer the PC path was tested with (spike S8), and a Rift on Chrome
  * 156 then had its session end before the first frame (2026-10-30). Layers
  * buy nothing on a PC (no fixed foveation through Link), and the Quest Browser
- * keeps them.
+ * keeps them. Leaving them out of the request isn't enough on its own: three.js
+ * still makes a projection layer if the browser can (see xr-layers.ts).
  */
 export function sessionInitFor(kind: PlatformKind, init: XRSessionInit | undefined): XRSessionInit | undefined {
   if (kind !== 'pc' || init?.optionalFeatures == null) {
