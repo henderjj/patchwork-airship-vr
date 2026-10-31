@@ -29,7 +29,7 @@
     "@iwsdk/cli": "1.0.1",
     "@iwsdk/reference": "1.0.1",
     "@iwsdk/vite-plugin-dev": "1.0.1",
-    "@meta-quest/metavr": "^1.8.1",
+    "@meta-quest/metavr": "^1.10.0",
     "@types/three": "^0.181.0",
     "@types/ws": "^8.18.2",
     "playwright": "^1.64.1",
