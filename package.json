@@ -21,7 +21,7 @@
   "dependencies": {
     "@iwsdk/core": "1.0.1",
     "@pmndrs/uikit": "^1.0.77",
-    "@pmndrs/uikit-horizon": "^1.0.77",
+    "@pmndrs/uikit-horizon": "^1.0.78",
     "@pmndrs/uikit-lucide": "^1.0.76",
     "three": "npm:super-three@0.181.0"
   },
