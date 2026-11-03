@@ -1,0 +1,63 @@
+name: Dependency auto-merge
+
+# Merges the weekly dependency PR (branch deps/weekly-YYYY-MM-DD) that the scheduled
+# Claude maintenance routine opens, once every check on its head commit has
+# passed. It runs from main each time CI finishes on a pull request.
+#
+# It merges with the DEPS_AUTOMERGE_TOKEN secret, a fine-grained personal
+# access token (this repository, Contents and Pull requests: read and write),
+# not GITHUB_TOKEN: a merge made with GITHUB_TOKEN doesn't trigger the push
+# workflows on main, so nothing would deploy. Renew the token before it expires.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: deps-automerge-${{ github.event.workflow_run.head_branch }}
+
+jobs:
+  merge:
+    # Only this repository's own deps/weekly-* branches, never a fork's.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'deps/weekly-') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Merge once every check has passed
+        env:
+          GH_TOKEN: ${{ secrets.DEPS_AUTOMERGE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Exactly deps/weekly-YYYY-MM-DD: a PR split off on a longer name
+          # (a prerelease, a package that needs a look) waits for review.
+          if ! [[ "$BRANCH" =~ ^deps/weekly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "$BRANCH isn't the weekly branch itself, so it was left for review."
+            exit 0
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Add the DEPS_AUTOMERGE_TOKEN repository secret (see the top of this workflow)."
+            exit 1
+          fi
+          pr=$(gh pr list --head "$BRANCH" --state open --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
+          if [ -z "$pr" ]; then
+            echo "No open PR for $BRANCH at $SHA: it was merged, closed or has newer commits."
+            exit 0
+          fi
+          # Other workflows (CodeQL, desktop builds) may still be running on
+          # the same commit: wait for all of them, and stop if any fails.
+          sleep 30
+          if ! gh pr checks "$pr" --watch --fail-fast --interval 30; then
+            echo "::warning::A check failed on #$pr, so it was left open for review."
+            exit 0
+          fi
+          gh pr merge "$pr" --squash --delete-branch --match-head-commit "$SHA"
