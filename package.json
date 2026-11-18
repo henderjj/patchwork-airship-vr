@@ -19,28 +19,28 @@
     "test:net": "node scripts/net-test.mjs"
   },
   "dependencies": {
-    "@iwsdk/core": "1.0.1",
+    "@iwsdk/core": "1.1.0",
     "@pmndrs/uikit": "^1.0.78",
     "@pmndrs/uikit-horizon": "^1.0.78",
     "@pmndrs/uikit-lucide": "^1.0.78",
-    "three": "npm:super-three@0.181.0"
+    "three": "npm:super-three@0.185.0"
   },
   "devDependencies": {
-    "@iwsdk/cli": "1.0.1",
-    "@iwsdk/reference": "1.0.1",
-    "@iwsdk/vite-plugin-dev": "1.0.1",
+    "@iwsdk/cli": "1.1.0",
+    "@iwsdk/reference": "1.1.0",
+    "@iwsdk/vite-plugin-dev": "1.1.0",
     "@meta-quest/metavr": "^1.10.0",
-    "@types/three": "^0.181.0",
+    "@types/three": "^0.185.0",
     "@types/ws": "^8.18.2",
-    "playwright": "^1.65.0",
+    "playwright": "^1.65.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.8",
-    "vitest": "^5.1.0",
-    "ws": "^8.22.2"
+    "vitest": "^5.1.1",
+    "ws": "^8.23.0"
   },
   "overrides": {
     "sharp": "0.35.5",
-    "three": "npm:super-three@0.181.0"
+    "three": "npm:super-three@0.185.0"
   },
   "engines": {
     "node": ">=20.19.0 <21.0.0-0 || >=22.12.0 <23.0.0-0 || >=24.0.0"

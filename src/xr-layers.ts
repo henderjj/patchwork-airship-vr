@@ -2,7 +2,7 @@
  * Keep three.js on an XRWebGLLayer for a session that wasn't granted WebXR
  * Layers.
  *
- * three.js (IWSDK's super-three r181) picks a projection layer whenever the
+ * three.js (IWSDK's super-three, r181 to r185) picks a projection layer whenever the
  * browser has `XRWebGLBinding.prototype.createProjectionLayer`, without
  * checking that the session was granted the `layers` feature. Chrome on
  * Windows has had that method since it turned Layers on for every platform
