@@ -35,7 +35,7 @@
     "playwright": "^1.65.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.1.1",
+    "vitest": "^5.1.2",
     "ws": "^8.23.0"
   },
   "overrides": {
